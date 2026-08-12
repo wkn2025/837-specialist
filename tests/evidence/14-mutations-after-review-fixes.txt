@@ -1,0 +1,27 @@
+﻿baseline: 0 failing checks, exit 0
+
+mutation                     expect  caught     exit  all failing checks
+old_member_one_claim         4       YES        1     [4, 23]
+old_dob_one_claim            4       YES        1     [4, 23]
+retired_account_number       10      YES        1     [10, 23]
+duplicate_clm01              10      YES        1     [10]
+duplicate_reff8              10      YES        1     [10]
+short_reff8                  10      YES        1     [10]
+swapped_name_order           4       YES        1     [4]
+gender_changed               4       YES        1     [4]
+stray_duplicate_st           24      YES        1     [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24]
+orphan_trailing_st           24      YES        1     [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24]
+extra_full_st_se_pair        24      YES        1     [2, 4, 6, 8, 9, 10, 13, 16, 18, 22, 24]
+bht03_all_same               10      YES        1     [10]
+bht03_duplicate_one_claim    10      YES        1     [10]
+bht03_retired_source_value   10      YES        1     [10]
+bht03_emptied                10      YES        1     [10]
+clm02_leading_zero           8       YES        1     [8, 9]
+claim_hcp_three_decimals     8       YES        1     [8, 9]
+claim_hcp_signed             8       YES        1     [8, 9]
+line_sv203_leading_zero      8       YES        1     [8, 9]
+line_hcp_leading_zeros       8       YES        1     [8, 9]
+line_units_leading_zero      9       YES        1     [9]
+line_units_decimal           9       YES        1     [9]
+
+22 mutations, 0 uncaught, 0 broken

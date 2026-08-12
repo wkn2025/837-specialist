@@ -1,0 +1,18 @@
+Mutation testing of validate_9claims.py — proves the suite fails when it should.
+Each mutation was applied to a THROWAWAY COPY of the output file in the session scratchpad.
+Neither the source nor the real output file was modified.
+
+mutation    what was changed                                  expected  caught  exit  all failing checks
+isa05       ISA05 ZZ -> 30                                    21        YES     1     [21]
+date_out    a DTP*472 date moved outside the DTP*434 period    22        YES     1     [22]
+clm02       CLM02 420.00 -> 421.00                            8         YES     1     [8]
+se01        SE01 35 -> 36                                     11        YES     1     [11]
+memberid    NM1*IL member id 9091333957 -> ...958             4         YES     1     [4]
+units       SV205 2 -> 3 with charge unchanged                9         YES     1     [9]
+lxseq       LX*2 -> LX*3                                      7         YES     1     [7]
+drop_f8     REF*F8 segment deleted                            18        YES     1     [4, 11, 17, 18]
+ge01        GE01 9 -> 8                                       13        YES     1     [13]
+crlf        LF line endings -> CRLF                           17        YES     1     [17]
+
+10 of 10 mutations detected. 9 of 10 isolated to exactly the intended check
+(dropping REF*F8 legitimately trips four: spine equality, segment count, terminator count, required segments).

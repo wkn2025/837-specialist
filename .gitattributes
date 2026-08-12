@@ -1,0 +1,5 @@
+# X12 files must stay LF-only: validate_9claims.py check 17 fails on any CR,
+# so a CRLF checkout on Windows would break the deliverable.
+* text eol=lf
+*.x12 text eol=lf
+*.csv text eol=lf

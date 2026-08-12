@@ -1,0 +1,20 @@
+,DIAGNOSTIC ACKNOWLEDGEMENT DETAIL REPORT ,,,,,,,,
+,Inbound EDI Filename,PayerClaimID ,UHAP Claim ID ,CCN,Validation,Date Transmitted,Line ID,Line Error Description,Claim Error Description
+,ReceiverID_SenderID_I_Datetimestamp.X12,872FF9DEE6F66EF481989C22FAB22A76,3052394,99991921888,Failed,2016-02-09 00:00:00,0,,"Benefit Decision 1, Billed  Amt 9999999.99, Allowed  Amt  9999999.99, Copay Amt 9999999.99, Coins  Amt  9999999.99, Ded  Amt  9999999.99,Not Covd   Amt  9999999.99, Net Pd  Amt  9999999.99, Pt Resp  9999999.99
+
+Deductible Amount Validation failed"
+,ReceiverID_SenderID_I_Datetimestamp.X12,872FF9DEE6F66EF481989C22FAB22A76,3052394,99991921888,Failed,2016-02-09 00:00:00,4,"Benefit Decision 1, Billed  Amt 9999999.99, Allowed  Amt  9999999.99, Copay Amt 9999999.99, Coins  Amt  9999999.99, Ded  Amt  9999999.99,Not Covd   Amt  9999999.99, Net Pd  Amt  9999999.99
+
+NotCovered Amount Validation Failed # Deductible Amount Validation Failed # Copay Amount Validation Failed # Coinsurance Amount Validation Failed # Net Paid Amount Validation Failed",
+,ReceiverID_SenderID_P_Datetimestamp.X12,872FF9DEE6A22FAB22A90,3052402,99998835288,Failed,2016-02-09 00:00:00,5,"Benefit Decision 1, Billed  Amt 9999999.99, Allowed  Amt  9999999.99, Copay Amt 9999999.99, Coins  Amt  9999999.99, Ded  Amt  9999999.99,Not Covd   Amt  9999999.99, Net Pd  Amt  9999999.99
+
+NotCovered Amount Validation Failed",
+,ReceiverID_SenderID_I_Datetimestamp.X12,872FF9DEE6A22FAB22101,3052395,99992183488,Failed,2016-02-09 00:00:00,,,"Benefit Decision 1, Billed  Amt 9999999.99, Allowed  Amt  9999999.99, Copay Amt 9999999.99, Coins  Amt  9999999.99, Ded  Amt  9999999.99,Not Covd   Amt  9999999.99, Net Pd  Amt  9999999.99, Pt Resp  9999999.99
+
+Coinsurance Amount Validation Failed # Not Covered Amount Validation failed"
+,ReceiverID_SenderID_I_Datetimestamp.X12,872FF9DEE6A22FAB22101,3052395,99992183488,Passed,2016-02-09 00:00:00,0,,
+,Non Functional Requirements (NFR),,,,,,,,
+,NFR 1.0 -- Frequency of Exchange (to be configurable as per the requirement),,,,,,,,
+,NFR 2.0 -- Time of Exchange (to be configurable as per the requirement),,,,,,,,
+,NFR 3.0 -- Report Format would be .csv ,,,,,,,,
+,NFR 4.0 -- Exchange vehicle -- to be discussed with AXA,,,,,,,,

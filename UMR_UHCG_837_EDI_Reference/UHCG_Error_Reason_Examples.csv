@@ -1,0 +1,12 @@
+,Claim ID: ,
+,Line Error,"Claim Level Error(s): Validation Error On return file. EDI Inter Change Control Number: 012211796 Specific Error: Deductable Amt Validation failed # Net Paid Amt Validation failed Date Of Process: Jan 2 2017 6:17AM
+
+Billed  Amt 100.00, Original Allowed  Amt 80.00, Coinsurance  Amt 0.00, Deductible   Amt 20.00, 
+Not Covered   Amt 20.00, Net Paid  Amt60, Net Patient Responsibility 20.00 "
+,Claim Error,"Claim Level Error(s): Validation Error On return file. EDI Inter Change Control Number: 013211796 Specific Error: Not Covered Amt Validation failed # Net Paid Amt Validation failed # Net Patient Responsibility Amt Validation Failed Date Of Process: Jan 2 2017 6:24AM
+
+Billed  Amt 100.00, Org Allowed  Amt 80.00, Coins  Amt 0.00, Ded  Amt 20.00, 
+Not Covd   Amt 20.00, Net Pd  Amt 60, Pt Resp 20.00 "
+,,"Claim Level Err:Coverage% should be >=0 AND  <= 100. Coverage% Validation Failed # Coins Amt Validation Failed # Copay Amt Validation Failed # Ded Amt Validation Failed # Not Covered Amt Validation Failed # Net Paid Amt Validation Failed Date Of Process: Jan 2 2017 6:24AM
+
+"

@@ -1,0 +1,1994 @@
+CART Field,Fields per EDI Implementation Guide,,,,,,,,UHCG notes,,,
+CART Field,Element ID,Description,ID,Min-     Max,Use,Loop,Loop Repeat,Values,Notes,UHC Req,Inbound / Outbound / Both,UHCG Specific Information/Examples
+N/A,ISA,INTERCHANGE CONTROL HEADER,,Segment Repeat: 1,R,___,1.0,"1. All positions within each of the data elements must be filled. 
+2. For compliant implementations under this implementation guide, ISA13, the interchange Control Number, must be a positive unsigned number. Therefore, the ISA segment can be considered a fixed record length segment.  
+","3. The first element separator defines the element separator to be used through the entire interchange.
+4. The ISA segment terminator defines the segment terminator used throughout the entire interchange. 
+5. Spaces in the example interchanges are represented by “.” for clarity.",R,Both,"Outbound example:  
+ISA*00*          *00*          *ZZ*UHCG           *ZZ*EDI CLIENT     *230208*1252*!*00501*000022566*1*P*:~
+
+Inbound example:
+ISA*00*          *00*          *ZZ*EDI CLIENT     *ZZ*UHCG           *230217*1802*!*00501*000002386*0*P*:~      "
+N/A,ISA01,Authorization Information Qualifier,ID,2-2,R,,,"00, 03","00=No Authorization Information Present (No Meaningful Information in I02)
+03=Additional Data Identification",R,Both,"Per UHCG, Value=00 only"
+N/A,ISA02,Authorization Information ,AN,10-10,R,,,,,R,Both,Pad with 10 spaces
+N/A,ISA03,Security Information Qualifier,ID,2-2,R,,,"00, 01","00=No Security Information Present (No Meaningful
+Information in I04)
+01=Password",R,Both,"Per UHC, Value=00 only"
+N/A,ISA04,Security Information ,AN,10-10,R,,,,,R,Both,Pad with 10 spaces
+N/A,ISA05,Interchange ID Qualifier,ID,2-2,R,, ,"01, 14, 20, 27, 28, 29, 30, 33, ZZ
+
+01=Duns (Dun & Bradstreet)
+14=Duns Plus Suffix
+20=Health Industry Number (HIN) 
+27=Carrier Identification Number as assigned by Health Care Financing Administration (HCFA)
+28=Fiscal Intermediary Identification Number as assigned by Health Care Financing Administration (HCFA)
+29=Medicare Provider and Supplier Identification Number as assigned by Health Care Financing Administration (HCFA)
+30=U.S. Federal Tax Identification Number
+33=National Association of Insurance Commissioners Company Code (NAIC)
+ZZ=Mutually Defined",ZZ=Mutually Defined,R,Both,"Outbound from UHCG:
+ZZ
+
+Inbound to UHCG: 
+ZZ"
+N/A,ISA06,Interchange Sender ID,AN,15-15,R,,,,,R,Both,"Right pad with spaces to 15 characters as necessary.
+Outbound:
+Agreed upon ID
+
+Inbound:
+Agreed upon ID"
+N/A,ISA07,Interchange ID Qualifier,ID,2-2,R,,,"01, 14, 20, 27, 28, 29, 30, 33, ZZ
+
+This ID qualifies the Receiver in ISA08.
+01=Duns (Dun & Bradstreet)
+14=Duns Plus Suffix
+20=Health Industry Number (HIN) 
+27=Carrier Identification Number as assigned by Health Care Financing Administration (HCFA)","28=Fiscal Intermediary Identification Number as assigned by Health Care Financing Administration (HCFA)
+29=Medicare Provider and Supplier Identification Number as assigned by Health Care Financing Administration (HCFA)
+30=U.S. Federal Tax Identification Number
+33=National Association of Insurance Commissioners Company Code (NAIC)
+ZZ=Mutually Defined",R,Both,"Outbound from UHCG:
+ZZ
+
+Inbound to UHCG:
+ZZ"
+N/A,ISA08,Interchange Receiver ID,AN,15-15,R,,,,,R,Both,"Right pad it with spaces to 15 characters as necessary
+Outbound: 
+Agreed upon ID
+
+Inbound:
+Agreed upon ID"
+N/A,ISA09,Interchange Date,DT,6-6,R,,,YYMMDD,The date format is YYMMDD.,R,Both,YYMMDD
+N/A,ISA10,Interchange Time,TM,4-4,R,,,HHMM,The time format is HHMM.,R,Both,HHMM
+N/A,ISA11,Repetition Separator, ,1-1,R,,, ,"Type is not applicable; the repetition separator is a delimiter and not a data element; this field provides the delimiter used to separate repeated occurrences of a simple data element or a composite data structure; this value must be different than the data element separator, component element separator, and the segment terminator.",R,Both,UHCG Recommends Value = !
+N/A,ISA12,Interchange Control Version Number,ID,5-5,R,,,00501,00501=Standards Approved for Publication by ASC X12 Procedures Review Board through October 2003,R,Both,501.0
+N/A,ISA13,Interchange Control Number,N,9-9,R,,,,"The Interchange Control Number, ISA13, must be identical to the associated Interchange Trailer IEA02. Must be a positive unsigned number and must be identical to the value in IEA02. Note- We need to have unique Interchange Control Number for each files sent from EDI Client.",R,Both,"Outbound: 
+Control number assigned by EDI Client
+
+Inbound:
+Control number assigned by the Payer Organization. This must be identical to the associated Interchange Trailer IEA02"
+N/A,ISA14,Acknowledgement Requested,ID,1-1,R,,,"0, 1","0=No Interchange Acknowledgment Requested
+1=Interchange Acknowledgment Requested (TA1) ",R,Both,"Outbound:
+0 (No Acknowledgement Requested)
+
+Inbound:
+1 (Acknowledgement Requested)"
+N/A,ISA15,Usage Indicator,ID,1-1,R,,,"P, T","P=Production Data
+T=Test Data",R,Both,"P=Production Data
+T=Test Data
+"
+N/A,ISA16,Component Element Separator,AN,1-1,R,,,,,R,Both,"Sub Element separator that the Payer Organization and UHC agree upon; recommend using the ""Colon"" symbol (:)"
+N/A,,,,,,,,,,R,Both,"Segment delimiter that the Payer Organization and UHC agree upon; recommend using the ""Tilde"" (~)"
+,GS,FUNCTIONAL GROUP HEADER,,Segment Repeat: 1,R,___,1.0,,,R,Both,"
+Outbound example:  
+GS*HC*UHCG*EDI CLIENT*20230208*1252*1*X*005010X223A2~
+
+Inbound example:  
+GS*HC*EDI Client*UHCG*20230217*0000*157*X*005010X232A2~"
+N/A,GS01,Functional Identifier Code,ID,2-2,R,,,This is the 2-character Functional Identifier Code assigned to each transaction set by X12. ,"The specific code for a transaction set defined by this implementation guide is presented in section 1.2, Version Information.",R,Both,HC
+N/A,GS02,Application Sender Code,AN,2-15,R,,,,Use this code to identify the unit sending the information.,R,Both,"Outbound:
+Agreed upon ID
+
+Inbound:
+Agreed upon ID"
+N/A,GS03,Application Receiver Code,AN,2-15,R,,,,Use this code to identify the unit sending the information.,R,Both,"Outbound:
+Agreed upon ID
+
+Inbound:
+Agreed upon ID"
+N/A,GS04,Date,DT,8-8,R,,,CCYYMMDD,Use this date for the functional group creation date.,R,Both,CCYYMMDD
+N/A,GS05,Time,TM,4-8,R,,,"HHMM, HHMMSS, HHMMSSD, HHMMSSDD",Use this time for the creation time. The recommended format is HHMM.,R,Both,HHMM
+N/A,GS06,Group Control Number,N,1-9,R,,,"For implementations compliant with this guide, GS06 must be unique within a single transmission (that is, within a single ISA to IEA enveloping structure).", UHCG recommends that GS06 be unique within all transmissions over a period of time to be determined by the sender.,R,Both,"Outbound:
+Assigned Number originated and maintained by the UHCG.This must be identical to the associated Functional Trailer GE02.
+
+Inbound:
+Assigned Number originated and maintained by EDI Client"
+N/A,GS07,Responsible Agency Code,ID,1-2,R,,,X,X=Accredited Standards Committee X12,R,Both,X
+N/A,GS08,Version Identifier Code,AN,1-12,R,,,"005010X223A2
+
+This is the unique Version/Release/ Industry Identifier Code assigned to an implementation by X12N.","The specific code for a transaction set defined by this implementation guide is presented in section 1.2, Version Information. 
+005010X223A2= Standards Approved for Publication by ASC X12 Procedures Review Board through October 2003",R,Both,005010X223A2
+,ST,TRANSACTION SET HEADER,,Segment Repeat: 1,R,___,>1,,,R,Both,"Outbound Example:
+ST*837*003053592*005010X223A2~
+
+Inbound Example: 
+ST*837*003056509*005010X223A2~"
+N/A,ST01,Transaction Set Identifier Code,ID,3-3,R,,,837.0,837=Health Care Claim,R,Both,837.0
+N/A,ST02,Transaction Set Control Number,AN,4-9,R,,,,"The Transaction Set Control Number in ST02 and SE02 must be identical. The number must be unique within a specific interchange (ISA-IEA), but can repeat in other interchanges.",R,Both,"Outbound:
+Identifying control number that must be unique within the transaction set functional group assigned by the Submitter for a transaction set.
+
+Inbound:
+Identifying control number assigned by EDI Client."
+N/A,ST03,Implementation Convention Reference,AN,1-35,R,,,"005010X223A2
+
+Version, Release, or Industry Identifier
+This element must be populated with the guide identifier named in Section 1.2. ",This field contains the same value as GS08. Some translator products strip off the ISA and GS segments prior to application (ST-SE) processing. Providing the information from the GS08 at this level will ensure that the appropriate application mapping is used at translation time.,R,Both,005010X223A2
+,BHT,BEGINNING OF HIERARCHICAL TRANSACTION,,Segment Repeat: 1,R,___,1.0,,"1. The second example denotes the case where the entire transaction
+set contains ENCOUNTERS.",R,Both,"Outbound Example: 
+BHT*0019*00*012102340*20230208*1252*CH~
+
+InboundExample:
+BHT*0019*00*003056509*20230217*0723*CH~"
+N/A,BHT01,Hierarchical Structure Code,ID,4-4,R,,,0019,"0019=Information Source, Subscriber, Dependent",R,Both,19.0
+N/A,BHT02,Transaction Set Purpose Code,ID,2-2,R,,,"00, 18
+
+BHT02 is intended to convey the electronic transmission status of the 837 batch contained in this ST-SE envelope. The terms “original” and “reissue” refer to the electronic transmission status of the 837 batch, not the billing status. ","00=Original.  Original transmissions are transmissions which have never been sent to the receiver.
+18=Reissue.  If a transmission was disrupted and the receiver requests a retransmission, the sender uses “Reissue” to indicate the transmission has been previously sent.",R,Both,"Outbound:
+00 = Original file submission
+
+Inbound:
+00 = Original file submission"
+N/A,BHT03,Reference Identification,AN,1-50,R,,,,"Originator Application Transaction Identifier
+
+The inventory file number of the transmission assigned by the submitter’s system. This number operates as a batch control number. This field is limited to 10 characters.
+",R,Both,"Outbound:
+Reference information as defined for a particular Transaction Set or as specified by the Reference Identification Qualifier. Assigned by Submitter.
+Inbound:
+Reference information as defined for a particular Transaction Set or as specified by the Reference Identification Qualifier. Assigned by EDI Client."
+N/A,BHT04,Date,DT,8-8,R,,,CCYYMMDD,"Transaction Set Creation Date
+This is the time that the original submitter created the claim file from their business application system.", R,Both,"Inbound/Outbound:
+Date transaction is created by Submitter.
+Format = CCYYMMDD"
+N/A,BHT05,Time,TM,4-8,R,,,"HHMM, HHMMSS, HHMMSSD, HHMMSSDD","Transaction Set Creation Time
+This is the time that the original submitter created the claim file from their business application system.",R,Both,"Inbound/Outbound
+Date transaction is created by Submitter.
+Format = HHMM"
+N/A,BHT06,Claim or Encounter ID,ID,2-2,R,,,"31, CH, RP
+
+
+
+Claim or Encounter Identifier
+
+31=Subrogation Demand.  The subrogation demand code is only for use by state Medicaid agencies performing post payment recovery claiming with willing trading partners. NOTE: At the time of this writing, Subrogation Demand is not a HIPAA mandated use of the 837 transaction.","CH=Chargeable.  Use CH when the transaction contains only fee for service claims or claims with at least one chargeable line item. If it is not clear whether a transaction contains claims or capitated encounters, or if the transaction contains a mix of claims and capitated encounters, use CH.
+RP=Reporting.  Use RP when the entire ST-SE envelope contains only capitated encounters.  Use RP when the transaction is being sent to an entity (usually not a payer or a normal provider payer transmission intermediary) for purposes other than adjudication of a claim. Such an entity could be a state health data agency which is using the 837 for health data reporting purposes.",R,Both,Value=CH
+,NM1,SUBMITTER NAME,,Segment Repeat: 1,R,1000A,1.0,,1. The submitter is the entity responsible for the creation and formatting of this transaction.,R,Both,"Outbound Example:
+NM1*41*2*UnitedHealthcare Global*****46*UHCG~
+
+Inbound Example:
+NM1*41*2*AFFILIATE NAME*****46*EDI Client ID~"
+N/A,NM101,Entity Identifier Code,ID,2-3,R,,,41,41=Submitter,R,Both,41.0
+N/A,NM102,Entity Type Qualifier,ID,1-1,R,,,"1, 2","1=Person
+2=Non-Person Entity",R,Both,"2=Non-Person Entity
+"
+N/A,NM103,Name Last or Organization Name,AN,1-60,R,,,,Submitter Last or Organization Name,R,Both,"Outbound:
+Agreed upon ID
+
+Inbound:
+Agreed Upon ID"
+N/A,NM104,Name First,AN,1-35,S,,,,"
+Required when NM102 = 1 (person) and the person has a first name. If not required by this implementation guide, do not send.
+
+Submitter First Name",N/U,N/U,N/A
+N/A,NM105,Name Middle,AN,1-25,S,,,,"Required when NM102 = 1 (person) and the middle name or initial of the person is needed to identify the individual. If not required by this implementation guide, do not send.
+
+Submitter Middle Name or Initial",N/U,N/U,N/A
+N/A,NM106,Name Prefix,AN,1-10,N/U,,,,,N/U,N/U,N/A
+N/A,NM107,Name Suffix,AN,1-10,N/U,,,,,N/U,N/U,N/A
+N/A,NM108,Identification Code Qualifier,ID,1-2,R,,,46,46=Electronic Transmitter Identification Number (ETIN).  Established by trading partner agreement,R,Both,46.0
+N/A,NM109,Identification Code,AN,2-80,R,,,,Submitter Identifier,R,Both,"Outbound:
+Agreed upon ID
+
+Inbound:
+Agreed Upon ID"
+N/A,NM110,Entity Relationship Code,ID,2-2,N/U,,,,,N/U,N/U,
+N/A,NM111,Entity Identifier Code,ID,2-3,N/U,,,,,N/U,N/U,
+N/A,NM112,Name Last or Organization Name,AN,1-60,N/U,,,,,N/U,N/U,
+,PER,SUBMITTER EDI CONTACT INFORMATION,,Segment Repeat: 2,R,1000A,,,,R,Both,"Outbound Example:
+PER*IC*EDICONTACT*EM*UHCG_TEAM@ EMAIL ADDRESS.COM*TE*1234567890*FX*2345678901~
+
+Inbound Example: 
+PER*IC*EDICONTACT*EM*AFFILIATE_UHC_REPRICING_TEAM@ EMAIL ADDRESS.COM~"
+N/A,PER01,Contact Function Code,ID,2-2,R,,,IC,IC=Information Contact,R,Both,IC
+N/A,PER02,Name,AN,1-60,S,,,"
+Required when the contact name is different than the name contained in the Submitter Name (NM1) segment of this loop AND it is the first iteration of the Submitter EDI Contact Information (PER) segment."," If not required by this implementation guide, do not send.
+
+Submitter Contact Name",R,Both,"Outbound:
+Agreed upon ID
+
+Inbound:
+Agreed upon ID"
+N/A,PER03,Communication Number Qualifier,ID,2-2,R,,,"EM, FX. TE","
+EM=Electronic Mail
+(Defaulted to EM only)
+",R,Both,EM
+N/A,PER04,Communication Number  ,AN,1-256,R,,,,,R,Both,"Outbound:
+Agreed upon ID
+
+Inbound:
+Agreed upon ID"
+N/A,PER05,Communication Number Qualifier,ID,2-2,S,,,"EM, EX, FX, TE","
+Required when this information is deemed necessary by the submitter. If not required by this implementation guide, do not send.
+TE=Telephone
+(Defaulted to TE only)",S,Both,TE
+N/A,PER06,Communication Number  ,AN,1-256,S,,,,"
+Required when this information is deemed necessary by the submitter. If not required by this implementation guide, do not send.",S,Both,"Outbound from UHCG:
+Agreed upon Phone Number
+
+Inbound to UHCG:
+Agreed upon Phone Number"
+N/A,PER07,Communication Number Qualifier,ID,2-2,S,,,"EM, EX, FX, TE","
+Required when this information is deemed necessary by the submitter. If not required by this implementation guide, do not send.
+FX=Facsimile
+(Defaulted to FX only)
+",S,Both,FX
+N/A,PER08,Communication Number  ,AN,1-256,S,,,,"
+Required when this information is deemed necessary by the submitter. If not required by this implementation guide, do not send.",S,Both,
+N/A,PER09,Contact Inquiry Reference,AN,1-20,N/U,,,,,N/U,N/U,
+,NM1,RECEIVER NAME,,Segment Repeat: 1,R,1000B,1.0,,,R,Both,"Outbound Example:
+NM1*40*2*EDI Client Name*****46*Client ID~
+
+Inbound Example:  
+NM1*40*2*UHCG*****46*UHCG~
+NM1*40*2*UnitedHealthcare Global*****46*UHCG~"
+N/A,NM101,Entity Identifier Code,ID,2-3,R,,,40,40=Receiver,R,Both,40.0
+N/A,NM102,Entity Type Qualifier,ID,1-1,R,,,2,2=Non-Person Entity,R,Both,2.0
+N/A,NM103, Last or Organization Name,AN,1-60,R,,,,"Receiver Name
+",R,Both,"Outbound:
+Agreed Upon ID
+
+Inbound:
+Agreed Upon ID"
+N/A,NM104,Name First,AN,1-35,N/U,,,,,N/U,N/U,
+N/A,NM105,Name Middle,AN,1-25,N/U,,,,,N/U,N/U,
+N/A,NM106,Name Prefix,AN,1-10,N/U,,,,,N/U,N/U,
+N/A,NM107,Name Suffix,AN,1-10,N/U,,,,,N/U,N/U,
+N/A,NM108,Identification Code Qualifier,ID,1-2,R,,,46,46=Electronic Transmitter Identification Number (ETIN),R,Both,46.0
+N/A,NM109,Identification Code,AN,2-80,R,,,,"Receiver Primary Identifier
+",R,Both,"Outbound:
+Agreed Upon ID
+
+Inbound:
+Agreed Upon ID"
+N/A,NM110,Entity Relationship Code,ID,2-2,N/U,,,,,N/U,N/U,
+N/A,NM111,Entity Identifier Code,ID,2-3,N/U,,,,,N/U,N/U,
+N/A,NM112,Name Last or Organization Name,AN,1-60,N/U,,,,,N/U,N/U,
+,HL,BILLING PROVIDER HIERARCHICAL LEVEL,,Segment Repeat: 1,R,2000A,>1,,,R,Both,In/Outbound Example: HL*1**20*1~
+N/A,HL01,Hierarchical ID Number,AN,1-12,R,,,,"The first HL01 within each ST-SE envelope must begin with “1”, and be incremented by one each time an HL is used in the transaction. Only numeric values are allowed in HL01.",R,Both,"The first HL01 within each ST-SE envelope must begin with “1”, and be incremented by one each time an HL is used in the transaction."
+N/A,HL02,Hierarchical Parent ID Number,AN,1-12,N/U,,,,,N/U,N/U,
+N/A,HL03,Hierarchical Level Code,ID,1-2,R,,,20,20=Information Source,R,Both,20.0
+N/A,HL04,Hierarchical Child Code,ID,1-1,R,,,1,1 =Additional Subordinate HL Data Segment in This Hierarchical Structure.,R,Both,1.0
+,NM1,BILLING PROVIDER NAME,,Segment Repeat: 1,R,2010AA,1.0,Billing Provider Details,,R,Both,"
+In/Outbound Example:
+NM1*85*2*TEST HEALTH*****XX*1998529999~"
+N/A,NM101,Entity Identifier Code,ID,2-3,R,,,85,85=Billing Provider,R,Both,85.0
+N/A,NM102,Entity Type Qualifier,ID,1-1,R,,,2,2=Non-Person Entity,R,Both,2.0
+Billing Provider Name,NM103,Last or Organization Name,AN,1-60,R,,,,"
+Billing Provider Organizational Name",R,Both,Billing Provider Organizational Name
+N/A,NM104,Name First,AN,1-35,N/U,,,,,N/U,N/U,
+N/A,NM105,Name Middle,AN,1-25,N/U,,,,,N/U,N/U,
+N/A,NM106,Name Prefix,AN,1-10,N/U,,,,,N/U,N/U,
+N/A,NM107,Name Suffix,AN,1-10,N/U,,,,,N/U,N/U,
+N/A,NM108,Identification Code Qualifier,ID,1-2,S,,,XX,"
+XX=Centers for Medicare and Medicaid Services National Provider Identifier
+
+",S,Both,"XX
+
+"
+N/A,NM109,Identification Code,AN,2-80,S,,,"
+Required for providers in the United States or its territories on or after the mandated HIPAA National Provider Identifier (NPI) implementation date when the provider is eligible to receive an NPI. OR Required for providers not in the United States or its territories on or after the mandated HIPAA National Provider Identifier (NPI)
+implementation date when the provider has received an NPI.",Billing Provider NPI,S,Both,NPI Number
+N/A,NM110,Entity Relationship Code,ID,2-2,N/U,,,,,N/U,N/U,
+N/A,NM111,Entity Identifier Code,ID,2-3,N/U,,,,,N/U,N/U,
+N/A,NM112,Name Last or Organization Name,AN,1-60,N/U,,, ,,N/U,N/U,
+,N3,BILLING PROVIDER ADDRESS  ,,Segment Repeat: 1,R,2010AA,,The Billing Provider Address must be a street address. ,"Post Office Box or Lock Box addresses are to be sent in the Pay-To Address Loop (Loop ID-2010AB), if necessary.",R,Both,"
+In/Outbound Example: 
+N3*PO BOX 402563~"
+Billing Provider Address,N301,Address Information,AN,1-55,R,,,,Billing Provider Address Line,R,Both,Billing Provider Address Line
+Billing Provider Address,N302,Address Information,AN,1-55,S,,,Required when there is a second address line.,"If not required by this implementation guide, do not send.
+
+Billing Provider Address Line",S,Both,Billing Provider Address Line2
+,N4,BILLING PROVIDER CITY/STATE/        ZIP CODE,,Segment Repeat: 1,R,2010AA,,,,R,Both,"In/Outbound Example: 
+N4*ATLANTA*GA*753031208~"
+Billing Provider City,N401,City Name,AN,2-30,R,,,,Billing Provider City Name,R,Both,Billing Provider City
+Billing Provider State,N402,State or Province Code,ID,2-2,S,,,"Required when the address is in the United States of America, including its territories, or Canada. ","If not required by this implementation guide, do not send.
+
+Billing Provider State or Province Code",R,Both,"Billing Provider State or Province
+
+"
+Billing Provider Zip Code,N403,Postal Code,ID,3-15,S,,,"Required when the address is in the United States of America, including its territories, or Canada, or when a postal code exists for the country in N404.","If not required by this implementation guide, do not send.
+
+Billing Provider Postal Zone or ZIP Code 
+
+When reporting the ZIP code for U.S. addresses, the full nine digit ZIP code must be provided.",R,Both,"Billing Provider Postal Zone or ZIP Code 
+UHCG will pass 9 digit ZIP Code. If we get any value less than 9 digits then we add 0s as suffix to make it 9 digit."
+N/A,N404,Country Code,ID,2-3,S,,,Required when the address is outside the United States of America.,"If not required by this implementation guide, do not send.  Use the alpha-2 country codes from Part 1 of ISO 3166.",N/U,N/U, 
+N/A,N405,Location Qualifier,ID,1-2,N/U,,,,,N/U,N/U,
+N/A,N406,Location Identifier,AN,1-30,N/U,,,,,N/U,N/U,
+N/A,N407,Country Subdivision Code,ID,1-3,S,,,"Required when the address is not in the United States of America, including its territories, or Canada, and the country in N404 has administrative subdivisions such as but not limited to states, provinces, cantons, etc. ","If not required by this implementation guide, do not send.  Use the country subdivision codes from Part 2 of ISO 3166.",N/U,N/U,
+,REF,BILLING PROVIDER TAX IDENTIFICATION,,Segment Repeat: 1,R,2010AA,,,"This is the tax identification number (TIN) of the entity to be paid for the submitted services.
+",R,Both,"In/Outbound Example:  REF*EI*999952599~
+
+TAX ID Number.  "
+N/A,REF01,Reference Identification Qualifier,ID,2-3,R,,,"EI
+","EI=Employer’s Identification Number.  The Employer’s Identification Number must be a string of exactly nine numbers with no separators.  For example, “001122333” would be valid, while sending “001-12-2333” or “00-1122333” would be invalid.",R,Both,EI
+Provider TIN,REF02,Reference Identification,AN,1-50,R,,,,Billing Provider Tax Identification Number,R,Both,Billing Provider Tax Identification Number
+N/A,REF03,Description,AN,1-80,N/U,,,,,N/U,N/U,
+N/A,REF04,REFERENCE IDENTIFIER,,,N/U,,,,,N/U,N/U,
+,PER,BILLING PROVIDER CONTACT INFORMATION,,Segment Repeat: 2,S,2010AA,,"Required when this information is different than that contained in the Loop ID-1000A - Submitter PER segment. If not required by this implementation guide, do not send. 1. When the communication number represents a telephone number in the United States and other countries using the North American Dialing Plan (for voice, data, fax, etc.), the communication number
+must always include the area code and phone number using the format AAABBBCCCC where AAA is the area code, BBB is the telephone number prefix, and CCCC is the telephone number. ","Therefore, the following telephone number (555) 555-1234 would be represented as 5555551234. Do not submit long distance access numbers, such as “1”, in the telephone number.  Telephone extensions, when applicable, must be submitted in the next element immediately following the telephone number. When submitting telephone extensions, only submit the numeric extension. Do not include data that indicates an extension, such as “ext” or “x-”.   2. There are 2 repetitions of the PER segment to allow for six possible combinations of communication numbers including extensions.",S,Both,"Outbound/Inbound example:
+PER*IC*TEST BLANK*EM*TEST_BLANK@EMAIL ADDRESS.COM~
+
+"
+N/A,PER01,Contact Function Code,ID,2-2,R,,,IC,IC=Information Contact,R,Both,IC (Information Contact)
+N/A,PER02,Name,AN,1-60,S,,,Required in the first iteration of the Billing Provider Contact Information segment.,"If not required by this implementation guide, do not send.
+
+Billing Provider Contact Name",S,Both,Billing Provider Contact Name
+N/A,PER03,Communication Number Qualifier,ID,2-2,R,,,"EM, FX. TE","TE=Telephone
+(Defaulted to TE only)",R,Both,TE
+N/A,PER04,Communication Number  ,AN,1-256,R,,,,,R,Both,
+N/A,PER05,Communication Number Qualifier,ID,2-2,S,,,"EM, EX, FX, TE","Required when this information is deemed necessary by the submitter. If not required by this implementation guide, do not send.
+EM=Electronic Mail
+EX=Telephone Extension
+FX=Facsimile
+TE=Telephone",N/U,N/U,
+N/A,PER06,Communication Number  ,AN,1-256,S,,,,"Required when this information is deemed necessary by the submitter. If not required by this implementation guide, do not send.",N/U,N/U,
+N/A,PER07,Communication Number Qualifier,ID,2-2,S,,,"EM, EX, FX, TE","Required when this information is deemed necessary by the submitter. If not required by this implementation guide, do not send.
+EM=Electronic Mail
+EX=Telephone Extension
+FX=Facsimile
+TE=Telephone",N/U,N/U,
+N/A,PER08,Communication Number  ,AN,1-256,S,,,,"Required when this information is deemed necessary by the submitter. If not required by this implementation guide, do not send.",N/U,N/U,
+N/A,PER09,Contact Inquiry Reference ,AN,1-20,N/U,,,,,N/U,N/U,
+,N3,PAY-TO ADDRESS ,,Segment Repeat: 1,R,2010AB,,,,R,Both,"In/Outbound Example:
+N3*865 STONE STREET~"
+N/A,N301,Address Information,AN,1-55,R,,,,Pay-To Address Line,R,Both,Pay-To Address 
+N/A,N302,Address Information,AN,1-55,S,,,Required when there is a second address line. ,"If not required by this implementation guide, do not send.
+
+Pay-To Address Line",S,Both,
+,N4,PAY-TO ADDRESS CITY/STATE/ ZIP CODE,,Segment Repeat: 1,R,2010AB,,,,R,Both,"In/Outbound Example: 
+N4*RAHWAY*NJ*070652742~"
+N/A,N401,City Name,AN,2-30,R,,,,Pay-To Address City Name,R,Both,Pay-To Address City 
+N/A,N402,State or Province Code,ID,2-2,S,,,"Required when the address is in the United States of America, including its territories, or Canada.","If not required by this implementation guide, do not send.
+
+Pay-to Address State Code",R,Both,Pay-to Address State 
+N/A,N403,Postal Code,ID,3-15,S,,,"Required when the address is in the United States of America, including its territories, or Canada, or when a postal code exists for the country in N404.","If not required by this implementation guide, do not send.
+
+Pay-to Address Postal Zone or Zip Code",R,Both,Pay-to Address State Zip Code
+N/A,N404,Country Code,ID,2-3,S,,,Required when the address is outside the United States of America.,"If not required by this implementation guide, do not send.  Use the alpha-2 country codes from Part 1 of ISO 3166.",S,Both,
+N/A,N405,Location Qualifier,ID,1-2,N/U,,,,,N/U,N/U,
+N/A,N406,Location Identifier,AN,1-30,N/U,,,,,N/U,N/U,
+N/A,N407,Country Subdivision Code,ID,1-3,S,,,"Required when the address is not in the United States of America, including its territories, or Canada, and the country in N404 has administrative subdivisions such as but not limited to states, provinces, cantons, etc.","If not required by this implementation guide, do not send. Use the country subdivision codes from Part 2 of ISO 3166.",S,Both,
+,HL,SUBSCRIBER HIERARCHICAL LEVEL,,Segment Repeat: 1,R,2000B,>1,"1. If a patient can be uniquely identified to the destination payer in Loop ID-2010BB by a unique Member Identification Number, then the patient is the subscriber or is considered to be the subscriber and is identified at this level, and the patient HL in Loop ID-2000C is not used.","2. If the patient is not the subscriber and cannot be identified to the destination payer by a unique Member Identification Number or it is not known to the sender if the Member Identification number is unique, both this HL and the patient HL in Loop ID- 2000C are required.",R,Both,In/Outbound example:  HL*2*1*22*0~
+N/A,HL01,Hierarchical ID Number,AN,1-12,R,,,"The first HL01 within each ST-SE envelope must begin with “1”, and be incremented by one each time an HL is used in the transaction.",Only numeric values are allowed in HL01.,R,Both, 
+N/A,HL02,Hierarchical Parent ID Number,AN,1-12,R,,,,,R,Both,
+N/A,HL03,Hierarchical Level Code,ID,1-2,R,,,22,22=Subscriber,R,Both,22.0
+N/A,HL04,Hierarchical Child Code,ID,1-1,R,,,"0, 1
+
+The claim (Loop ID-2300) can be used when HL04 has no subordinate levels (HL04 = 0) or when HL04 has subordinate levels indicated (HL04 = 1). In the first case (HL04 = 0), the subscriber is the patient and there are no dependent claims. The second case (HL04 = 1) happens when claims for one or more dependents of the subscriber are being sent under the same billing provider HL (for example, a spouse and son are both treated by the same provider). In that case, the subscriber HL04 = 1 because there is at least one dependent to this subscriber.   The dependent HL (spouse) would then be sent followed by the Loop ID-2300 for the spouse.","The next HL would be the dependent HL for the son followed by the Loop ID-2300 for the son. In order to send claims for the subscriber and one or more dependents, the Subscriber HL, with Relationship Code SBR02=18 (Self), would be followed by the Subscriber’s Loop ID-2300 for the Subscriber’s claims. Then the Subscriber HL would be repeated, followed by one or more Patient HL loops for the dependents, with the proper Relationship Code in PAT01, each followed by their respective Loop ID-2300 for each dependent’s claims. 
+
+0=No Subordinate HL Segment in This Hierarchical Structure.
+1=Additional Subordinate HL Data Segment in This Hierarchical Structure.",R,Both,0 or 1
+,SBR,SUBSCRIBER INFORMATION,,Segment Repeat: 1,R,2000B,,,,R,Both,"This must be submitted even if patient.  THIS IS REQUIRED
+
+In/Outbound Example:  
+SBR*P*18*767000579999001******ZZ~"
+N/A,SBR01,Payer Responsibility Sequence Number Code ,ID,1-1,R,,,"A, B, C, D, E, F, G, H, P, S, T, U
+
+Within a given claim, the various values for the Payer Responsibility Sequence Number Code (other than value “U”) may occur no more than once.
+A=Payer Responsibility Four
+B=Payer Responsibility Five
+C=Payer Responsibility Six
+D=Payer Responsibility Seven
+E=Payer Responsibility Eight
+F=Payer Responsibility Nine
+G=Payer Responsibility Ten
+H=Payer Responsibility Eleven
+P=Primary
+S=Secondary
+T=Tertiary
+U=Unknown. This code may only be used in payer to payer COB claims when the original payer determined the presence of this coverage from eligibility files received from this payer or when the original claim did not provide the responsibility sequence for this payer.","UHCG will always pass a value of ""P"" in this element",R,Both,"Value=P
+"
+N/A,SBR02,Individual Relationship Code,ID,2-2,S,,,"
+18=Self","
+18=Self",S,Both,18 is only required if patient=subscriber
+Plan Number,SBR03,Reference Identification,AN,1-50,S,2000B,,"Required when the subscriber’s identification card for the destination payer (Loop ID-2010BB) shows a group number. If not required by this implementation guide, do not send.","Plan Number + Stat Class Code
+
+This is NOT the number uniquely identifying the subscriber. The unique subscriber number is submitted in Loop ID-2010BA-NM109.",S,Both,"SBR03 = 12 character Plan Number + 3 character Stat Class Code
+Eg: SBR*P*18*767000579999001******ZZ~"
+N/A,SBR04,Name,AN,1-60,S,,,Required when SBR03 is not used and the group name is available.,,N/U,N/U,
+N/A,SBR05,Insurance Type Code,ID,1-3,N/U,,,,,N/U,N/U,
+N/A,SBR06,Coordination of Benefits Code,ID,1-1,N/U,,,,,N/U,N/U,
+N/A,SBR07,Yes/No Condition or Response Code,ID,1-1,N/U,,,,,N/U,N/U,
+N/A,SBR08,Employment Status Code,ID,2-2,N/U,,,,,N/U,N/U,
+N/A,SBR09,Claim Filing Indicator Code,ID,1-2,S,,,"11, 12, 13, 14, 15, 16, 17, AM, BL, CH, CI, DS, FI, HM, LM, MA, MB, MC, OF, TV, VA, WC, ZZ
+
+Required prior to mandated use of the HIPAA National Plan ID. If not required by this implementation guide, do not send.
+11=Other Non-Federal Programs
+12=Preferred Provider Organization (PPO)
+13=Point of Service (POS)
+14=Exclusive Provider Organization (EPO)
+15=Indemnity Insurance
+16=Health Maintenance Organization (HMO) Medicare Risk
+17=Dental Maintenance Organization
+AM=Automobile Medical
+BL=Blue Cross/Blue Shield
+CH=Champus
+CI=Commercial Insurance Co.
+DS=Disability
+FI=Federal Employees Program
+HM=Health Maintenance Organization
+LM=Liability Medical
+MA=Medicare Part A
+MB=Medicare Part B
+MC=Medicaid
+OF=Other Federal Program.  Use code OF when submitting Medicare Part D claims.
+TV=Title V
+VA=Veterans Affairs Plan
+WC=Workers’ Compensation Health Claim
+ZZ=Mutually Defined.  Use Code ZZ when Type of Insurance is not known.",ZZ=Mutually Defined.  Use Code ZZ when Type of Insurance is not known.,S,Both,ZZ
+,NM1,SUBSCRIBER NAME  ,,Segment Repeat: 1,R,2010BA,1.0,,"In worker’s compensation or other property and casualty claims, the “subscriber” may be a non-person entity (for example, the employer). However, this varies by state.",R,Both,"In/Outbound Example:  
+NM1*IL*1*BLANK*CADE****MI*999000001234~"
+N/A,NM101,Entity Identifier Code,ID,2-3,R,,,IL,IL=Insured or Subscriber,R,Both,IL=Insured or Subscriber
+N/A,NM102,Entity Type Qualifier,ID,1-1,R,,,"1, 2","1=Person
+2=Non-Person Entity",R,Both,"UHCG will always send a value of ""1"" in this element
+1=Person"
+Subscriber/Insured Name,NM103,Name last or Organization Name,AN,1-60,R,,,,Subscriber Last Name,R,Both,Subscriber Last Name
+Subscriber/Insured Name,NM104,Name First,AN,1-35,S,,,Required when NM102 = 1 (person) and the person has a first name. ,Subscriber First Name,R,Both,Subscriber First Name
+Subscriber/Insured Name,NM105,Name Middle,AN,1-25,S,,,Required when NM102 = 1 (person) and the middle name or initial of the person is needed to identify the individual.,,N/U,N/U,
+N/A,NM106,Name Prefix,AN,1-10,N/U,,,,,N/U,N/U,
+N/A,NM107,Name Suffix,AN,1-10,S,,,"Required when NM102 = 1 (person) and the name suffix of the person is needed to identify the individual. If not required by this implementation guide, do not send.",,N/U,N/U, 
+N/A,NM108,Identification Code Qualifier,ID,1-2,S,,,MI,"UHCG will always send a value of ""MI"" in this element",S,Both,MI Only
+Subscriber/Insured ID,NM109,Identification Code,AN,2-80,S,2010BA,,,Subscriber Primary Identifier,S,Both,"NM109 = Subscriber's 12 character Identification Number
+Eg: NM1*IL*1*BLANK*CADE****MI*602140440002~"
+N/A,NM110,Entity Relationship Code,ID,2-2,N/U,,,,,N/U,N/U,
+N/A,NM111,Entity Identifier Code,ID,2-3,N/U,,,,,N/U,N/U,
+N/A,NM112,Name Last or Organization Name,AN,1-60,N/U,,,,,N/U,N/U,
+,N3,SUBSCRIBER ADDRESS  ,,Segment Repeat: 1,S,2010BA,,Required when the patient is the subscriber or considered to be the subscriber. ,"If not required by this implementation guide, do not send.",S,Both,"In/Outbound Example:  
+N3*HICKORY NC~"
+N/A,N301,Address Information,AN,1-55,R,,,,Subscriber Address Line,R,Both,"Subscriber Address
+
+"
+N/A,N302,Address Information,AN,1-55,S,,,Required when there is a second address line. ,If address length is greater than 55 then UHCG will use this element to pass rest of the address,S,Both,
+,N4,SUBSCRIBER CITY/STATE/ ZIP CODE,,Segment Repeat: 1,S,2010BA,,"Situational Loop
+Required when the patient is the subscriber or considered to be the subscriber. ",,S,Both,"In/Outbound Example: 
+N4*HICKORY*NC*286027238~ "
+N/A,N401,City Name,AN,2-30,R,,,,Subscriber City Name,R,Both,Subscriber City 
+N/A,N402,State or Province Code,ID,2-2,S,,,"Required when the address is in the United States of America, including its territories, or Canada. ",State Code,R,Both,"Subscriber State
+
+"
+N/A,N403,Postal Code,ID,3-15,S,,,"Required when the address is in the United States of America, including its territories, or Canada, or when a postal code exists for the country in N404. ",ZIP Code,R,Both,"Subscriber Zip Code
+"
+N/A,N404,Postal Code,ID,2-3,S,,,"Required when the address is outside the United States of America. If not required by this implementation guide, do not send. ",,N/U,N/U,
+N/A,N405,Location Qualifier,ID,1-2,N/U,,,,,N/U,N/U,
+N/A,N406,Location Identifier,AN,1-30,N/U,,,,,N/U,N/U,
+N/A,N407,Country Subdivision Code,ID,1-3,S,,,"Required when the address is not in the United States of America, including its territories, or Canada, and the country in N404 has administrative subdivisions such as but not limited to states, provinces, cantons, etc. ",,N/U,N/U,
+,DMG,SUBSCRIBER DEMOGRAPHIC INFORMATION,,Segment Repeat: 1,S,2010BA,,Required when the patient is the subscriber or considered to be the subscriber.,"If not required by this implementation guide, do not send.",S,Both,"In/Outbound Example:  D
+DMG*D8*19911120*F~
+"
+N/A,DMG01,Date Time Period Format Qualifier,ID,2-3,R,,,D8,D8=Date Expressed in Format CCYYMMDD,R,Both,D8
+Patient Date of Birth,DMG02,Date Time Period,AN,1-35,R,,,CCYYMMDD,Patient Birth Date,R,Both,Patient birth date
+N/A,DMG03,Gender Code,ID,1-1,R,,,"F, M, U","Subscriber Gender Code
+F=Female
+M=Male",R,Both,"F, M"
+N/A,DMG04,Marital Status Code,ID,1-1,N/U,,,,,N/U,N/U,
+N/A,DMG05,Race or Ethnicity Code,ID,1-1,N/U,,,,,N/U,N/U,
+N/A,DMG06,Citizenship Status Code,ID,1-2,N/U,,,,,N/U,N/U,
+N/A,DMG07,Country Code,ID,2-3,N/U,,,,,N/U,N/U,
+N/A,DMG08,Basis of Verification Code,ID,1-2,N/U,,,,,N/U,N/U,
+N/A,DMG09,Quantity,R,1-15,N/U,,,,,N/U,N/U,
+N/A,DMG10,Code List Qualifier Code,ID,1-3,N/U,,,,,N/U,N/U,
+N/A,DMG11,Industry Code,AN,1-30,N/U,,,,,N/U,N/U,
+,NM1,PAYER NAME,,Segment Repeat: 1,R,2010BB,1.0,," 2. For the purposes of this implementation the term payer is synonymous with several other terms, such as, repricer and third party administrator.",R,Both,In/Outbound Example:  NM1*PR*2*EDI Client*****PI*EDI Client~
+N/A,NM101,Entity Identifier Code,ID,2-3,R,,,PR,PR=Payer,R,Both,PR
+N/A,NM102,Entity Type Qualifier,ID,1-1,R,,,2,2=Non-Person Entity,R,Both,2.0
+N/A,NM103,Name Last or Organization Name,AN,1-60,R,,,,Payer Name,R,Both,EDI Client
+N/A,NM104,Name First,AN,1-35,N/U,,,,,N/U,N/U,
+N/A,NM105,Name Middle,AN,1-25,N/U,,,,,N/U,N/U,
+N/A,NM106,Name Prefix,AN,1-10,N/U,,,,,N/U,N/U,
+N/A,NM107,Name Suffix,AN,1-10,N/U,,,,,N/U,N/U,
+N/A,NM108,Identification Code Qualifier,ID,1-2,R,,,"PI, XV
+
+On or after the mandated implementation date for the HIPAA National Plan Identifier (National Plan ID), XV must be sent.  Prior to the mandated implementation date and prior to any phase in period identified by Federal regulation, PI must be sent. If a phase-in period is designated, PI must be sent unless:
+1. Both the sender and receiver agree to use the National Plan ID, ",Defaulted to PI,R,Both,PI
+N/A,NM109,Identification Code,AN,2-80,R,,,,Payer Identifier. Agreed upon ID,R,Both,Agreed upon ID
+N/A,NM110,Entity Relationship Code,ID,2-2,N/U,,,,,N/U,N/U,
+N/A,NM111,Entity Identifier Code,ID,2-3,N/U,,,,,N/U,N/U,
+N/A,NM112,Name Last or Organization Name,AN,1-60,N/U,,,,,N/U,N/U,
+,HL,PATIENT HIERARCHICAL LEVEL,,Segment Repeat: 1,S,2000C,>1,"Required when the patient is a dependent of the subscriber identified in Loop ID-2000B and cannot be uniquely identified to the payer using the subscriber’s identifier in the Subscriber Level. If not required by this implementation guide, do not send.","1. There are no HLs subordinate to the Patient HL. 2. If a patient is a dependent of a subscriber and can be uniquely identified to the payer by a unique Identification Number, then the patient is considered the subscriber and is to be identified in the Subscriber Level.",S,Both,"In/Outbound Example:
+HL*3*2*23*0~"
+N/A,HL01,Hierarchical ID Number,AN,1-12,R,,,,,R,Both,
+N/A,HL02,Hierarchical Parent ID #,AN,1-12,R,,,,,R,Both,
+N/A,HL03,Hierarchical Level Code,ID,1-2,R,,,23,23=Dependent. The code DEPENDENT conveys that the information in this HL applies to the patient when the subscriber and the patient are not the same person.,R,Both,23.0
+N/A,HL04,Hierarchical Child Code,ID,1-1,R,,,0,0=No Subordinate HL Segment in This Hierarchical Structure.,R,Both,0.0
+,PAT,PATIENT INFORMATION,,Segment Repeat: 1,R,2000C,,Patient Information (Other than Subscriber),Relationship Code,R,Both,"In/Outbound Example:  
+PAT*19~"
+Relationship Code,PAT01,Individual Relationship Code,ID,2-2,R,,,"01, 19, 20, 53, G8
+
+Specifies the patient’s relationship to the person insured.","UHCG will only send below values
+
+01=Spouse
+19=Child
+20=Employee/Member
+G8=Other Relationship
+53=Dependent",R,Both,
+N/A,PAT02,Patient Location Code,ID,1-1,N/U,,,,"If not required by this implementation guide, do not send.
+D8=Date Expressed in Format CCYYMMDD",N/U,N/U,
+N/A,PAT03,Employment Status Code,ID,2-2,N/U,,,,"If not required by this implementation guide, do not send.
+D8=Date Expressed in Format CCYYMMDD",N/U,N/U,
+N/A,PAT04,Student Status Code,ID,1-1,N/U,,,,"If not required by this implementation guide, do not send.
+D8=Date Expressed in Format CCYYMMDD",N/U,N/U,
+N/A,PAT05,Date Time Period Format Qualifier,ID,2-3,S,,,"D8
+Required when patient is known to be deceased and the date of death is available to the provider billing system.","If not required by this implementation guide, do not send.
+D8=Date Expressed in Format CCYYMMDD",N/U,N/U,
+N/A,PAT06,Date Time Period,AN,1-35,S,,,"CCYYMMDD
+Required when patient is known to be deceased and the date of death is available to the provider billing system. ","If not required by this implementation guide, do not send.
+
+Patient Death Date",N/U,N/U,
+N/A,PAT07,Unit or Basis for Measurement Code,ID,2-2,S,,," 01
+Required when claims involve Medicare Durable Medical Equipment Regional Carriers Certificate of Medical Necessity (DMERC CMN) 02.03, 10.02, or DME MAC 10.03. ","If not required by this implementation guide, do not send.
+01=Actual Pounds",N/U,N/U,
+N/A,PAT08,Weight,R,1-10,S,,,"Required when claims involve Medicare Durable Medical Equipment Regional Carriers Certificate of Medical Necessity (DMERC CMN) 02.03, 10.02, or DME MAC 10.03. ","If not required by this implementation guide, do not send.
+
+Patient Weight",N/U,N/U,
+N/A,PAT09,Yes/No Condition or Response Code,ID,1-1,S,,,"Y
+
+Required when mandated by law. The determination of pregnancy shall be completed in compliance with applicable law. The “Y” code indicates that the patient is pregnant. If PAT09 is not used, it means that the patient is not pregnant or that","If not required by this implementation guide, do not send.
+
+Pregnancy Indicator
+
+For this implementation, the listed value takes precedence over the semantic note.
+Y=Yes",N/U,N/U,
+,NM1,PATIENT NAME   ,,Segment Repeat: 1,R,2010CA,1.0,Patient Name,,R,Both,"In/Outbound:
+NM1*QC*1*BLANK*CADE*J~"
+N/A,NM101,Entity Identifier Code,ID,2-3,R,,,QC,QC=Patient,R,Both,QC
+N/A,NM102,Entity Type Qualifier,ID,1-1,R,,,1,1=Person,R,Both,1
+Patient Name,NM103,Name Last or Organization Name,AN,1-60,R,,,,,R,Both,Patient Last Name
+Patient Name,NM104,Name First,AN,1-35,S,,,Required when the person has a first name.," If not required by this implementation guide, do not send.
+
+Patient First Name",R,Both,"Patient First Name
+
+UHC Required field."
+Patient Name,NM105,Name Middle,AN,1-25,S,,,Required when the middle name or initial of the person is needed to identify the individual. ,Patient Middle Name or Initial,R,Both,"Patient Middle Name or Initial
+
+UHC Required field.
+
+Middle initial can be full name or just initial."
+N/A,NM106,Name Prefix,AN,1-10,N/U,,,,,N/U,N/U,
+N/A,NM107,Name Suffix,AN,1-10,S,,,Required when the name suffix is needed to identify the individual. ,,N/U,N/U,
+N/A,NM108,Identification Code Qualifier,ID,1-2,N/U,,, ,,N/U,N/U,
+N/A,NM109,Identification Code,AN,2-80,N/U,,,,,N/U,N/U,
+N/A,NM110,Entity Relationship Code,ID,2-2,N/U,,,,,N/U,N/U,
+N/A,NM111,Entity Identifier Code,ID,2-3,N/U,,,,,N/U,N/U,
+N/A,NM112,Name Last or Organization Name,AN,1-60,N/U,,,,,N/U,N/U,
+,N3,PATIENT ADDRESS  ,,Segment Repeat: 1,R,2010CA,,Patient Address,,R,Both,"In/Outbound Example:   
+N3*123 PEACEFUL CT~"
+N/A,N301,Address Information,AN,1-55,R,,,,Patient Address Line,R,Both,Patient Address
+N/A,N302,Address Information,AN,1-55,S,,,Required when there is a second address line. ,If address length is greater than 55 then UHCG will use this element to pass rest of the address,S,Both,
+N/A,N4,PATIENT CITY/STATE/ZIP CODE,,Segment Repeat: 1,R,2010CA,,Patient City/State/Zip Code,,R,Both,"
+In/Outbound Example:  N4*GREEN CITY*WI*123451234~ "
+N/A,N401,Patient City Name,AN,2-30,R,,,,Patient City Name,R,Both,Patient City
+N/A,N402,Patient Provider State or Province Code,ID,2-2,S,,,"Required when the address is in the United States of America, including its territories, or Canada. ","If not required by this implementation guide, do not send.
+
+Patient State Code",R,Both,Patient State
+N/A,N403,Postal Code,ID,3-15,S,,,"Required when the address is in the United States of America, including its territories, or Canada, or when a postal code exists for the country in N404.","If not required by this implementation guide, do not send.
+
+Patient Postal Zone or ZIP Code",R,Both,Patient Zip Code
+N/A,N404,Country Code,ID,2-3,S,,,Required when the address is outside the United States of America.,"If not required by this implementation guide, do not send. Use the alpha-2 country codes from Part 1 of ISO 3166.",S,Both,Country Code
+N/A,N405,Location Qualifier,ID,1-2,N/U,,,,,N/U,N/U,
+N/A,N406,Location Identifier,AN,1-30,N/U,,,,,N/U,N/U,
+N/A,N407,Country Subdivision Code,ID,1-3,S,,,"Required when the address is not in the United States of America, including its territories, or Canada, and the country in N404 has administrative subdivisions such ","as but not limited to states, provinces, cantons, etc.  If not required by this implementation guide, do not send.  Use the country subdivision codes from Part 2 of ISO 3166.",S,Both,
+,DMG,PATIENT DEMOGRAPHIC INFO,,Segment Repeat: 1,R,2010CA,,Patient Demographic Info,,R,Both,"In/Outbound Example:
+DMG*D8*19940623*M~"
+N/A,DMG01,Date Time Period Format Qualifier,ID,2-3,R,,,D8,D8=Date Expressed in Format CCYYMMDD,R,Both,D8
+Patient Date of Birth,DMG02,Date Time Period,AN,1-35,R,,,CCYYMMDD,Patient Birth Date,R,Both,Patient Birth Date
+N/A,DMG03,Gender Code,ID,1-1,R,,,"F, M, U","Patient Gender Code
+F=Female
+M=Male",R,Both,"Patient Gender
+
+UHC does not recommend sending value=U (unknown)"
+N/A,DMG04,Marital Status Code,ID,1-1,N/U,,,,,N/U,N/U,
+N/A,DMG05,Composite Race or Ethnicity Info,ID,1-1,N/U,,, ,,N/U,N/U,
+N/A,DMG06,Citizenship Status Code,ID,1-2,N/U,,, ,,N/U,N/U,
+N/A,DMG07,Country Code,ID,2-3,N/U,,,,,N/U,N/U,
+N/A,DMG08,Basis of Verification Code,ID,1-2,N/U,,,,,N/U,N/U,
+N/A,DMG09,Quantity ,R,1-15,N/U,,,,,N/U,N/U,
+N/A,DMG10,Code List Qualifier Code,ID,1-3,N/U,,,,,N/U,N/U,
+N/A,DMG11,Industry Code,AN,1-30,N/U,,,,,N/U,N/U,
+,CLM,CLAIM INFORMATION,,Segment Repeat: 1,R,2300.0,100.0,"1. The developers of this implementation guide recommend that trading partners limit the size of the transaction (ST-SE envelope) to a maximum of 5000 CLM segments. There is no recommended limit to the number of ST-SE transactions within a GS-GE or ISA-IEA. Willing trading partners can agree to set limits higher.  2. For purposes of this documentation, the claim detail information is presented only in the dependent level. Specific claim detail information can be given in either the subscriber or the dependent hierarchical level.   Because of this, the claim information is said to “float.” ","Claim information is positioned in the same hierarchical level that describes its owner-participant, either the subscriber or the dependent. In other words, the claim information, Loop ID-2300, is placed following Loop ID-2010BB in the Subscriber Hierarchical Level (HL) when patient information is sent in Loop ID-2010BA of the Subscriber HL. Claim information is placed in the Patient HL when the patient information is sent in Loop ID-2010CA of the Patient HL. When the patient is the subscriber or is considered to be the subscriber, Loop ID-2000C and Loop ID-2010CA are not sent. See Subscriber/Patient HL Segment explanation in section 1.4.3.2.2.1 for details.",R,Both,"In/Outbound Example: 
+CLM*041203853*2416.65***13:A:1**C*Y*Y~"
+Account Number in Transaction Detail Page,CLM01,Claim Submitter's Identification,AN,1-38,R,,,"The number that the submitter transmits in this position is echoed back to the submitter in the 835 and other transactions. This permits the submitter to use the value in this field as a key in the submitter’s system to match the claim to the payment information returned in the 835 transaction. The two recommended identifiers are either the Patient Account Number or the Claim Number in the billing submitter’s patient management system.
+
+Patient Control Number  
+
+The developers of this implementation guide strongly recommend that submitters use unique numbers for this field for each individual claim. ","When Loop ID-2010AC is present, CLM01 represents the subrogated Medicaid agency’s claim number (ICN/DCN) from their original 835 CLP07 - Payer Claim Control Number. See Section 1.4.1.4 of the front matter for a description of post payment recovery claims for subrogated Medicaid agencies. The maximum number of characters to be supported for this field is ‘20’. Characters beyond the maximum are not required to be stored nor returned by any 837-receiving system.",R,Both,Patient Control Number
+Total Billed,CLM02,Monetary Amount,R ,1-18,R,,,"Total Billed Amount
+
+The Billed Amount must be greater than or equal to zero.  ",The total billed amount amount must balance to the sum of all service line charge amounts reported in the Institutional Service Line (SV2) segments for this claim.,R,Both,Total Billed Amount
+N/A,CLM03,Claim Filing Indicator Code,ID,1-2,N/U,,,,,N/U,N/U,
+N/A,CLM04,Non-Institutional Claim Type Code,ID,1-2,N/U,,,,,N/U,N/U,
+,CLM05,HEALTH CARE SERVICE LOCATION INFORMATION,,,R,,,, ,R,Both,
+Bill type in Bill Search result grid,CLM05-1,Facility Type Code,AN,1-2,R,,,,Facility Type Code,R,Both,Facility Type Code
+Bill type in Bill Search result grid,CLM05-2,Facility Code Qualifier,ID,1-2,R,,,A,A=Uniform Billing Claim Form Bill Type,R,Both,A
+Bill type in Bill Search result grid,CLM05-3,Claim Frequency  Type Code,ID,1-1,R,,, ,Claim Frequency Code,R,Both,Claim Frequency Code
+N/A,CLM06,Yes/No Condition or Response Code,ID,1-1,N/U,,,,,N/U,N/U,
+N/A,CLM07,Provider Accept Assignment Code,ID,1-1,R,,,"A, B, C 
+
+
+Within this element the context of the word assignment is related to the relationship between the provider and the payer. This is NOT the field for reporting whether the patient has or has not assigned benefits to the provider. The benefit assignment indicator is in CLM08.
+
+Assignment or Plan Participation Code
+","A=Assigned.  Required when the provider accepts assignment and/or has a participation agreement with the destination payer. OR Required when the provider does not accept assignment and/or have a participation agreement, but is advising the payer to adjudicate this specific claim under participating provider benefits as allowed under certain plans.
+
+C=Not Assigned.  ",R,Both,"A, C"
+N/A,CLM08,Yes/No Condition or Response Code,ID,1-1,R,,,"N, W, Y
+
+Benefits Assignment Certification Indicator
+
+","This element answers the question whether or not the insured has authorized the plan to remit payment directly to the provider.
+N=No
+W=Not Applicable.  Use code ‘W’ when the patient refuses to assign benefits.
+Y=Yes                                                                   
+Assignment of Benefits defines whether the insured has authorized the plan to remit the payment to the provider. If blank, this is being defaulted to 'Y' meaning, the payment will be remitted to the provider for the services rendered. Note - If the member has paid all or a part of the claim, the Special Instructions field will be utilized to notify the EDI Client of the amount paid by the member. ",R,Both,"N, W or Y"
+N/A,CLM09,Release of Information Code,ID,1-1,R,,," I, Y
+ 
+The Release of Information response is limited to the information carried in this claim.
+
+I=Informed Consent to Release Medical Information for Conditions or Diagnoses Regulated by Federal Statutes.  Required when the provider has not collected a signature AND state or federal laws do not require a signature be collected.
+","Defaulted to Y
+
+Y=Yes, Provider has a Signed Statement Permitting Release of Medical Billing Data Related to a Claim.  Required when the provider has collected a signature. OR Required when state or federal laws require a signature be collected.",R,Both,Y
+N/A,CLM10,Patient Signature Source Code,ID,1-1,N/U,,,,,N/U,N/U,
+N/A,CLM11,RELATED CAUSES INFORMATION,,,N/U,,,,,N/U,N/U,
+N/A,CLM12,Special Program Indicator,ID,2-3,N/U,,,,,N/U,N/U,
+N/A,CLM13,Yes/No Condition or Response Code,ID,1-1,N/U,,,,,N/U,N/U,
+N/A,CLM14,Level of Service Code,ID,1-3,N/U,,,,,N/U,N/U,
+N/A,CLM15,Yes/No Condition or Response Code,ID,1-1,N/U,,,,,N/U,N/U,
+N/A,CLM16,Provider Agreement Code,ID,1-1,N/U,,, ,,N/U,N/U,
+N/A,CLM17,Claim Status Code,ID,1-2,N/U,,,,,N/U,N/U,
+N/A,CLM18,Yes/No Condition or Response Code,ID,1-1,N/U,,,,,N/U,N/U,
+N/A,CLM19,Claim Submission Reason Code,ID,2-2,N/U,,,,,N/U,N/U,
+N/A,CLM20,Delay Reason Code,ID,1-2,S,,,11- Adjustment Indicator,CLM 20 value with '11' Only needs to be populated by EDI Client when Adjustment request has to be sent. This segment must not be used in any other case. The clamis must be seperated from Standard EDI2 file,S,Inbound ,Note - CLM 20 value with '11' Only needs to be populated by EDI Client when Adjustment request has to be sent. This segment must not be used in any other case. The clamis must be seperated from Standard EDI2 file
+N/A,DTP,DATE - DISCHARGE HOUR,,Segment Repeat: 1,S,2300.0,1.0,Required on all final inpatient claims. ,"If not required by this implementation guide, do not send.",S,Both,"In/Outbound Example: 
+DTP*096*TM*0000~"
+N/A,DTP01,Date Time Qualifier,ID,3-3,R,,,096,096=Discharge,R,Both,96.0
+N/A,DTP02,Date Time Period Format Qualifier,ID,2-3,R,,,TM,TM=Time Expressed in Format HHMM,R,Both,TM
+N/A,DTP03,Date Time Period,AN,1-35,R,,,HHMM,Discharge Time,R,Both,HHMM
+N/A,DTP,DATE - STATEMENT DATES,,Segment Repeat: 1,R,2300.0,1.0,, ,R,Both,"In/Outbound Example:  
+DTP*434*RD8*20220808-20220808~"
+N/A,DTP01,Date Time Qualifier,ID,3-3,R,,,434,434=Statement,R,Both,434
+N/A,DTP02,Date Time Period Format Qualifier,ID,2-3,R,,,RD8,"RD8=Range of Dates Range of Dates Expressed in Format CCYYMMDD-CCYYMMDD
+Use RD8 to indicate the from and through date of the statement. When the statement is for a single date of service, the from and through date are the same.
+",R,Both,RD8
+From and to Date ,DTP03,Date Time Period,AN,1-35,R,,,CCYYMMDD-CCYYMMDD.,"Statement From and To Date
+",R,Both,CCYYMMDD-CCYYMMDD
+,DTP,DATE - ADMISSION DATE/HOUR,,Segment Repeat: 1,S,2300.0,,,"Required on inpatient claims. If not required by this implementation guide, do not send.",S,Both,"Outbound Example:  
+DTP*435*D8*20091204~
+DTP*435*DT*202105011700~
+Inbound Example:  
+DTP*435*DT*200912041700~
+DTP*435*D8*20091204~"
+N/A,DTP01,Date Time Qualifier,ID,3-3,R,,,435,435=Admission,R,Both,435
+N/A,DTP02,Date Time Period Format Qualifier,ID,2-3,R,,,"D8, DT
+
+Selection of the appropriate qualifier is designated by the NUBC Billing Manual.","D8=Date Expressed in Format CCYYMMDD
+DT=Date and Time Expressed in Format CCYYMMDDHHMM",R,Both,DT
+N/A,DTP03,Date Time Period,AN,1-35,R,,,"CCYYMMDD
+CCYYMMDDHHMM",Admission Date and Hour,R,Both,CCYYMMDD or CCYYMMDDHHMM
+,CL1,INSTITUTIONAL CLAIM CODE,,Segment Repeat: 1,R,2300.0,1.0, ,,R,Both,"In/Outbound Example:
+CL1*3*2*01~"
+N/A,CL101,Admission Type Code,ID,1-1,R,,,,"Required when patient is being admitted for inpatient services. If not required by this implementation guide, do not send.",R,Both,
+N/A,CL102,Admission Source Code,ID,1-1,S,,,,"Required for all inpatient and outpatient services. If not required by this implementation guide, do not send.",R,Both,
+N/A,CL103,Patient Status Code,ID,1-2,R,,,,,R,Both,
+N/A,CL104,Nursing Home Residential Status Code,ID,1-1,N/U,,,,,N/U,N/U,
+,REF,REFERRAL NUMBER,,Segment Repeat: 1,S,2300.0,,,,S,Both,In/Outbound Example- REF*9F*30564488~
+N/A,REF01,Reference Identification Qualifier,ID,2-3,R,,,9F ,9F=To identify voided and replacement claims.,R,Both,"9F
+
+Notes:
+Original UHAP Claim ID, When REF01 = 9F, "
+Replaced Claim ID,REF02,Reference Identification ,AN,1-50,R,,,,Referral Number,R,Both,
+N/A,REF03,Description,AN,1-80,N/U,,,,,N/U,N/U,
+N/A,REF04,REFERENCE IDENTIFIER,,,N/U,,,,,N/U,N/U,
+,REF,PAYER CLAIM CONTROL NUMBER,,Segment Repeat: 1,S,2300.0,,Required when CLM05-3 (Claim Frequency Code) indicates this claim is a replacement or void to a previously adjudicated claim. ,"If not required by this implementation guide, do not send. 1. This information is specific to the destination payer reported in Loop ID-2010BB.",R,Both,"In/Outbound Example:  
+REF*F8*22350125407~"
+N/A,REF01,Reference Identification Qualifier,ID,2-3,R,,,F8,F8=Original Reference Number,R,Both,"Value = F8 (Original Claim Number)
+"
+CCN,REF02,Reference Identification ,AN,1-50,R,2300.0,,Payer Organization assigned Claim Number.  ,Payer Claim Control Number,R,Both,"REF02 = Claim's 11 digit CCN (Claim Control Number) value 
+Eg: REF*F8*19378264517~"
+N/A,REF03,Description,AN,1-80,N/U,,,,,N/U,N/U,
+N/A,REF04,REFERENCE IDENTIFIER,,,N/U,,,,,N/U,N/U,
+,REF,REPRICED CLAIM NUMBER,,Segment Repeat: 1,S,2300.0,,Required when this information is deemed necessary by the repricer. The segment is not completed by providers. The information is completed by repricers only. ,"If not required by this implementation guide, do not send.  1. This information is specific to the destination payer reported in Loop ID-2010BB.",R,Both,"In/Outbound Example:
+REF*9A*10616962~"
+N/A,REF01,Reference Identification Qualifier,ID,2-3,R,,,9A,9A=Repriced Claim Reference Number,R,Both,"Outbound:
+9A=Repriced Claim Reference Number"
+UHCG Claim ID,REF02,Reference Identification ,AN,1-50,R,,,,Repriced Claim Reference Number,R,Both,
+N/A,REF03,Description,AN,1-80,N/U,,,,,N/U,N/U,
+N/A,REF04,REFERENCE IDENTIFIER,,,N/U,,,,,N/U,N/U,
+,REF,CLAIM IDENTIFIER FOR TRANSMISSION INTERMEDIARIES,,Segment Repeat: 1,S,2300.0,,EDI Client is required to send the Claim ID in REF Segment with Qualifier as D9.,,R,Inbound ,"INBOUND ONLY
+This segment is populated by EDI Client
+
+Inbound Example Only:
+REF*D9*BBB101230012345~"
+N/A,REF01,Reference Identification Qualifier,ID,2-3,R,,,D9,D9=Claim I'd assigned by the EDI Client.,R,Inbound ,"Inbound:
+Qualifier = D9"
+N/A,REF02,Reference Identification ,AN,1-50,R,,,,"The value carried in this element is limited to a maximum of 20 positions.
+
+More than 20 positions should not be sent.",R,Inbound ,"Inbound:
+EDI Client Assigned Claim Number"
+N/A,REF03,Description,AN,1-80,N/U,,,,,N/U,N/U,
+N/A,REF04,REFERENCE IDENTIFIER,,,N/U,,,,,N/U,N/U,
+,K3,FILE INFORMATION,,Segment Repeat: 10,S,2300.0,,Reduction Indicator ,UHCG will use this segment as a custom segment and will pass the Claim Level Reduction information as defined in the corrseponding data elements of K301,S,Both,"Outbound Example:
+K3*COB~"
+Reduction Reason,K301,"Fixed Format Information
+(Reduction Indicator Information)",AN,1-80,R,,,"Reduction Indicator At The Claim Level
+If there is more than one reduction, MULTI will be used.","iCES 
+COB",R,Both,"iCES 
+COB "
+N/A,K302,Record Format Code,ID,1-2,N/U,,,,,N/U,N/U,
+N/A,K303,COMPOSITE UNIT OF MEASURE,,,N/U,,,,,N/U,N/U,
+,K3 (2),FILE INFORMATION,,1-2,S,2300.0,,"Benefit Decision Values --> 1 / 2 / 3 /4
+  '1' = Covered 
+  '2' = Not Covered 
+  '3'  = Duplicate 
+  '4' = Medical Record Request","UHCG will use this segment as a custom segment and will accept the Benefit Decision Indicator information from the EDI Client.                       The Benefit Decision will indicate if the outcome of benefit determination on the claim and/or line is Covered, Not Covered, or Duplicate.UHCG uses the Benefit Decision on the claim and/or line to process the claim. For Professional Claims, UHCG accepts Benefit Decisions at both the Claim Level and Line Level.For Institutional Claims, UHCG accepts Benefit Decisions at the Claim Level only. ",R,Inbound ,"Inbound Example
+K3*1~     "
+Benefit Decision at Grid Lines in Workbench,K301,Fixed Format Information,AN,1-80,R,,,,"K3*1~   (Covered)
+K3*2~   (Not Covered)
+K3*3~   (Duplicate)
+K3*4~   (Medical Record Request)",R,Inbound ,"K3*1~   (Covered)
+K3*2~   (Not Covered)
+K3*3~   (Duplicate)
+K3*4~   (Medical Record Request)"
+N/A,K302,Record Format Code,ID,1-2,N/U,,,,,N/U,N/U,
+N/A,K303,COMPOSITE UNIT OF MEASURE,,,N/U,,,,,N/U,N/U,
+,K3 (3),FILE INFORMATION,,1-2,R,2300.0,,Net Paid Amount Qualifier and Net Paid Amount. Qualifier suggested to use is 'PA',"UHCG will use this segment as a custom segment and will accept the Net Paid Qualifier and Net Paid Amount information from the EDI EDI Client 
+Net Paid Amount is the amount that will be paid to the provider.
+Net Paid Amount equals Allowed Amount minus Net Patient Responsibility.",R,Inbound ,"Inbound Example   
+K3*2000|PA~"
+Net Paid Amount,K301,Fixed Format Information,AN,1-80,R,,,,,R,Inbound ,
+N/A,K302,Record Format Code,ID,1-2,N/U,,,,,N/U,N/U,
+N/A,K303,COMPOSITE UNIT OF MEASURE,,,N/U,,,,,N/U,N/U,
+,K3 (4),FILE INFORMATION,,Segment Repeat: 10,S,2300.0,,Not Covered Amount Qualifier and Not Covered Amount. Qualifier suggested to use is 'NA',"UHCG will use this segment as a custom segment and will accept the Not Covered Amount Qualifier and Not Covered Amount information from the EDI EDI Client 
+The Not Covered Amount includes Benefit Limits/Sub Limits, Exclusions (Specific conditions or circumstances for which the policy or plan will not provide coverage reimbursement), and Plan Maximums.",R,Inbound ,"Inbound Example   
+K3*0|NA~"
+Not Covered,K301,Fixed Format Information,AN,1-80,R,Positions 1-3,,,,R,Inbound ,
+N/A,K302,Record Format Code,ID,1-2,N/U,,,,,N/U,N/U,
+N/A,K303,COMPOSITE UNIT OF MEASURE,,,N/U,,,,,N/U,N/U,
+,K3(5),FILE INFORMATION,,Segment Repeat: 10,S,2300.0,,Coverage Percentage Qualifier and Coverage Percentage value (in percentage ) suggested to use is 'CP',"UHCG will use this segment as a custom segment and will accept the Coverage Percentage Qualifier and Coverage Percentage Value from the EDI EDI Client 
+
+Coverage Percentage is the portion of covered health care costs the plan is financially responsible for, usually according to a fixed percentage.  Coverage Percentage is often applied, according to a fixed percentage, after a Deductible and/or Co-Payment requirements are met. UHCG expects Coverage Percentage to be a whole number between 0 and 100. ",R,Inbound ,"Inbound Example   
+K3*100|CP~"
+Covg% ,K301,Fixed Format Information,AN,1-80,R,Positions 1-3,,,,R,Inbound ,Cov% should be a whole number
+N/A,K302,Record Format Code,ID,1-2,N/U,,,,,N/U,N/U,
+N/A,K303,COMPOSITE UNIT OF MEASURE,,,N/U,,,,,N/U,N/U,
+,NTE,CLAIM NOTE  ,,Segment Repeat: 1,S,2300.0,,"NTE*ADD 
+(For Special Instruction)","Required when UHCG Claims Team / EDI Client want to pass any special instructions at Claim level. 
+
+Details of void & replacement claim will be sent to EDI Client in Outbound File (UHCG to EDI Client) at claim level only if NTE01=ADD. ",S,Both,"In/Outbound Example:
+NTE*ADD*Free Text Here~
+Outbound Ex: NTE*ADD*Corrected claim~
+Inbount Ex: NTE*ADD*742~
+Note – 
+a. UHCG will not include NTE segment unless there is special instructions to be passed to EDI Client 
+b. NTE Segment must be populated incase of multiple coverage percentage or incase if coinsurance has met at Claim level
+EX: NTE*ADD*Pay 1576.41~
+c. UHCG does not expect NTE segment in the EDI File unless Not Covered Amount is greater than 0 (Except the scenario mentioned in the point #b above)
+"
+N/A,NTE01,Note Reference Code,ID,3-3,R,,,ADD,,R,Both,
+Claim Level Special Instruction,NTE02,Claim Note Text,AN,1-80,R,,,,"Claim Note Text
+A free-form description to clarify the related data elements and their content",R,Both,Pay$$$$$ (Total Net Paid Amount Paid by EDI Client) incase of multiple coverage percentage applicable or incase if coinsurance has been met.
+Diagnosis Codes,HI,PRINCIPAL DIAGNOSIS,,Segment Repeat: 1,R,2300.0,,,1. Do not transmit the decimal point for ICD codes. The decimal point is implied.,R,Both,"In/Outbound Example:
+HI*ABK:Z1211:::::::U~"
+N/A,HI01,HEALTH CARE CODE INFORMATION,,,R,,,,,R,Both,
+,HI01-1,Code List Qualifier Code,ID,1-3,R,,,"ABK, BK","ABK=International Classification of Diseases Clinical Modification (ICD-10-CM) Principal Diagnosis.  This code set is not allowed for use under HIPAA at the time of this writing. The qualifier can only be used:  If a new rule names the ICD-10-CM as an allowable code set under HIPAA, OR The Secretary grants an exception to use the code set as a pilot project as allowed under the law, OR For claims which are not covered under HIPAA.",R,Both,ABK
+Diagnosis Codes,HI01-2,Industry Code,AN,1-30,R,,,,Principal Diagnosis Code,R,Both,
+N/A,HI01-3,Date Time Period Format Qualifier,ID,2-3,N/U,,,,,N/U,N/U,
+N/A,HI01-4,Date Time Period,AN,1-35,N/U,,,,,N/U,N/U,
+N/A,HI01-5,Monetary Amount,R,1-18,N/U,,,,,N/U,N/U,
+N/A,HI01-6,Quantity,R,1-15,N/U,,,,,N/U,N/U,
+N/A,HI01-7,Version Identifier,AN,1-30,N/U,,,,,N/U,N/U,
+N/A,HI01-8,Industry code,AN,1-30,N/U,,,,,N/U,N/U,
+N/A,HI01-9,Yes/No Condition or Response Code,ID,1-1,S,,,"N, U, W, Y
+
+Required as directed by the NUBC billing manual.","Present on Admission (POA) Indicator 
+
+N=No
+U=Unknown
+W=Not Applicable
+Y=Yes",S,Both,"Y, N, U"
+N/A,HI02-HI12,HEALTH CARE CODE INFORMATION,,,N/U,,,, ,N/U,N/U,
+Diagnosis Codes,HI,ADMITTING DIAGNOSIS,,Segment Repeat: 1,S,2300.0,,"Required when claim involves an inpatient admission.  If not required by this implementation guide, do not send. "," 1. Do not transmit the decimal point for ICD codes. The decimal point is implied.
+",S,Both,"In/Outbound Example:
+HI*BJ:36504~"
+N/A,HI01,HEALTH CARE CODE INFORMATION,,,R,,,,,R,Both,
+N/A,HI01-1,Code List Qualifier Code,ID,1-3,R,,,"ABJ, BJ","ABJ=International Classification of Diseases Clinical Modification (ICD-10-CM) Admitting Diagnosis.  This code set is not allowed for use under HIPAA at the time of this writing. The qualifier can only be used:  If a new rule names the ICD-10-CM as an allowable code set under HIPAA, OR The Secretary grants an exception to use the code set as a pilot project as allowed under the law, OR For claims which are not covered under HIPAA.
+BJ=International Classification of Diseases Clinical. Modification (ICD-9-CM) Admitting Diagnosis",R,Both,"ABJ, BJ"
+Diagnosis Codes,HI01-2,Industry code,AN,1-30,R,,,,Admitting Diagnosis Code,R,Both,
+N/A,HI01-3,Date Time Period Format Qualifier,ID,2-3,N/U,,,,,N/U,N/U,
+N/A,HI01-4,Date Time Period,AN,1-35,N/U,,,,,N/U,N/U,
+N/A,HI01-5,Monetary Amount,R,1-18,N/U,,,,,N/U,N/U,
+N/A,HI01-6,Quantity,R,1-15,N/U,,,,,N/U,N/U,
+N/A,HI01-7,Version Identifier,AN,1-30,N/U,,,,,N/U,N/U,
+N/A,HI01-8,Industry code,AN,1-30,N/U,,,,,N/U,N/U,
+N/A,HI01-9,Yes/No Condition or response Code,ID,1-1,N/U,,,,,N/U,N/U, 
+N/A,HI02-HI12,HEALTH CARE CODE INFORMATION,,,N/U,,,,,N/U,N/U,
+DRG,HI,DIAGNOSIS RELATED GROUP (DRG) INFORMATION,,Segment Repeat: 1,S,2300.0,,Required when an inpatient hospital is under DRG contract with a payer and the contract requires the provider to identify the DRG to the payer.," If not required by this implementation guide, do not send.",S,Both,"In/Outbound example:  HI*DR:090~
+"
+N/A,HI01,HEALTH CARE CODE INFORMATION,,,R,,,,,R,Both,
+N/A,HI01-1,Code List Qualifier Code,ID,1-3,R,,,DR,DR=Diagnosis Related Group (DRG),R,Both,DR
+DRG,HI01-2,Industry code,AN,1-30,R,,,,Diagnosis Related Group (DRG) Code,R,Both,
+N/A,HI01-3,Date Time Period Format Qualifier,ID,2-3,N/U,,,,,N/U,N/U,
+N/A,HI01-4,Date Time Period,AN,1-35,N/U,,,,,N/U,N/U,
+N/A,HI01-5,Monetary Amount,R,1-18,N/U,,,,,N/U,N/U,
+N/A,HI01-6,Quantity,R,1-15,N/U,,,,,N/U,N/U,
+N/A,HI01-7,Version Identifier,AN,1-30,N/U,,,,,N/U,N/U,
+N/A,HI01-8,Industry code,AN,1-30,N/U,,,,,N/U,N/U,
+N/A,HI01-9,Yes/No Condition or response Code,ID,1-1,N/U,,,,,N/U,N/U,
+N/A,HI02-HI12,HEALTH CARE CODE INFORMATION,,,N/U,,,,,N/U,N/U,
+Diagnosis Codes,HI,OTHER DIAGNOSIS INFORMATION,,Segment Repeat: 2,S,2300.0,,"Required when other condition(s) coexist or develop(s) subsequently during the patient’s treatment. If not required by this implementation guide, do not send. ",1. Do not transmit the decimal point for ICD codes. The decimal point is implied.,S,Both,"In/Outbound Example:
+HI*ABF:N83202:::::::U*ABF:Z01818:::::::U~"
+N/A,HI01,HEALTH CARE CODE INFORMATION,,,R,,,,,R,Both,
+N/A,HI01-1,Code List Qualifier Code,ID,1-3,R,,,"ABF, BF","ABF=International Classification of Diseases Clinical Modification (ICD-10-CM) Diagnosis.  This code set is not allowed for use under HIPAA at the time of this writing. The qualifier can only be used:  If a new rule names the ICD-10-CM as an allowable code set under HIPAA, OR The Secretary grants an exception to use the code set as a pilot project as allowed under the law,
+OR For claims which are not covered under HIPAA.",R,Both,ABF
+Diagnosis Codes,HI01-2,Industry code,AN,1-30,R,,,,Other Diagnosis,R,Both,
+N/A,HI01-3,Date Time Period Format Qualifier,ID,2-3,N/U,,,,,N/U,N/U,
+N/A,HI01-4,Date Time Period,AN,1-35,N/U,,,,,N/U,N/U,
+N/A,HI01-5,Monetary Amount,R,1-18,N/U,,,,,N/U,N/U,
+N/A,HI01-6,Quantity,R,1-15,N/U,,,,,N/U,N/U,
+N/A,HI01-7,Version Identifier,AN,1-30,N/U,,,,,N/U,N/U,
+N/A,HI01-8,Industry code,AN,1-30,N/U,,,, ,N/U,N/U,
+N/A,HI01-9,Yes/No Condition or Response Code,ID,1-1,S,,,"N, U, W, Y","Required as directed by the NUBC billing manual.
+Present on Admission Indicator
+N=No
+U=Unknown
+W=Not Applicable
+Y=Yes",S,Both,"N, U, W, Y"
+N/A,HI02,HEALTH CARE CODE INFORMATION,,,S,,,Required when it is necessary to report an additional diagnosis and the preceding HI data elements have been used to report other diagnoses. ,"If not required by this implementation guide, do not send.",S,Both,
+N/A,HI02-1,Code List Qualifier Code,ID,1-3,R,,,"ABF, BF","ABF=International Classification of Diseases Clinical Modification (ICD-10-CM) Diagnosis.  This code set is not allowed for use under HIPAA at the time of this writing. The qualifier can only be used:  If a new rule names the ICD-10-CM as an allowable code set under HIPAA, OR The Secretary grants an exception to use the code set as a pilot project as allowed under the law,
+OR For claims which are not covered under HIPAA.
+BF=International Classification of Diseases Clinical Modification (ICD-9-CM) Diagnosis",R,Both,"ABF, BF"
+N/A,HI02-2,Industry code,AN,1-30,R,,,,Other Diagnosis,R,Both,
+N/A,HI02-3,Date Time Period Format Qualifier,ID,2-3,N/U,,,,,N/U,N/U,
+N/A,HI02-4,Date Time Period,AN,1-35,N/U,,,,,N/U,N/U,
+N/A,HI02-5,Monetary Amount,R,1-18,N/U,,,,,N/U,N/U,
+N/A,HI02-6,Quantity,R,1-15,N/U,,,,,N/U,N/U,
+N/A,HI02-7,Version Identifier,AN,1-30,N/U,,,,,N/U,N/U,
+N/A,HI02-8,Industry code,AN,1-30,N/U,,,, ,N/U,N/U,
+N/A,HI02-9,Yes/No Condition or Response Code,ID,1-1,S,,,"N, U, W, Y","Required as directed by the NUBC billing manual.
+Present on Admission Indicator
+N=No
+U=Unknown
+W=Not Applicable
+Y=Yes",S,Both,"N, U, W, Y"
+N/A,HI03,HEALTH CARE CODE INFORMATION,,,S,,,Required when it is necessary to report an additional diagnosis and the preceding HI data elements have been used to report other diagnoses. ,"If not required by this implementation guide, do not send.",S,Both,
+N/A,HI03-1,Code List Qualifier Code,ID,1-3,R,,,"ABF, BF","ABF=International Classification of Diseases Clinical Modification (ICD-10-CM) Diagnosis.  This code set is not allowed for use under HIPAA at the time of this writing. The qualifier can only be used:  If a new rule names the ICD-10-CM as an allowable code set under HIPAA, OR The Secretary grants an exception to use the code set as a pilot project as allowed under the law,
+OR For claims which are not covered under HIPAA.
+",R,Both,ABF
+Diagnosis Codes,HI03-2,Industry code,AN,1-30,R,,,,Other Diagnosis,R,Both,
+N/A,HI03-3,Date Time Period Format Qualifier,ID,2-3,N/U,,,,,N/U,N/U,
+N/A,HI03-4,Date Time Period,AN,1-35,N/U,,,,,N/U,N/U,
+N/A,HI03-5,Monetary Amount,R,1-18,N/U,,,,,N/U,N/U,
+N/A,HI03-6,Quantity,R,1-15,N/U,,,,,N/U,N/U,
+N/A,HI03-7,Version Identifier,AN,1-30,N/U,,,,,N/U,N/U,
+N/A,HI03-8,Industry code,AN,1-30,N/U,,,, ,N/U,N/U,
+N/A,HI03-9,Yes/No Condition or Response Code,ID,1-1,S,,,"N, U, W, Y","Required as directed by the NUBC billing manual.
+Present on Admission Indicator
+N=No
+U=Unknown
+W=Not Applicable
+Y=Yes",S,Both,"N, U, W, Y"
+N/A,HI04,HEALTH CARE CODE INFORMATION,,,S,,,Required when it is necessary to report an additional diagnosis and the preceding HI data elements have been used to report other diagnoses. ,"If not required by this implementation guide, do not send.",S,Both,
+N/A,HI04-1,Code List Qualifier Code,ID,1-3,R,,,"ABF, BF","ABF=International Classification of Diseases Clinical Modification (ICD-10-CM) Diagnosis.  This code set is not allowed for use under HIPAA at the time of this writing. The qualifier can only be used:  If a new rule names the ICD-10-CM as an allowable code set under HIPAA, OR The Secretary grants an exception to use the code set as a pilot project as allowed under the law,
+OR For claims which are not covered under HIPAA.
+BF=International Classification of Diseases Clinical Modification (ICD-9-CM) Diagnosis",R,Both,"ABF, BF"
+Diagnosis Codes,HI04-2,Industry code,AN,1-30,R,,,,Other Diagnosis,R,Both,
+N/A,HI04-3,Date Time Period Format Qualifier,ID,2-3,N/U,,,,,N/U,N/U,
+N/A,HI04-4,Date Time Period,AN,1-35,N/U,,,,,N/U,N/U,
+N/A,HI04-5,Monetary Amount,R,1-18,N/U,,,,,N/U,N/U,
+N/A,HI04-6,Quantity,R,1-15,N/U,,,,,N/U,N/U,
+N/A,HI04-7,Version Identifier,AN,1-30,N/U,,,,,N/U,N/U,
+N/A,HI04-8,Industry code,AN,1-30,N/U,,,, ,N/U,N/U,
+N/A,HI04-9,Yes/No Condition or Response Code,ID,1-1,S,,,"N, U, W, Y","Required as directed by the NUBC billing manual.
+Present on Admission Indicator
+N=No
+U=Unknown
+W=Not Applicable
+Y=Yes",S,Both,"N, U, W, Y"
+N/A,HI05,HEALTH CARE CODE INFORMATION,,,S,,,Required when it is necessary to report an additional diagnosis and the preceding HI data elements have been used to report other diagnoses. ,"If not required by this implementation guide, do not send.",S,Both,
+N/A,HI05-1,Code List Qualifier Code,ID,1-3,R,,,"ABF, BF","ABF=International Classification of Diseases Clinical Modification (ICD-10-CM) Diagnosis.  This code set is not allowed for use under HIPAA at the time of this writing. The qualifier can only be used:  If a new rule names the ICD-10-CM as an allowable code set under HIPAA, OR The Secretary grants an exception to use the code set as a pilot project as allowed under the law,
+OR For claims which are not covered under HIPAA.
+BF=International Classification of Diseases Clinical Modification (ICD-9-CM) Diagnosis",R,Both,"ABF, BF"
+Diagnosis Codes,HI05-2,Industry code,AN,1-30,R,,,,Other Diagnosis,R,Both,
+N/A,HI05-3,Date Time Period Format Qualifier,ID,2-3,N/U,,,,,N/U,N/U,
+N/A,HI05-4,Date Time Period,AN,1-35,N/U,,,,,N/U,N/U,
+N/A,HI05-5,Monetary Amount,R,1-18,N/U,,,,,N/U,N/U,
+N/A,HI05-6,Quantity,R,1-15,N/U,,,,,N/U,N/U,
+N/A,HI05-7,Version Identifier,AN,1-30,N/U,,,,,N/U,N/U,
+N/A,HI05-8,Industry code,AN,1-30,N/U,,,, ,N/U,N/U,
+N/A,HI05-9,Yes/No Condition or Response Code,ID,1-1,S,,,"N, U, W, Y","Required as directed by the NUBC billing manual.
+Present on Admission Indicator
+N=No
+U=Unknown
+W=Not Applicable
+Y=Yes",S,Both,"N, U, W, Y"
+N/A,HI06,HEALTH CARE CODE INFORMATION,,,S,,,Required when it is necessary to report an additional diagnosis and the preceding HI data elements have been used to report other diagnoses. ,"If not required by this implementation guide, do not send.",S,Both,
+N/A,HI06-1,Code List Qualifier Code,ID,1-3,R,,,"ABF, BF","ABF=International Classification of Diseases Clinical Modification (ICD-10-CM) Diagnosis.  This code set is not allowed for use under HIPAA at the time of this writing. The qualifier can only be used:  If a new rule names the ICD-10-CM as an allowable code set under HIPAA, OR The Secretary grants an exception to use the code set as a pilot project as allowed under the law,
+OR For claims which are not covered under HIPAA.",R,Both,ABF
+Diagnosis Codes,HI06-2,Industry code,AN,1-30,R,,,,Other Diagnosis,R,Both,
+N/A,HI06-3,Date Time Period Format Qualifier,ID,2-3,N/U,,,,,N/U,N/U,
+N/A,HI06-4,Date Time Period,AN,1-35,N/U,,,,,N/U,N/U,
+N/A,HI06-5,Monetary Amount,R,1-18,N/U,,,,,N/U,N/U,
+N/A,HI06-6,Quantity,R,1-15,N/U,,,,,N/U,N/U,
+N/A,HI06-7,Version Identifier,AN,1-30,N/U,,,,,N/U,N/U,
+N/A,HI06-8,Industry code,AN,1-30,N/U,,,, ,N/U,N/U,
+N/A,HI06-9,Yes/No Condition or Response Code,ID,1-1,S,,,"N, U, W, Y","Required as directed by the NUBC billing manual.
+Present on Admission Indicator
+N=No
+U=Unknown
+W=Not Applicable
+Y=Yes",S,Both,"N, U, W, Y"
+N/A,HI07,HEALTH CARE CODE INFORMATION,,,S,,,Required when it is necessary to report an additional diagnosis and the preceding HI data elements have been used to report other diagnoses. ,"If not required by this implementation guide, do not send.",S,Both,
+N/A,HI07-1,Code List Qualifier Code,ID,1-3,R,,,"ABF, BF","ABF=International Classification of Diseases Clinical Modification (ICD-10-CM) Diagnosis.  This code set is not allowed for use under HIPAA at the time of this writing. The qualifier can only be used:  If a new rule names the ICD-10-CM as an allowable code set under HIPAA, OR The Secretary grants an exception to use the code set as a pilot project as allowed under the law,
+OR For claims which are not covered under HIPAA.",R,Both,ABF
+Diagnosis Codes,HI07-2,Industry code,AN,1-30,R,,,,Other Diagnosis,R,Both,
+N/A,HI07-3,Date Time Period Format Qualifier,ID,2-3,N/U,,,,,N/U,N/U,
+N/A,HI07-4,Date Time Period,AN,1-35,N/U,,,,,N/U,N/U,
+N/A,HI07-5,Monetary Amount,R,1-18,N/U,,,,,N/U,N/U,
+N/A,HI07-6,Quantity,R,1-15,N/U,,,,,N/U,N/U,
+N/A,HI07-7,Version Identifier,AN,1-30,N/U,,,,,N/U,N/U,
+N/A,HI07-8,Industry code,AN,1-30,N/U,,,, ,N/U,N/U,
+N/A,HI07-9,Yes/No Condition or Response Code,ID,1-1,S,,,"N, U, W, Y","Required as directed by the NUBC billing manual.
+Present on Admission Indicator
+N=No
+U=Unknown
+W=Not Applicable
+Y=Yes",S,Both,"N, U, W, Y"
+N/A,HI08,HEALTH CARE CODE INFORMATION,,,S,,,Required when it is necessary to report an additional diagnosis and the preceding HI data elements have been used to report other diagnoses. ,"If not required by this implementation guide, do not send.",S,Both,
+N/A,HI08-1,Code List Qualifier Code,ID,1-3,R,,,"ABF, BF","ABF=International Classification of Diseases Clinical Modification (ICD-10-CM) Diagnosis.  This code set is not allowed for use under HIPAA at the time of this writing. The qualifier can only be used:  If a new rule names the ICD-10-CM as an allowable code set under HIPAA, OR The Secretary grants an exception to use the code set as a pilot project as allowed under the law,
+OR For claims which are not covered under HIPAA.",R,Both,ABF
+Diagnosis Codes,HI08-2,Industry code,AN,1-30,R,,,,Other Diagnosis,R,Both,
+N/A,HI08-3,Date Time Period Format Qualifier,ID,2-3,N/U,,,,,N/U,N/U,
+N/A,HI08-4,Date Time Period,AN,1-35,N/U,,,,,N/U,N/U,
+N/A,HI08-5,Monetary Amount,R,1-18,N/U,,,,,N/U,N/U,
+N/A,HI08-6,Quantity,R,1-15,N/U,,,,,N/U,N/U,
+N/A,HI08-7,Version Identifier,AN,1-30,N/U,,,,,N/U,N/U,
+N/A,HI08-8,Industry code,AN,1-30,N/U,,,, ,N/U,N/U,
+N/A,HI08-9,Yes/No Condition or Response Code,ID,1-1,S,,,"N, U, W, Y","Required as directed by the NUBC billing manual.
+Present on Admission Indicator
+N=No
+U=Unknown
+W=Not Applicable
+Y=Yes",S,Both,"N, U, W, Y"
+N/A,HI09,HEALTH CARE CODE INFORMATION,,,S,,,Required when it is necessary to report an additional diagnosis and the preceding HI data elements have been used to report other diagnoses. ,"If not required by this implementation guide, do not send.",S,Both,
+N/A,HI09-1,Code List Qualifier Code,ID,1-3,R,,,"ABF, BF","ABF=International Classification of Diseases Clinical Modification (ICD-10-CM) Diagnosis.  This code set is not allowed for use under HIPAA at the time of this writing. The qualifier can only be used:  If a new rule names the ICD-10-CM as an allowable code set under HIPAA, OR The Secretary grants an exception to use the code set as a pilot project as allowed under the law,
+OR For claims which are not covered under HIPAA.",R,Both,ABF
+Diagnosis Codes,HI09-2,Industry code,AN,1-30,R,,,,Other Diagnosis,R,Both,
+N/A,HI09-3,Date Time Period Format Qualifier,ID,2-3,N/U,,,,,N/U,N/U,
+N/A,HI09-4,Date Time Period,AN,1-35,N/U,,,,,N/U,N/U,
+N/A,HI09-5,Monetary Amount,R,1-18,N/U,,,,,N/U,N/U,
+N/A,HI09-6,Quantity,R,1-15,N/U,,,,,N/U,N/U,
+N/A,HI09-7,Version Identifier,AN,1-30,N/U,,,,,N/U,N/U,
+N/A,HI09-8,Industry code,AN,1-30,N/U,,,, ,N/U,N/U,
+N/A,HI09-9,Yes/No Condition or Response Code,ID,1-1,S,,,"N, U, W, Y","Required as directed by the NUBC billing manual.
+Present on Admission Indicator
+N=No
+U=Unknown
+W=Not Applicable
+Y=Yes",S,Both,"N, U, W, Y"
+N/A,HI10,HEALTH CARE CODE INFORMATION,,,S,,,Required when it is necessary to report an additional diagnosis and the preceding HI data elements have been used to report other diagnoses. ,"If not required by this implementation guide, do not send.",S,Both,
+N/A,HI10-1,Code List Qualifier Code,ID,1-3,R,,,"ABF, BF","ABF=International Classification of Diseases Clinical Modification (ICD-10-CM) Diagnosis.  This code set is not allowed for use under HIPAA at the time of this writing. The qualifier can only be used:  If a new rule names the ICD-10-CM as an allowable code set under HIPAA, OR The Secretary grants an exception to use the code set as a pilot project as allowed under the law,
+OR For claims which are not covered under HIPAA.",R,Both,ABF
+Diagnosis Codes,HI10-2,Industry code,AN,1-30,R,,,,Other Diagnosis,R,Both,
+N/A,HI10-3,Date Time Period Format Qualifier,ID,2-3,N/U,,,,,N/U,N/U,
+N/A,HI10-4,Date Time Period,AN,1-35,N/U,,,,,N/U,N/U,
+N/A,HI10-5,Monetary Amount,R,1-18,N/U,,,,,N/U,N/U,
+N/A,HI10-6,Quantity,R,1-15,N/U,,,,,N/U,N/U,
+N/A,HI10-7,Version Identifier,AN,1-30,N/U,,,,,N/U,N/U,
+N/A,HI10-8,Industry code,AN,1-30,N/U,,,, ,N/U,N/U,
+N/A,HI10-9,Yes/No Condition or Response Code,ID,1-1,S,,,"N, U, W, Y","Required as directed by the NUBC billing manual.
+Present on Admission Indicator
+N=No
+U=Unknown
+W=Not Applicable
+Y=Yes",S,Both,"N, U, W, Y"
+N/A,HI11,HEALTH CARE CODE INFORMATION,,,S,,,Required when it is necessary to report an additional diagnosis and the preceding HI data elements have been used to report other diagnoses. ,"If not required by this implementation guide, do not send.",S,Both,
+N/A,HI11-1,Code List Qualifier Code,ID,1-3,R,,,"ABF, BF","ABF=International Classification of Diseases Clinical Modification (ICD-10-CM) Diagnosis.  This code set is not allowed for use under HIPAA at the time of this writing. The qualifier can only be used:  If a new rule names the ICD-10-CM as an allowable code set under HIPAA, OR The Secretary grants an exception to use the code set as a pilot project as allowed under the law,
+OR For claims which are not covered under HIPAA.
+BF=International Classification of Diseases Clinical Modification (ICD-9-CM) Diagnosis",R,Both,"ABF, BF"
+Diagnosis Codes,HI11-2,Industry code,AN,1-30,R,,,,Other Diagnosis,R,Both,
+N/A,HI11-3,Date Time Period Format Qualifier,ID,2-3,N/U,,,,,N/U,N/U,
+N/A,HI11-4,Date Time Period,AN,1-35,N/U,,,,,N/U,N/U,
+N/A,HI11-5,Monetary Amount,R,1-18,N/U,,,,,N/U,N/U,
+N/A,HI11-6,Quantity,R,1-15,N/U,,,,,N/U,N/U,
+N/A,HI11-7,Version Identifier,AN,1-30,N/U,,,,,N/U,N/U,
+N/A,HI11-8,Industry code,AN,1-30,N/U,,,, ,N/U,N/U,
+N/A,HI11-9,Yes/No Condition or Response Code,ID,1-1,S,,,"N, U, W, Y","Required as directed by the NUBC billing manual.
+Present on Admission Indicator
+N=No
+U=Unknown
+W=Not Applicable
+Y=Yes",S,Both,"N, U, W, Y"
+N/A,HI12,HEALTH CARE CODE INFORMATION,,,S,,,Required when it is necessary to report an additional diagnosis and the preceding HI data elements have been used to report other diagnoses. ,"If not required by this implementation guide, do not send.",S,Both,
+N/A,HI12-1,Code List Qualifier Code,ID,1-3,R,,,"ABF, BF","ABF=International Classification of Diseases Clinical Modification (ICD-10-CM) Diagnosis.  This code set is not allowed for use under HIPAA at the time of this writing. The qualifier can only be used:  If a new rule names the ICD-10-CM as an allowable code set under HIPAA, OR The Secretary grants an exception to use the code set as a pilot project as allowed under the law,
+OR For claims which are not covered under HIPAA.",R,Both,ABF
+Diagnosis Codes,HI12-2,Industry code,AN,1-30,R,,,,Other Diagnosis,R,Both,
+N/A,HI12-3,Date Time Period Format Qualifier,ID,2-3,N/U,,,,,N/U,N/U,
+N/A,HI12-4,Date Time Period,AN,1-35,N/U,,,,,N/U,N/U,
+N/A,HI12-5,Monetary Amount,R,1-18,N/U,,,,,N/U,N/U,
+N/A,HI12-6,Quantity,R,1-15,N/U,,,,,N/U,N/U,
+N/A,HI12-7,Version Identifier,AN,1-30,N/U,,,,,N/U,N/U,
+N/A,HI12-8,Industry code,AN,1-30,N/U,,,, ,N/U,N/U,
+N/A,HI12-9,Yes/No Condition or Response Code,ID,1-1,S,,,"N, U, W, Y","Required as directed by the NUBC billing manual.
+Present on Admission Indicator
+N=No
+U=Unknown
+W=Not Applicable
+Y=Yes",S,Both,"N, U, W, Y"
+,HI,PRINCIPAL PROCEDURE INFORMATION,,Segment Repeat: 1,S,2300.0,,"Required on inpatient claims when a procedure was performed. If not required by this implementation guide, do not send.", 1. Do not transmit the decimal point for ICD codes. The decimal point is implied.,S,Both,"In/Outbound Example:
+HI*BR:3722:D8:201090505~
+HI*BBR:0FB03ZX:D8:20160329~"
+N/A,HI01,HEALTH CARE CODE INFORMATION,,,R,,,,,R,Both,
+N/A,HI01-1,Code List Qualifier Code,ID,1-3,R,,,"BBR, BR, CAH
+BBR=International Classification of Diseases Clinical Modification (ICD-10-PCS) Principal Procedure Codes.  This code set is not allowed for use under HIPAA at the time of this writing. The qualifier can only be used:  If a new rule names the ICD-10-PCS as an allowable code set under HIPAA, OR The Secretary grants an exception to use the code set as a pilot project as allowed under the law, OR For claims which are not covered under HIPAA. 
+BR=International Classification of Diseases Clinical  Modification (ICD-9-CM) Principal Procedure Codes
+CAH=Advanced Billing Concepts (ABC) Codes",BBR,R,Both,"BBR for  ICD10, "
+N/A,HI01-2,Industry code,AN,1-30,R,,,,Principal Procedure Code,R,Both,"ICD10 Principal Codes
+Note:  Letters O and I are not used to avoid confusion with numbers 0 and 1.
+"
+N/A,HI01-3,Date Time Period Format Qualifier,ID,2-3,R,,,,D8=Date Expressed in Format CCYYMMDD,R,Both,
+N/A,HI01-4,Date Time Period,AN,1-35,R,,,,Principal Procedure Date,R,Both,
+N/A,HI01-5,Monetary Amount,R,1-18,N/U,,,,,N/U,N/U,
+N/A,HI01-6,Quantity,R,1-15,N/U,,,,,N/U,N/U,
+N/A,HI01-7,Version Identifier,AN,1-30,N/U,,,,,N/U,N/U,
+N/A,HI01-8,Industry code,AN,1-30,N/U,,,,,N/U,N/U,
+N/A,HI01-9,Yes/No Condition or Response Code,ID,1-1,N/U,,,,,N/U,N/U, 
+N/A,HI02-HI12,HEALTH CARE CODE INFORMATION,,,N/U,,,,,N/U,N/U,
+N/A,HI,OTHER PROCEDURE INFORMATION,,Segment Repeat: 2,S,2300.0,,Required on inpatient claims when additional procedures must be reported.," If not required by this implementation guide, do not send. 1. Do not transmit the decimal point for ICD codes. The decimal point is implied.",S,Both,"In/Outbound Example:
+HI*BQ:4223:D8:20100510*BQ:4292:D8:20100510~
+HI*BBQ:T888XXA:D8:20160329*BBQ:
+0DQ10ZZ:D8:20160329~"
+N/A,HI01,HEALTH CARE CODE INFORMATION,,,R,,,,,R,Both,
+N/A,HI01-1,Code List Qualifier Code,ID,1-3,R,,,"BBQ, BQ","BBQ=International Classification of Diseases Clinical Modification (ICD-10-PCS) Other Procedure Codes.  This code set is not allowed for use under HIPAA at the time of this writing. The qualifier can only be used: If a new rule names the ICD-10-PCS as an allowable code set under HIPAA, OR The Secretary grants an exception to use the code set as a pilot project as allowed under the law, OR For claims which are not covered under HIPAA.
+BQ=International Classification of Diseases Clinical Modification (ICD-9-CM) Other Procedure Codes",R,Both,"BBQ for ICD10
+BQ for ICD9"
+N/A,HI01-2,Industry Code,AN,1-30,R,,,,Procedure Code,R,Both,"ICD10 Principal Codes
+Note:  Letters O and I are not used to avoid confusion with numbers 0 and 1.
+"
+N/A,HI01-3,Date Time Period Format Qualifier,ID,2-3,R,,,D8,D8=Date Expressed in Format CCYYMMDD,R,Both,
+N/A,HI01-4,Date Time Period,AN,1-35,R,,,CCYYMMDD,Procedure Date,R,Both,
+N/A,HI01-5,Monetary Amount,R,1-18,N/U,,,,,N/U,N/U,
+N/A,HI01-6,Quantity,R,1-15,N/U,,,,,N/U,N/U,
+N/A,HI01-7,Version Identifier,AN,1-30,N/U,,,,,N/U,N/U,
+N/A,HI01-8,Industry Code,AN,1-30,N/U,,,,,N/U,N/U,
+N/A,HI01-9,Yes/No Condition or response Code,ID,1-1,N/U,,,,,N/U,N/U,
+N/A,HI02,HEALTH CARE CODE INFORMATION,,,S,,,Required when it is necessary to report an additional procedure and the preceding HI data elements have been used to report other procedures.," If not required by this implementation
+guide, do not send.",S,Both,
+N/A,HI02-1,Code List Qualifier Code,ID,1-3,R,,,"BBQ, BQ","BBQ=International Classification of Diseases Clinical Modification (ICD-10-PCS) Other Procedure Codes.  This code set is not allowed for use under HIPAA at the time of this writing. The qualifier can only be used: If a new rule names the ICD-10-PCS as an allowable code set under HIPAA, OR The Secretary grants an exception to use the code set as a pilot project as allowed under the law, OR For claims which are not covered under HIPAA.
+BQ=International Classification of Diseases Clinical Modification (ICD-9-CM) Other Procedure Codes",R,Both,"BBQ for ICD10
+BQ for ICD9"
+N/A,HI02-2,Industry Code,AN,1-30,R,,,,Procedure Code,R,Both,"ICD10 Principal Codes
+Note:  Letters O and I are not used to avoid confusion with numbers 0 and 1.
+"
+N/A,HI02-3,Date Time Period Format Qualifier,ID,2-3,R,,,D8,D8=Date Expressed in Format CCYYMMDD,R,Both,
+N/A,HI02-4,Date Time Period,AN,1-35,R,,,CCYYMMDD,Procedure Date,R,Both,
+N/A,HI02-5,Monetary Amount,R,1-18,N/U,,,,,N/U,N/U,
+N/A,HI02-6,Quantity,R,1-15,N/U,,,,,N/U,N/U,
+N/A,HI02-7,Version Identifier,AN,1-30,N/U,,,,,N/U,N/U,
+N/A,HI02-8,Industry Code,AN,1-30,N/U,,,,,N/U,N/U,
+N/A,HI02-9,Yes/No Condition or response Code,ID,1-1,N/U,,,,,N/U,N/U,
+N/A,HI03,HEALTH CARE CODE INFORMATION,,,S,,,Required when it is necessary to report an additional procedure and the preceding HI data elements have been used to report other procedures.," If not required by this implementation
+guide, do not send.",S,Both,
+N/A,HI03-1,Code List Qualifier Code,ID,1-3,R,,,"BBQ, BQ","BBQ=International Classification of Diseases Clinical Modification (ICD-10-PCS) Other Procedure Codes.  This code set is not allowed for use under HIPAA at the time of this writing. The qualifier can only be used: If a new rule names the ICD-10-PCS as an allowable code set under HIPAA, OR The Secretary grants an exception to use the code set as a pilot project as allowed under the law, OR For claims which are not covered under HIPAA.
+BQ=International Classification of Diseases Clinical Modification (ICD-9-CM) Other Procedure Codes",R,Both,"BBQ for ICD10
+BQ for ICD9"
+N/A,HI03-2,Industry Code,AN,1-30,R,,,,Procedure Code,R,Both,"ICD10 Principal Codes
+Note:  Letters O and I are not used to avoid confusion with numbers 0 and 1.
+"
+N/A,HI03-3,Date Time Period Format Qualifier,ID,2-3,R,,,D8,D8=Date Expressed in Format CCYYMMDD,R,Both,
+N/A,HI03-4,Date Time Period,AN,1-35,R,,,CCYYMMDD,Procedure Date,R,Both,
+N/A,HI03-5,Monetary Amount,R,1-18,N/U,,,,,N/U,N/U,
+N/A,HI03-6,Quantity,R,1-15,N/U,,,,,N/U,N/U,
+N/A,HI03-7,Version Identifier,AN,1-30,N/U,,,,,N/U,N/U,
+N/A,HI03-8,Industry Code,AN,1-30,N/U,,,,,N/U,N/U,
+N/A,HI03-9,Yes/No Condition or response Code,ID,1-1,N/U,,,,,N/U,N/U,
+N/A,HI04,HEALTH CARE CODE INFORMATION,,,S,,,Required when it is necessary to report an additional procedure and the preceding HI data elements have been used to report other procedures.," If not required by this implementation
+guide, do not send.",S,Both,
+N/A,HI04-1,Code List Qualifier Code,ID,1-3,R,,,"BBQ, BQ","BBQ=International Classification of Diseases Clinical Modification (ICD-10-PCS) Other Procedure Codes.  This code set is not allowed for use under HIPAA at the time of this writing. The qualifier can only be used: If a new rule names the ICD-10-PCS as an allowable code set under HIPAA, OR The Secretary grants an exception to use the code set as a pilot project as allowed under the law, OR For claims which are not covered under HIPAA.
+BQ=International Classification of Diseases Clinical Modification (ICD-9-CM) Other Procedure Codes",R,Both,"BBQ for ICD10
+BQ for ICD9"
+N/A,HI04-2,Industry Code,AN,1-30,R,,,,Procedure Code,R,Both,"ICD10 Principal Codes
+Note:  Letters O and I are not used to avoid confusion with numbers 0 and 1.
+"
+N/A,HI04-3,Date Time Period Format Qualifier,ID,2-3,R,,,D8,D8=Date Expressed in Format CCYYMMDD,R,Both,
+N/A,HI04-4,Date Time Period,AN,1-35,R,,,CCYYMMDD,Procedure Date,R,Both,
+N/A,HI04-5,Monetary Amount,R,1-18,N/U,,,,,N/U,N/U,
+N/A,HI04-6,Quantity,R,1-15,N/U,,,,,N/U,N/U,
+N/A,HI04-7,Version Identifier,AN,1-30,N/U,,,,,N/U,N/U,
+N/A,HI04-8,Industry Code,AN,1-30,N/U,,,,,N/U,N/U,
+N/A,HI04-9,Yes/No Condition or response Code,ID,1-1,N/U,,,,,N/U,N/U,
+N/A,HI05,HEALTH CARE CODE INFORMATION,,,S,,,Required when it is necessary to report an additional procedure and the preceding HI data elements have been used to report other procedures.," If not required by this implementation
+guide, do not send.",S,Both,
+N/A,HI05-1,Code List Qualifier Code,ID,1-3,R,,,"BBQ, BQ","BBQ=International Classification of Diseases Clinical Modification (ICD-10-PCS) Other Procedure Codes.  This code set is not allowed for use under HIPAA at the time of this writing. The qualifier can only be used: If a new rule names the ICD-10-PCS as an allowable code set under HIPAA, OR The Secretary grants an exception to use the code set as a pilot project as allowed under the law, OR For claims which are not covered under HIPAA.
+BQ=International Classification of Diseases Clinical Modification (ICD-9-CM) Other Procedure Codes",R,Both,"BBQ for ICD10
+BQ for ICD9"
+N/A,HI05-2,Industry Code,AN,1-30,R,,,,Procedure Code,R,Both,"ICD10 Principal Codes
+Note:  Letters O and I are not used to avoid confusion with numbers 0 and 1.
+"
+N/A,HI05-3,Date Time Period Format Qualifier,ID,2-3,R,,,D8,D8=Date Expressed in Format CCYYMMDD,R,Both,
+N/A,HI05-4,Date Time Period,AN,1-35,R,,,CCYYMMDD,Procedure Date,R,Both,
+N/A,HI05-5,Monetary Amount,R,1-18,N/U,,,,,N/U,N/U,
+N/A,HI05-6,Quantity,R,1-15,N/U,,,,,N/U,N/U,
+N/A,HI05-7,Version Identifier,AN,1-30,N/U,,,,,N/U,N/U,
+N/A,HI05-8,Industry Code,AN,1-30,N/U,,,,,N/U,N/U,
+N/A,HI05-9,Yes/No Condition or response Code,ID,1-1,N/U,,,,,N/U,N/U,
+N/A,HI06,HEALTH CARE CODE INFORMATION,,,S,,,Required when it is necessary to report an additional procedure and the preceding HI data elements have been used to report other procedures.," If not required by this implementation
+guide, do not send.",S,Both,
+N/A,HI06-1,Code List Qualifier Code,ID,1-3,R,,,"BBQ, BQ","BBQ=International Classification of Diseases Clinical Modification (ICD-10-PCS) Other Procedure Codes.  This code set is not allowed for use under HIPAA at the time of this writing. The qualifier can only be used: If a new rule names the ICD-10-PCS as an allowable code set under HIPAA, OR The Secretary grants an exception to use the code set as a pilot project as allowed under the law, OR For claims which are not covered under HIPAA.
+BQ=International Classification of Diseases Clinical Modification (ICD-9-CM) Other Procedure Codes",R,Both,"BBQ for ICD10
+BQ for ICD9"
+N/A,HI06-2,Industry Code,AN,1-30,R,,,,Procedure Code,R,Both,
+N/A,HI06-3,Date Time Period Format Qualifier,ID,2-3,R,,,D8,D8=Date Expressed in Format CCYYMMDD,R,Both,
+N/A,HI06-4,Date Time Period,AN,1-35,R,,,CCYYMMDD,Procedure Date,R,Both,
+N/A,HI06-5,Monetary Amount,R,1-18,N/U,,,,,N/U,N/U,
+N/A,HI06-6,Quantity,R,1-15,N/U,,,,,N/U,N/U,
+N/A,HI06-7,Version Identifier,AN,1-30,N/U,,,,,N/U,N/U,
+N/A,HI06-8,Industry Code,AN,1-30,N/U,,,,,N/U,N/U,
+N/A,HI06-9,Yes/No Condition or response Code,ID,1-1,N/U,,,,,N/U,N/U,
+N/A,HI07,HEALTH CARE CODE INFORMATION,,,S,,,Required when it is necessary to report an additional procedure and the preceding HI data elements have been used to report other procedures.," If not required by this implementation
+guide, do not send.",S,Both,
+N/A,HI07-1,Code List Qualifier Code,ID,1-3,R,,,"BBQ, BQ","BBQ=International Classification of Diseases Clinical Modification (ICD-10-PCS) Other Procedure Codes.  This code set is not allowed for use under HIPAA at the time of this writing. The qualifier can only be used: If a new rule names the ICD-10-PCS as an allowable code set under HIPAA, OR The Secretary grants an exception to use the code set as a pilot project as allowed under the law, OR For claims which are not covered under HIPAA.
+BQ=International Classification of Diseases Clinical Modification (ICD-9-CM) Other Procedure Codes",R,Both,"BBQ for ICD10
+BQ for ICD9"
+N/A,HI07-2,Industry Code,AN,1-30,R,,,,Procedure Code,R,Both,
+N/A,HI07-3,Date Time Period Format Qualifier,ID,2-3,R,,,D8,D8=Date Expressed in Format CCYYMMDD,R,Both,
+N/A,HI07-4,Date Time Period,AN,1-35,R,,,CCYYMMDD,Procedure Date,R,Both,
+N/A,HI07-5,Monetary Amount,R,1-18,N/U,,,,,N/U,N/U,
+N/A,HI07-6,Quantity,R,1-15,N/U,,,,,N/U,N/U,
+N/A,HI07-7,Version Identifier,AN,1-30,N/U,,,,,N/U,N/U,
+N/A,HI07-8,Industry Code,AN,1-30,N/U,,,,,N/U,N/U,
+N/A,HI07-9,Yes/No Condition or response Code,ID,1-1,N/U,,,,,N/U,N/U,
+N/A,HI08,HEALTH CARE CODE INFORMATION,,,S,,,Required when it is necessary to report an additional procedure and the preceding HI data elements have been used to report other procedures.," If not required by this implementation
+guide, do not send.",S,Both,
+N/A,HI08-1,Code List Qualifier Code,ID,1-3,R,,,"BBQ, BQ","BBQ=International Classification of Diseases Clinical Modification (ICD-10-PCS) Other Procedure Codes.  This code set is not allowed for use under HIPAA at the time of this writing. The qualifier can only be used: If a new rule names the ICD-10-PCS as an allowable code set under HIPAA, OR The Secretary grants an exception to use the code set as a pilot project as allowed under the law, OR For claims which are not covered under HIPAA.
+BQ=International Classification of Diseases Clinical Modification (ICD-9-CM) Other Procedure Codes",R,Both,"BBQ for ICD10
+BQ for ICD9"
+N/A,HI08-2,Industry Code,AN,1-30,R,,,,Procedure Code,R,Both,
+N/A,HI08-3,Date Time Period Format Qualifier,ID,2-3,R,,,D8,D8=Date Expressed in Format CCYYMMDD,R,Both,
+N/A,HI08-4,Date Time Period,AN,1-35,R,,,CCYYMMDD,Procedure Date,R,Both,
+N/A,HI08-5,Monetary Amount,R,1-18,N/U,,,,,N/U,N/U,
+N/A,HI08-6,Quantity,R,1-15,N/U,,,,,N/U,N/U,
+N/A,HI08-7,Version Identifier,AN,1-30,N/U,,,,,N/U,N/U,
+N/A,HI08-8,Industry Code,AN,1-30,N/U,,,,,N/U,N/U,
+N/A,HI08-9,Yes/No Condition or response Code,ID,1-1,N/U,,,,,N/U,N/U,
+N/A,HI09,HEALTH CARE CODE INFORMATION,,,S,,,Required when it is necessary to report an additional procedure and the preceding HI data elements have been used to report other procedures.," If not required by this implementation
+guide, do not send.",S,Both,
+N/A,HI09-1,Code List Qualifier Code,ID,1-3,R,,,"BBQ, BQ","BBQ=International Classification of Diseases Clinical Modification (ICD-10-PCS) Other Procedure Codes.  This code set is not allowed for use under HIPAA at the time of this writing. The qualifier can only be used: If a new rule names the ICD-10-PCS as an allowable code set under HIPAA, OR The Secretary grants an exception to use the code set as a pilot project as allowed under the law, OR For claims which are not covered under HIPAA.
+BQ=International Classification of Diseases Clinical Modification (ICD-9-CM) Other Procedure Codes",R,Both,"BBQ for ICD10
+BQ for ICD9"
+N/A,HI09-2,Industry Code,AN,1-30,R,,,,Procedure Code,R,Both,
+N/A,HI09-3,Date Time Period Format Qualifier,ID,2-3,R,,,D8,D8=Date Expressed in Format CCYYMMDD,R,Both,
+N/A,HI09-4,Date Time Period,AN,1-35,R,,,CCYYMMDD,Procedure Date,R,Both,
+N/A,HI09-5,Monetary Amount,R,1-18,N/U,,,,,N/U,N/U,
+N/A,HI09-6,Quantity,R,1-15,N/U,,,,,N/U,N/U,
+N/A,HI09-7,Version Identifier,AN,1-30,N/U,,,,,N/U,N/U,
+N/A,HI09-8,Industry Code,AN,1-30,N/U,,,,,N/U,N/U,
+N/A,HI09-9,Yes/No Condition or response Code,ID,1-1,N/U,,,,,N/U,N/U,
+N/A,HI10,HEALTH CARE CODE INFORMATION,,,S,,,Required when it is necessary to report an additional procedure and the preceding HI data elements have been used to report other procedures.," If not required by this implementation
+guide, do not send.",S,Both,
+N/A,HI10-1,Code List Qualifier Code,ID,1-3,R,,,"BBQ, BQ","BBQ=International Classification of Diseases Clinical Modification (ICD-10-PCS) Other Procedure Codes.  This code set is not allowed for use under HIPAA at the time of this writing. The qualifier can only be used: If a new rule names the ICD-10-PCS as an allowable code set under HIPAA, OR The Secretary grants an exception to use the code set as a pilot project as allowed under the law, OR For claims which are not covered under HIPAA.
+BQ=International Classification of Diseases Clinical Modification (ICD-9-CM) Other Procedure Codes",R,Both,"BBQ for ICD10
+BQ for ICD9"
+N/A,HI10-2,Industry Code,AN,1-30,R,,,,Procedure Code,R,Both,
+N/A,HI10-3,Date Time Period Format Qualifier,ID,2-3,R,,,D8,D8=Date Expressed in Format CCYYMMDD,R,Both,
+N/A,HI10-4,Date Time Period,AN,1-35,R,,,CCYYMMDD,Procedure Date,R,Both,
+N/A,HI10-5,Monetary Amount,R,1-18,N/U,,,,,N/U,N/U,
+N/A,HI10-6,Quantity,R,1-15,N/U,,,,,N/U,N/U,
+N/A,HI10-7,Version Identifier,AN,1-30,N/U,,,,,N/U,N/U,
+N/A,HI10-8,Industry Code,AN,1-30,N/U,,,,,N/U,N/U,
+N/A,HI10-9,Yes/No Condition or response Code,ID,1-1,N/U,,,,,N/U,N/U,
+N/A,HI11,HEALTH CARE CODE INFORMATION,,,S,,,Required when it is necessary to report an additional procedure and the preceding HI data elements have been used to report other procedures.," If not required by this implementation
+guide, do not send.",S,Both,
+N/A,HI11-1,Code List Qualifier Code,ID,1-3,R,,,"BBQ, BQ","BBQ=International Classification of Diseases Clinical Modification (ICD-10-PCS) Other Procedure Codes.  This code set is not allowed for use under HIPAA at the time of this writing. The qualifier can only be used: If a new rule names the ICD-10-PCS as an allowable code set under HIPAA, OR The Secretary grants an exception to use the code set as a pilot project as allowed under the law, OR For claims which are not covered under HIPAA.
+BQ=International Classification of Diseases Clinical Modification (ICD-9-CM) Other Procedure Codes",R,Both,"BBQ for ICD10
+BQ for ICD9"
+N/A,HI11-2,Industry Code,AN,1-30,R,,,,Procedure Code,R,Both,
+N/A,HI11-3,Date Time Period Format Qualifier,ID,2-3,R,,,D8,D8=Date Expressed in Format CCYYMMDD,R,Both,
+N/A,HI11-4,Date Time Period,AN,1-35,R,,,CCYYMMDD,Procedure Date,R,Both,
+N/A,HI11-5,Monetary Amount,R,1-18,N/U,,,,,N/U,N/U,
+N/A,HI11-6,Quantity,R,1-15,N/U,,,,,N/U,N/U,
+N/A,HI11-7,Version Identifier,AN,1-30,N/U,,,,,N/U,N/U,
+N/A,HI11-8,Industry Code,AN,1-30,N/U,,,,,N/U,N/U,
+N/A,HI11-9,Yes/No Condition or response Code,ID,1-1,N/U,,,,,N/U,N/U,
+N/A,HI12,HEALTH CARE CODE INFORMATION,,,S,,,Required when it is necessary to report an additional procedure and the preceding HI data elements have been used to report other procedures.," If not required by this implementation
+guide, do not send.",S,Both,
+N/A,HI12-1,Code List Qualifier Code,ID,1-3,R,,,"BBQ, BQ","BBQ=International Classification of Diseases Clinical Modification (ICD-10-PCS) Other Procedure Codes.  This code set is not allowed for use under HIPAA at the time of this writing. The qualifier can only be used: If a new rule names the ICD-10-PCS as an allowable code set under HIPAA, OR The Secretary grants an exception to use the code set as a pilot project as allowed under the law, OR For claims which are not covered under HIPAA.
+BQ=International Classification of Diseases Clinical Modification (ICD-9-CM) Other Procedure Codes",R,Both,"BBQ for ICD10
+BQ for ICD9"
+N/A,HI12-2,Industry Code,AN,1-30,R,,,,Procedure Code,R,Both,
+N/A,HI12-3,Date Time Period Format Qualifier,ID,2-3,R,,,D8,D8=Date Expressed in Format CCYYMMDD,R,Both,
+N/A,HI12-4,Date Time Period,AN,1-35,R,,,CCYYMMDD,Procedure Date,R,Both,
+N/A,HI12-5,Monetary Amount,R,1-18,N/U,,,,,N/U,N/U,
+N/A,HI12-6,Quantity,R,1-15,N/U,,,,,N/U,N/U,
+N/A,HI12-7,Version Identifier,AN,1-30,N/U,,,,,N/U,N/U,
+N/A,HI12-8,Industry Code,AN,1-30,N/U,,,,,N/U,N/U,
+N/A,HI12-9,Yes/No Condition or response Code,ID,1-1,N/U,,,,,N/U,N/U,
+N/A,HI,OCCURRENCE SPAN INFORMATION,,Segment Repeat: 2,S,2300.0,,Required when there is an Occurrence Span Code that applies to this claim. ,"If not required by this implementation guide, do not send.",S,Both,"In/Outbound Example:
+HI*BI:72:RD8:20100313-20100415~"
+,HI01,HEALTH CARE CODE INFORMATION,,,R,,,,,R,Both,
+,HI01-1,Code List Qualifier Code,ID,1-3,R,,,BI,BI=Occurrence Span,R,Both,BI
+,HI01-2,Industry code,AN,1-30,R,,,,Occurrence Span Code,R,Both,
+,HI01-3,Date Time Period Format Qualifier,ID,2-3,R,,,RD8,RD8=Range of Dates Expressed in Format CCYYMMDD-CCYYMMDD,R,Both,
+,HI01-4,Date Time Period,AN,1-35,R,,,CCYYMMDD-CCYYMMDD,Occurrence Span Code Date,R,Both,
+,HI01-5,Monetary Amount,R,1-18,N/U,,,,,N/U,N/U,
+,HI01-6,Quantity,R,1-15,N/U,,,,,N/U,N/U,
+,HI01-7,Version Identifier,AN,1-30,N/U,,,,,N/U,N/U,
+,HI01-8,Industry code,AN,1-30,N/U,,,,,N/U,N/U,
+,HI01-9,Yes/No Condition or response Code,ID,1-1,N/U,,,,,N/U,N/U,
+,HI02,HEALTH CARE CODE INFORMATION,,,S,,,Required when it is necessary to report an additional occurrence span code and the preceding HI data elements have been used to report other occurrence span codes.," If not required by this implementation guide, do not send.",S,Both,
+,HI02-1,Code List Qualifier Code,ID,1-3,R,,,BI,BI=Occurrence Span,R,Both,BI
+,HI02-2,Industry code,AN,1-30,R,,,,Occurrence Span Code,R,Both,
+,HI02-3,Date Time Period Format Qualifier,ID,2-3,R,,,RD8,RD8=Range of Dates Expressed in Format CCYYMMDD-CCYYMMDD,R,Both,
+,HI02-4,Date Time Period,AN,1-35,R,,,CCYYMMDD-CCYYMMDD,Occurrence Span Code Date,R,Both,
+,HI02-5,Monetary Amount,R,1-18,N/U,,,,,N/U,N/U,
+,HI02-6,Quantity,R,1-15,N/U,,,,,N/U,N/U,
+,HI02-7,Version Identifier,AN,1-30,N/U,,,,,N/U,N/U,
+,HI02-8,Industry code,AN,1-30,N/U,,,,,N/U,N/U,
+,HI02-9,Yes/No Condition or response Code,ID,1-1,N/U,,,,,N/U,N/U,
+,HI03,HEALTH CARE CODE INFORMATION,,,S,,,Required when it is necessary to report an additional occurrence span code and the preceding HI data elements have been used to report other occurrence span codes.," If not required by this implementation guide, do not send.",S,Both,
+,HI03-1,Code List Qualifier Code,ID,1-3,R,,,BI,BI=Occurrence Span,R,Both,BI
+,HI03-2,Industry code,AN,1-30,R,,,,Occurrence Span Code,R,Both,
+,HI03-3,Date Time Period Format Qualifier,ID,2-3,R,,,RD8,RD8=Range of Dates Expressed in Format CCYYMMDD-CCYYMMDD,R,Both,
+,HI03-4,Date Time Period,AN,1-35,R,,,CCYYMMDD-CCYYMMDD,Occurrence Span Code Date,R,Both,
+,HI03-5,Monetary Amount,R,1-18,N/U,,,,,N/U,N/U,
+,HI03-6,Quantity,R,1-15,N/U,,,,,N/U,N/U,
+,HI03-7,Version Identifier,AN,1-30,N/U,,,,,N/U,N/U,
+,HI03-8,Industry code,AN,1-30,N/U,,,,,N/U,N/U,
+,HI03-9,Yes/No Condition or response Code,ID,1-1,N/U,,,,,N/U,N/U,
+,HI04,HEALTH CARE CODE INFORMATION,,,S,,,Required when it is necessary to report an additional occurrence span code and the preceding HI data elements have been used to report other occurrence span codes.," If not required by this implementation guide, do not send.",S,Both,
+,HI04-1,Code List Qualifier Code,ID,1-3,R,,,BI,BI=Occurrence Span,R,Both,BI
+,HI04-2,Industry code,AN,1-30,R,,,,Occurrence Span Code,R,Both,
+,HI04-3,Date Time Period Format Qualifier,ID,2-3,R,,,RD8,RD8=Range of Dates Expressed in Format CCYYMMDD-CCYYMMDD,R,Both,
+,HI04-4,Date Time Period,AN,1-35,R,,,CCYYMMDD-CCYYMMDD,Occurrence Span Code Date,R,Both,
+,HI04-5,Monetary Amount,R,1-18,N/U,,,,,N/U,N/U,
+,HI04-6,Quantity,R,1-15,N/U,,,,,N/U,N/U,
+,HI04-7,Version Identifier,AN,1-30,N/U,,,,,N/U,N/U,
+,HI04-8,Industry code,AN,1-30,N/U,,,,,N/U,N/U,
+,HI04-9,Yes/No Condition or response Code,ID,1-1,N/U,,,,,N/U,N/U,
+,HI05,HEALTH CARE CODE INFORMATION,,,S,,,Required when it is necessary to report an additional occurrence span code and the preceding HI data elements have been used to report other occurrence span codes.," If not required by this implementation guide, do not send.",S,Both,
+,HI05-1,Code List Qualifier Code,ID,1-3,R,,,BI,BI=Occurrence Span,R,Both,BI
+,HI05-2,Industry code,AN,1-30,R,,,,Occurrence Span Code,R,Both,
+,HI05-3,Date Time Period Format Qualifier,ID,2-3,R,,,RD8,RD8=Range of Dates Expressed in Format CCYYMMDD-CCYYMMDD,R,Both,
+,HI05-4,Date Time Period,AN,1-35,R,,,CCYYMMDD-CCYYMMDD,Occurrence Span Code Date,R,Both,
+,HI05-5,Monetary Amount,R,1-18,N/U,,,,,N/U,N/U,
+,HI05-6,Quantity,R,1-15,N/U,,,,,N/U,N/U,
+,HI05-7,Version Identifier,AN,1-30,N/U,,,,,N/U,N/U,
+,HI05-8,Industry code,AN,1-30,N/U,,,,,N/U,N/U,
+,HI05-9,Yes/No Condition or response Code,ID,1-1,N/U,,,,,N/U,N/U,
+,HI06,HEALTH CARE CODE INFORMATION,,,S,,,Required when it is necessary to report an additional occurrence span code and the preceding HI data elements have been used to report other occurrence span codes.," If not required by this implementation guide, do not send.",S,Both,
+,HI06-1,Code List Qualifier Code,ID,1-3,R,,,BI,BI=Occurrence Span,R,Both,BI
+,HI06-2,Industry code,AN,1-30,R,,,,Occurrence Span Code,R,Both,
+,HI06-3,Date Time Period Format Qualifier,ID,2-3,R,,,RD8,RD8=Range of Dates Expressed in Format CCYYMMDD-CCYYMMDD,R,Both,
+,HI06-4,Date Time Period,AN,1-35,R,,,CCYYMMDD-CCYYMMDD,Occurrence Span Code Date,R,Both,
+,HI06-5,Monetary Amount,R,1-18,N/U,,,,,N/U,N/U,
+,HI06-6,Quantity,R,1-15,N/U,,,,,N/U,N/U,
+,HI06-7,Version Identifier,AN,1-30,N/U,,,,,N/U,N/U,
+,HI06-8,Industry code,AN,1-30,N/U,,,,,N/U,N/U,
+,HI06-9,Yes/No Condition or response Code,ID,1-1,N/U,,,,,N/U,N/U,
+,HI07,HEALTH CARE CODE INFORMATION,,,S,,,Required when it is necessary to report an additional occurrence span code and the preceding HI data elements have been used to report other occurrence span codes.," If not required by this implementation guide, do not send.",S,Both,
+,HI07-1,Code List Qualifier Code,ID,1-3,R,,,BI,BI=Occurrence Span,R,Both,BI
+,HI07-2,Industry code,AN,1-30,R,,,,Occurrence Span Code,R,Both,
+,HI07-3,Date Time Period Format Qualifier,ID,2-3,R,,,RD8,RD8=Range of Dates Expressed in Format CCYYMMDD-CCYYMMDD,R,Both,
+,HI07-4,Date Time Period,AN,1-35,R,,,CCYYMMDD-CCYYMMDD,Occurrence Span Code Date,R,Both,
+,HI07-5,Monetary Amount,R,1-18,N/U,,,,,N/U,N/U,
+,HI07-6,Quantity,R,1-15,N/U,,,,,N/U,N/U,
+,HI07-7,Version Identifier,AN,1-30,N/U,,,,,N/U,N/U,
+,HI07-8,Industry code,AN,1-30,N/U,,,,,N/U,N/U,
+,HI07-9,Yes/No Condition or response Code,ID,1-1,N/U,,,,,N/U,N/U,
+,HI08,HEALTH CARE CODE INFORMATION,,,S,,,Required when it is necessary to report an additional occurrence span code and the preceding HI data elements have been used to report other occurrence span codes.," If not required by this implementation guide, do not send.",S,Both,
+,HI08-1,Code List Qualifier Code,ID,1-3,R,,,BI,BI=Occurrence Span,R,Both,BI
+,HI08-2,Industry code,AN,1-30,R,,,,Occurrence Span Code,R,Both,
+,HI08-3,Date Time Period Format Qualifier,ID,2-3,R,,,RD8,RD8=Range of Dates Expressed in Format CCYYMMDD-CCYYMMDD,R,Both,
+,HI08-4,Date Time Period,AN,1-35,R,,,CCYYMMDD-CCYYMMDD,Occurrence Span Code Date,R,Both,
+,HI08-5,Monetary Amount,R,1-18,N/U,,,,,N/U,N/U,
+,HI08-6,Quantity,R,1-15,N/U,,,,,N/U,N/U,
+,HI08-7,Version Identifier,AN,1-30,N/U,,,,,N/U,N/U,
+,HI08-8,Industry code,AN,1-30,N/U,,,,,N/U,N/U,
+,HI08-9,Yes/No Condition or response Code,ID,1-1,N/U,,,,,N/U,N/U,
+,HI09,HEALTH CARE CODE INFORMATION,,,S,,,Required when it is necessary to report an additional occurrence span code and the preceding HI data elements have been used to report other occurrence span codes.," If not required by this implementation guide, do not send.",S,Both,
+,HI09-1,Code List Qualifier Code,ID,1-3,R,,,BI,BI=Occurrence Span,R,Both,BI
+,HI09-2,Industry code,AN,1-30,R,,,,Occurrence Span Code,R,Both,
+,HI09-3,Date Time Period Format Qualifier,ID,2-3,R,,,RD8,RD8=Range of Dates Expressed in Format CCYYMMDD-CCYYMMDD,R,Both,
+,HI09-4,Date Time Period,AN,1-35,R,,,CCYYMMDD-CCYYMMDD,Occurrence Span Code Date,R,Both,
+,HI09-5,Monetary Amount,R,1-18,N/U,,,,,N/U,N/U,
+,HI09-6,Quantity,R,1-15,N/U,,,,,N/U,N/U,
+,HI09-7,Version Identifier,AN,1-30,N/U,,,,,N/U,N/U,
+,HI09-8,Industry code,AN,1-30,N/U,,,,,N/U,N/U,
+,HI09-9,Yes/No Condition or response Code,ID,1-1,N/U,,,,,N/U,N/U,
+,HI10,HEALTH CARE CODE INFORMATION,,,S,,,Required when it is necessary to report an additional occurrence span code and the preceding HI data elements have been used to report other occurrence span codes.," If not required by this implementation guide, do not send.",S,Both,
+,HI10-1,Code List Qualifier Code,ID,1-3,R,,,BI,BI=Occurrence Span,R,Both,BI
+,HI10-2,Industry code,AN,1-30,R,,,,Occurrence Span Code,R,Both,
+,HI10-3,Date Time Period Format Qualifier,ID,2-3,R,,,RD8,RD8=Range of Dates Expressed in Format CCYYMMDD-CCYYMMDD,R,Both,
+,HI10-4,Date Time Period,AN,1-35,R,,,CCYYMMDD-CCYYMMDD,Occurrence Span Code Date,R,Both,
+,HI10-5,Monetary Amount,R,1-18,N/U,,,,,N/U,N/U,
+,HI10-6,Quantity,R,1-15,N/U,,,,,N/U,N/U,
+,HI10-7,Version Identifier,AN,1-30,N/U,,,,,N/U,N/U,
+,HI10-8,Industry code,AN,1-30,N/U,,,,,N/U,N/U,
+,HI10-9,Yes/No Condition or response Code,ID,1-1,N/U,,,,,N/U,N/U,
+,HI11,HEALTH CARE CODE INFORMATION,,,S,,,Required when it is necessary to report an additional occurrence span code and the preceding HI data elements have been used to report other occurrence span codes.," If not required by this implementation guide, do not send.",S,Both,
+,HI11-1,Code List Qualifier Code,ID,1-3,R,,,BI,BI=Occurrence Span,R,Both,BI
+,HI11-2,Industry code,AN,1-30,R,,,,Occurrence Span Code,R,Both,
+,HI11-3,Date Time Period Format Qualifier,ID,2-3,R,,,RD8,RD8=Range of Dates Expressed in Format CCYYMMDD-CCYYMMDD,R,Both,
+,HI11-4,Date Time Period,AN,1-35,R,,,CCYYMMDD-CCYYMMDD,Occurrence Span Code Date,R,Both,
+,HI11-5,Monetary Amount,R,1-18,N/U,,,,,N/U,N/U,
+,HI11-6,Quantity,R,1-15,N/U,,,,,N/U,N/U,
+,HI11-7,Version Identifier,AN,1-30,N/U,,,,,N/U,N/U,
+,HI11-8,Industry code,AN,1-30,N/U,,,,,N/U,N/U,
+,HI11-9,Yes/No Condition or response Code,ID,1-1,N/U,,,,,N/U,N/U,
+,HI12,HEALTH CARE CODE INFORMATION,,,S,,,Required when it is necessary to report an additional occurrence span code and the preceding HI data elements have been used to report other occurrence span codes.," If not required by this implementation guide, do not send.",S,Both,
+,HI12-1,Code List Qualifier Code,ID,1-3,R,,,BI,BI=Occurrence Span,R,Both,BI
+,HI12-2,Industry code,AN,1-30,R,,,,Occurrence Span Code,R,Both,
+,HI12-3,Date Time Period Format Qualifier,ID,2-3,R,,,RD8,RD8=Range of Dates Expressed in Format CCYYMMDD-CCYYMMDD,R,Both,
+,HI12-4,Date Time Period,AN,1-35,R,,,CCYYMMDD-CCYYMMDD,Occurrence Span Code Date,R,Both,
+,HI12-5,Monetary Amount,R,1-18,N/U,,,,,N/U,N/U,
+,HI12-6,Quantity,R,1-15,N/U,,,,,N/U,N/U,
+,HI12-7,Version Identifier,AN,1-30,N/U,,,,,N/U,N/U,
+,HI12-8,Industry code,AN,1-30,N/U,,,,,N/U,N/U,
+,HI12-9,Yes/No Condition or response Code,ID,1-1,N/U,,,,,N/U,N/U,
+,HI,VALUE INFORMATION,,Segment Repeat: 2,S,2300.0,,Required when there is a Value Code that applies to this claim. ,"If not required by this implementation guide, do not send.",S,Both,"In/Outbound Example: HI*BE:45:::12*BE:08:::940~
+HI*BE:A3:::515.26~"
+,HI01,HEALTH CARE CODE INFORMATION,,,R,,,, ,R,Both,
+,HI01-1,Code List Qualifier Code,ID,1-3,R,,,BE,BE=Value,R,Both,BE
+,HI01-2,Industry code,AN,1-30,R,,,,Value Code,R,Both,
+,HI01-3,Date Time Period Format Qualifier,ID,2-3,N/U,,,,,N/U,N/U,
+,HI01-4,Date Time Period,AN,1-35,N/U,,,,,N/U,N/U,
+,HI01-5,Monetary Amount,R,1-18,R,,,,Value Code Amount,R,Both,
+,HI01-6,Quantity,R,1-15,N/U,,,,,N/U,N/U,
+,HI01-7,Version Identifier,AN,1-30,N/U,,,,,N/U,N/U,
+,HI01-8,Industry code,AN,1-30,N/U,,,,,N/U,N/U,
+,HI01-9,Yes/No Condition or response Code,ID,1-1,N/U,,,,,N/U,N/U,
+,HI02,HEALTH CARE CODE INFORMATION,,,S,,,Required when it is necessary to report an additional value code and the preceding HI data elements have been used to report other value codes. ,"If not required by this implementation guide, do not send.",S,Both,
+,HI02-1,Code List Qualifier Code,ID,1-3,R,,,BE,BE=Value,R,Both,BE
+,HI02-2,Industry code,AN,1-30,R,,,,Value Code,R,Both,
+,HI02-3,Date Time Period Format Qualifier,ID,2-3,N/U,,,,,N/U,N/U,
+,HI02-4,Date Time Period,AN,1-35,N/U,,,,,N/U,N/U,
+,HI02-5,Monetary Amount,R,1-18,R,,,,Value Code Amount,R,Both,
+,HI02-6,Quantity,R,1-15,N/U,,,,,N/U,N/U,
+,HI02-7,Version Identifier,AN,1-30,N/U,,,,,N/U,N/U,
+,HI02-8,Industry code,AN,1-30,N/U,,,,,N/U,N/U,
+,HI02-9,Yes/No Condition or response Code,ID,1-1,N/U,,,,,N/U,N/U,
+,HI03,HEALTH CARE CODE INFORMATION,,,S,,,Required when it is necessary to report an additional value code and the preceding HI data elements have been used to report other value codes. ,"If not required by this implementation guide, do not send.",S,Both,
+,HI03-1,Code List Qualifier Code,ID,1-3,R,,,BE,BE=Value,R,Both,BE
+,HI03-2,Industry code,AN,1-30,R,,,,Value Code,R,Both,
+,HI03-3,Date Time Period Format Qualifier,ID,2-3,N/U,,,,,N/U,N/U,
+,HI03-4,Date Time Period,AN,1-35,N/U,,,,,N/U,N/U,
+,HI03-5,Monetary Amount,R,1-18,R,,,,Value Code Amount,R,Both,
+,HI03-6,Quantity,R,1-15,N/U,,,,,N/U,N/U,
+,HI03-7,Version Identifier,AN,1-30,N/U,,,,,N/U,N/U,
+,HI03-8,Industry code,AN,1-30,N/U,,,,,N/U,N/U,
+,HI03-9,Yes/No Condition or response Code,ID,1-1,N/U,,,,,N/U,N/U,
+,HI04,HEALTH CARE CODE INFORMATION,,,S,,,Required when it is necessary to report an additional value code and the preceding HI data elements have been used to report other value codes. ,"If not required by this implementation guide, do not send.",S,Both,
+,HI04-1,Code List Qualifier Code,ID,1-3,R,,,BE,BE=Value,R,Both,BE
+,HI04-2,Industry code,AN,1-30,R,,,,Value Code,R,Both,
+,HI04-3,Date Time Period Format Qualifier,ID,2-3,N/U,,,,,N/U,N/U,
+,HI04-4,Date Time Period,AN,1-35,N/U,,,,,N/U,N/U,
+,HI04-5,Monetary Amount,R,1-18,R,,,,Value Code Amount,R,Both,
+,HI04-6,Quantity,R,1-15,N/U,,,,,N/U,N/U,
+,HI04-7,Version Identifier,AN,1-30,N/U,,,,,N/U,N/U,
+,HI04-8,Industry code,AN,1-30,N/U,,,,,N/U,N/U,
+,HI04-9,Yes/No Condition or response Code,ID,1-1,N/U,,,,,N/U,N/U,
+,HI05,HEALTH CARE CODE INFORMATION,,,S,,,Required when it is necessary to report an additional value code and the preceding HI data elements have been used to report other value codes. ,"If not required by this implementation guide, do not send.",S,Both,
+,HI05-1,Code List Qualifier Code,ID,1-3,R,,,BE,BE=Value,R,Both,BE
+,HI05-2,Industry code,AN,1-30,R,,,,Value Code,R,Both,
+,HI05-3,Date Time Period Format Qualifier,ID,2-3,N/U,,,,,N/U,N/U,
+,HI05-4,Date Time Period,AN,1-35,N/U,,,,,N/U,N/U,
+,HI05-5,Monetary Amount,R,1-18,R,,,,Value Code Amount,R,Both,
+,HI05-6,Quantity,R,1-15,N/U,,,,,N/U,N/U,
+,HI05-7,Version Identifier,AN,1-30,N/U,,,,,N/U,N/U,
+,HI05-8,Industry code,AN,1-30,N/U,,,,,N/U,N/U,
+,HI05-9,Yes/No Condition or response Code,ID,1-1,N/U,,,,,N/U,N/U,
+,HI06,HEALTH CARE CODE INFORMATION,,,S,,,Required when it is necessary to report an additional value code and the preceding HI data elements have been used to report other value codes. ,"If not required by this implementation guide, do not send.",S,Both,
+,HI06-1,Code List Qualifier Code,ID,1-3,R,,,BE,BE=Value,R,Both,BE
+,HI06-2,Industry code,AN,1-30,R,,,,Value Code,R,Both,
+,HI06-3,Date Time Period Format Qualifier,ID,2-3,N/U,,,,,N/U,N/U,
+,HI06-4,Date Time Period,AN,1-35,N/U,,,,,N/U,N/U,
+,HI06-5,Monetary Amount,R,1-18,R,,,,Value Code Amount,R,Both,
+,HI06-6,Quantity,R,1-15,N/U,,,,,N/U,N/U,
+,HI06-7,Version Identifier,AN,1-30,N/U,,,,,N/U,N/U,
+,HI06-8,Industry code,AN,1-30,N/U,,,,,N/U,N/U,
+,HI06-9,Yes/No Condition or response Code,ID,1-1,N/U,,,,,N/U,N/U,
+,HI07,HEALTH CARE CODE INFORMATION,,,S,,,Required when it is necessary to report an additional value code and the preceding HI data elements have been used to report other value codes. ,"If not required by this implementation guide, do not send.",S,Both,
+,HI07-1,Code List Qualifier Code,ID,1-3,R,,,BE,BE=Value,R,Both,BE
+,HI07-2,Industry code,AN,1-30,R,,,,Value Code,R,Both,
+,HI07-3,Date Time Period Format Qualifier,ID,2-3,N/U,,,,,N/U,N/U,
+,HI07-4,Date Time Period,AN,1-35,N/U,,,,,N/U,N/U,
+,HI07-5,Monetary Amount,R,1-18,R,,,,Value Code Amount,R,Both,
+,HI07-6,Quantity,R,1-15,N/U,,,,,N/U,N/U,
+,HI07-7,Version Identifier,AN,1-30,N/U,,,,,N/U,N/U,
+,HI07-8,Industry code,AN,1-30,N/U,,,,,N/U,N/U,
+,HI07-9,Yes/No Condition or response Code,ID,1-1,N/U,,,,,N/U,N/U,
+,HI08,HEALTH CARE CODE INFORMATION,,,S,,,Required when it is necessary to report an additional value code and the preceding HI data elements have been used to report other value codes. ,"If not required by this implementation guide, do not send.",S,Both,
+,HI08-1,Code List Qualifier Code,ID,1-3,R,,,BE,BE=Value,R,Both,BE
+,HI08-2,Industry code,AN,1-30,R,,,,Value Code,R,Both,
+,HI08-3,Date Time Period Format Qualifier,ID,2-3,N/U,,,,,N/U,N/U,
+,HI08-4,Date Time Period,AN,1-35,N/U,,,,,N/U,N/U,
+,HI08-5,Monetary Amount,R,1-18,R,,,,Value Code Amount,R,Both,
+,HI08-6,Quantity,R,1-15,N/U,,,,,N/U,N/U,
+,HI08-7,Version Identifier,AN,1-30,N/U,,,,,N/U,N/U,
+,HI08-8,Industry code,AN,1-30,N/U,,,,,N/U,N/U,
+,HI08-9,Yes/No Condition or response Code,ID,1-1,N/U,,,,,N/U,N/U,
+,HI09,HEALTH CARE CODE INFORMATION,,,S,,,Required when it is necessary to report an additional value code and the preceding HI data elements have been used to report other value codes. ,"If not required by this implementation guide, do not send.",S,Both,
+,HI09-1,Code List Qualifier Code,ID,1-3,R,,,BE,BE=Value,R,Both,BE
+,HI09-2,Industry code,AN,1-30,R,,,,Value Code,R,Both,
+,HI09-3,Date Time Period Format Qualifier,ID,2-3,N/U,,,,,N/U,N/U,
+,HI09-4,Date Time Period,AN,1-35,N/U,,,,,N/U,N/U,
+,HI09-5,Monetary Amount,R,1-18,R,,,,Value Code Amount,R,Both,
+,HI09-6,Quantity,R,1-15,N/U,,,,,N/U,N/U,
+,HI09-7,Version Identifier,AN,1-30,N/U,,,,,N/U,N/U,
+,HI09-8,Industry code,AN,1-30,N/U,,,,,N/U,N/U,
+,HI09-9,Yes/No Condition or response Code,ID,1-1,N/U,,,,,N/U,N/U,
+,HI10,HEALTH CARE CODE INFORMATION,,,S,,,Required when it is necessary to report an additional value code and the preceding HI data elements have been used to report other value codes. ,"If not required by this implementation guide, do not send.",S,Both,
+,HI10-1,Code List Qualifier Code,ID,1-3,R,,,BE,BE=Value,R,Both,BE
+,HI10-2,Industry code,AN,1-30,R,,,,Value Code,R,Both,
+,HI10-3,Date Time Period Format Qualifier,ID,2-3,N/U,,,,,N/U,N/U,
+,HI10-4,Date Time Period,AN,1-35,N/U,,,,,N/U,N/U,
+,HI10-5,Monetary Amount,R,1-18,R,,,,Value Code Amount,R,Both,
+,HI10-6,Quantity,R,1-15,N/U,,,,,N/U,N/U,
+,HI10-7,Version Identifier,AN,1-30,N/U,,,,,N/U,N/U,
+,HI10-8,Industry code,AN,1-30,N/U,,,,,N/U,N/U,
+,HI10-9,Yes/No Condition or response Code,ID,1-1,N/U,,,,,N/U,N/U,
+,HI11,HEALTH CARE CODE INFORMATION,,,S,,,Required when it is necessary to report an additional value code and the preceding HI data elements have been used to report other value codes. ,"If not required by this implementation guide, do not send.",S,Both,
+,HI11-1,Code List Qualifier Code,ID,1-3,R,,,BE,BE=Value,R,Both,BE
+,HI11-2,Industry code,AN,1-30,R,,,,Value Code,R,Both,
+,HI11-3,Date Time Period Format Qualifier,ID,2-3,N/U,,,,,N/U,N/U,
+,HI11-4,Date Time Period,AN,1-35,N/U,,,,,N/U,N/U,
+,HI11-5,Monetary Amount,R,1-18,R,,,,Value Code Amount,R,Both,
+,HI11-6,Quantity,R,1-15,N/U,,,,,N/U,N/U,
+,HI11-7,Version Identifier,AN,1-30,N/U,,,,,N/U,N/U,
+,HI11-8,Industry code,AN,1-30,N/U,,,,,N/U,N/U,
+,HI11-9,Yes/No Condition or response Code,ID,1-1,N/U,,,,,N/U,N/U,
+,HI12,HEALTH CARE CODE INFORMATION,,,S,,,Required when it is necessary to report an additional value code and the preceding HI data elements have been used to report other value codes. ,"If not required by this implementation guide, do not send.",S,Both,
+,HI12-1,Code List Qualifier Code,ID,1-3,R,,,BE,BE=Value,R,Both,BE
+,HI12-2,Industry code,AN,1-30,R,,,,Value Code,R,Both,
+,HI12-3,Date Time Period Format Qualifier,ID,2-3,N/U,,,,,N/U,N/U,
+,HI12-4,Date Time Period,AN,1-35,N/U,,,,,N/U,N/U,
+,HI12-5,Monetary Amount,R,1-18,R,,,,Value Code Amount,R,Both,
+,HI12-6,Quantity,R,1-15,N/U,,,,,N/U,N/U,
+,HI12-7,Version Identifier,AN,1-30,N/U,,,,,N/U,N/U,
+,HI12-8,Industry code,AN,1-30,N/U,,,,,N/U,N/U,
+,HI12-9,Yes/No Condition or response Code,ID,1-1,N/U,,,,,N/U,N/U,
+N/A,HI,CONDITION INFORMATION,,Segment Repeat: 2,S,2300.0,,Required when there is a Condition Code that applies to this claim.," If not required by this implementation guide, do not send.",S,Both,"In/Outbound Example:
+HI*BG:17*BG:67~"
+,HI01,HEALTH CARE CODE INFORMATION,,,R,,,,,R,Both,
+,HI01-1,Code List Qualifier,ID,1-3,R,,,BG,BG=Condition,R,Both,BG
+,HI01-2,Industry Code,AN,1-30,R,,,,Condition Code,R,Both,
+,HI01-3,Date Time Period Format Qualifier,ID,2-3,N/U,,,,,N/U,N/U,
+,HI01-4,Date Time Period,AN,1-35,N/U,,,,,N/U,N/U,
+,HI01-5,Monetary Amount,R,1-18,N/U,,,,,N/U,N/U,
+,HI01-6,Quantity,R,1-15,N/U,,,,,N/U,N/U,
+,HI01-7,Version Identifier,AN,1-30,N/U,,,,,N/U,N/U,
+,HI01-8,Industry code,AN,1-30,N/U,,,,,N/U,N/U,
+,HI01-9,Yes/No Condition or response Code,ID,1-1,N/U,,,,,N/U,N/U,
+,HI02,HEALTH CARE CODE INFORMATION,,,S,,,Required when it is necessary to report an additional condition code and the preceding HI data elements have been used to report other condition codes. ,"If not required by this implementation guide, do not send.",S,Both,
+,HI02-1,Code List Qualifier,ID,1-3,R,,,BG,BG=Condition,R,Both,BG
+,HI02-2,Industry code,AN,1-30,R,,,,Condition Code,R,Both,
+,HI02-3,Date Time Period Format Qualifier,ID,2-3,N/U,,,,,N/U,N/U,
+,HI02-4,Date Time Period,AN,1-35,N/U,,,,,N/U,N/U,
+,HI02-5,Monetary Amount,R,1-18,N/U,,,,,N/U,N/U,
+,HI02-6,Quantity,R,1-15,N/U,,,,,N/U,N/U,
+,HI02-7,Version Identifier,AN,1-30,N/U,,,,,N/U,N/U,
+,HI02-8,Industry code,AN,1-30,N/U,,,,,N/U,N/U,
+,HI02-9,Yes/No Condition or response Code,ID,1-1,N/U,,,,,N/U,N/U,
+,HI03,HEALTH CARE CODE INFORMATION,,,S,,,Required when it is necessary to report an additional condition code and the preceding HI data elements have been used to report other condition codes. ,"If not required by this implementation guide, do not send.",S,Both,
+,HI03-1,Code List Qualifier,ID,1-3,R,,,BG,BG=Condition,R,Both,BG
+,HI03-2,Industry code,AN,1-30,R,,,,Condition Code,R,Both,
+,HI03-3,Date Time Period Format Qualifier,ID,2-3,N/U,,,,,N/U,N/U,
+,HI03-4,Date Time Period,AN,1-35,N/U,,,,,N/U,N/U,
+,HI03-5,Monetary Amount,R,1-18,N/U,,,,,N/U,N/U,
+,HI03-6,Quantity,R,1-15,N/U,,,,,N/U,N/U,
+,HI03-7,Version Identifier,AN,1-30,N/U,,,,,N/U,N/U,
+,HI03-8,Industry code,AN,1-30,N/U,,,,,N/U,N/U,
+,HI03-9,Yes/No Condition or response Code,ID,1-1,N/U,,,,,N/U,N/U,
+,HI04,HEALTH CARE CODE INFORMATION,,,S,,,Required when it is necessary to report an additional condition code and the preceding HI data elements have been used to report other condition codes. ,"If not required by this implementation guide, do not send.",S,Both,
+,HI04-1,Code List Qualifier,ID,1-3,R,,,BG,BG=Condition,R,Both,BG
+,HI04-2,Industry code,AN,1-30,R,,,,Condition Code,R,Both,
+,HI04-3,Date Time Period Format Qualifier,ID,2-3,N/U,,,,,N/U,N/U,
+,HI04-4,Date Time Period,AN,1-35,N/U,,,,,N/U,N/U,
+,HI04-5,Monetary Amount,R,1-18,N/U,,,,,N/U,N/U,
+,HI04-6,Quantity,R,1-15,N/U,,,,,N/U,N/U,
+,HI04-7,Version Identifier,AN,1-30,N/U,,,,,N/U,N/U,
+,HI04-8,Industry code,AN,1-30,N/U,,,,,N/U,N/U,
+,HI04-9,Yes/No Condition or response Code,ID,1-1,N/U,,,,,N/U,N/U,
+,HI05,HEALTH CARE CODE INFORMATION,,,S,,,Required when it is necessary to report an additional condition code and the preceding HI data elements have been used to report other condition codes. ,"If not required by this implementation guide, do not send.",S,Both,
+,HI05-1,Code List Qualifier,ID,1-3,R,,,BG,BG=Condition,R,Both,BG
+,HI05-2,Industry code,AN,1-30,R,,,,Condition Code,R,Both,
+,HI05-3,Date Time Period Format Qualifier,ID,2-3,N/U,,,,,N/U,N/U,
+,HI05-4,Date Time Period,AN,1-35,N/U,,,,,N/U,N/U,
+,HI05-5,Monetary Amount,R,1-18,N/U,,,,,N/U,N/U,
+,HI05-6,Quantity,R,1-15,N/U,,,,,N/U,N/U,
+,HI05-7,Version Identifier,AN,1-30,N/U,,,,,N/U,N/U,
+,HI05-8,Industry code,AN,1-30,N/U,,,,,N/U,N/U,
+,HI05-9,Yes/No Condition or response Code,ID,1-1,N/U,,,,,N/U,N/U,
+,HI06,HEALTH CARE CODE INFORMATION,,,S,,,Required when it is necessary to report an additional condition code and the preceding HI data elements have been used to report other condition codes. ,"If not required by this implementation guide, do not send.",S,Both,
+,HI06-1,Code List Qualifier,ID,1-3,R,,,BG,BG=Condition,R,Both,BG
+,HI06-2,Industry code,AN,1-30,R,,,,Condition Code,R,Both,
+,HI06-3,Date Time Period Format Qualifier,ID,2-3,N/U,,,,,N/U,N/U,
+,HI06-4,Date Time Period,AN,1-35,N/U,,,,,N/U,N/U,
+,HI06-5,Monetary Amount,R,1-18,N/U,,,,,N/U,N/U,
+,HI06-6,Quantity,R,1-15,N/U,,,,,N/U,N/U,
+,HI06-7,Version Identifier,AN,1-30,N/U,,,,,N/U,N/U,
+,HI06-8,Industry code,AN,1-30,N/U,,,,,N/U,N/U,
+,HI06-9,Yes/No Condition or response Code,ID,1-1,N/U,,,,,N/U,N/U,
+,HI07,HEALTH CARE CODE INFORMATION,,,S,,,Required when it is necessary to report an additional condition code and the preceding HI data elements have been used to report other condition codes. ,"If not required by this implementation guide, do not send.",S,Both,
+,HI07-1,Code List Qualifier,ID,1-3,R,,,BG,BG=Condition,R,Both,BG
+,HI07-2,Industry code,AN,1-30,R,,,,Condition Code,R,Both,
+,HI07-3,Date Time Period Format Qualifier,ID,2-3,N/U,,,,,N/U,N/U,
+,HI07-4,Date Time Period,AN,1-35,N/U,,,,,N/U,N/U,
+,HI07-5,Monetary Amount,R,1-18,N/U,,,,,N/U,N/U,
+,HI07-6,Quantity,R,1-15,N/U,,,,,N/U,N/U,
+,HI07-7,Version Identifier,AN,1-30,N/U,,,,,N/U,N/U,
+,HI07-8,Industry code,AN,1-30,N/U,,,,,N/U,N/U,
+,HI07-9,Yes/No Condition or response Code,ID,1-1,N/U,,,,,N/U,N/U,
+,HI08,HEALTH CARE CODE INFORMATION,,,S,,,Required when it is necessary to report an additional condition code and the preceding HI data elements have been used to report other condition codes. ,"If not required by this implementation guide, do not send.",S,Both,
+,HI08-1,Code List Qualifier,ID,1-3,R,,,BG,BG=Condition,R,Both,BG
+,HI08-2,Industry code,AN,1-30,R,,,,Condition Code,R,Both,
+,HI08-3,Date Time Period Format Qualifier,ID,2-3,N/U,,,,,N/U,N/U,
+,HI08-4,Date Time Period,AN,1-35,N/U,,,,,N/U,N/U,
+,HI08-5,Monetary Amount,R,1-18,N/U,,,,,N/U,N/U,
+,HI08-6,Quantity,R,1-15,N/U,,,,,N/U,N/U,
+,HI08-7,Version Identifier,AN,1-30,N/U,,,,,N/U,N/U,
+,HI08-8,Industry code,AN,1-30,N/U,,,,,N/U,N/U,
+,HI08-9,Yes/No Condition or response Code,ID,1-1,N/U,,,,,N/U,N/U,
+,HI09,HEALTH CARE CODE INFORMATION,,,S,,,Required when it is necessary to report an additional condition code and the preceding HI data elements have been used to report other condition codes. ,"If not required by this implementation guide, do not send.",S,Both,
+,HI09-1,Code List Qualifier,ID,1-3,R,,,BG,BG=Condition,R,Both,BG
+,HI09-2,Industry code,AN,1-30,R,,,,Condition Code,R,Both,
+,HI09-3,Date Time Period Format Qualifier,ID,2-3,N/U,,,,,N/U,N/U,
+,HI09-4,Date Time Period,AN,1-35,N/U,,,,,N/U,N/U,
+,HI09-5,Monetary Amount,R,1-18,N/U,,,,,N/U,N/U,
+,HI09-6,Quantity,R,1-15,N/U,,,,,N/U,N/U,
+,HI09-7,Version Identifier,AN,1-30,N/U,,,,,N/U,N/U,
+,HI09-8,Industry code,AN,1-30,N/U,,,,,N/U,N/U,
+,HI09-9,Yes/No Condition or response Code,ID,1-1,N/U,,,,,N/U,N/U,
+,HI10,HEALTH CARE CODE INFORMATION,,,S,,,Required when it is necessary to report an additional condition code and the preceding HI data elements have been used to report other condition codes. ,"If not required by this implementation guide, do not send.",S,Both,
+,HI10-1,Code List Qualifier,ID,1-3,R,,,BG,BG=Condition,R,Both,BG
+,HI10-2,Industry code,AN,1-30,R,,,,Condition Code,R,Both,
+,HI10-3,Date Time Period Format Qualifier,ID,2-3,N/U,,,,,N/U,N/U,
+,HI10-4,Date Time Period,AN,1-35,N/U,,,,,N/U,N/U,
+,HI10-5,Monetary Amount,R,1-18,N/U,,,,,N/U,N/U,
+,HI10-6,Quantity,R,1-15,N/U,,,,,N/U,N/U,
+,HI10-7,Version Identifier,AN,1-30,N/U,,,,,N/U,N/U,
+,HI10-8,Industry code,AN,1-30,N/U,,,,,N/U,N/U,
+,HI10-9,Yes/No Condition or response Code,ID,1-1,N/U,,,,,N/U,N/U,
+,HI11,HEALTH CARE CODE INFORMATION,,,S,,,Required when it is necessary to report an additional condition code and the preceding HI data elements have been used to report other condition codes. ,"If not required by this implementation guide, do not send.",S,Both,
+,HI11-1,Code List Qualifier,ID,1-3,R,,,BG,BG=Condition,R,Both,BG
+,HI11-2,Industry code,AN,1-30,R,,,,Condition Code,R,Both,
+,HI11-3,Date Time Period Format Qualifier,ID,2-3,N/U,,,,,N/U,N/U,
+,HI11-4,Date Time Period,AN,1-35,N/U,,,,,N/U,N/U,
+,HI11-5,Monetary Amount,R,1-18,N/U,,,,,N/U,N/U,
+,HI11-6,Quantity,R,1-15,N/U,,,,,N/U,N/U,
+,HI11-7,Version Identifier,AN,1-30,N/U,,,,,N/U,N/U,
+,HI11-8,Industry code,AN,1-30,N/U,,,,,N/U,N/U,
+,HI11-9,Yes/No Condition or response Code,ID,1-1,N/U,,,,,N/U,N/U,
+,HI12,HEALTH CARE CODE INFORMATION,,,S,,,Required when it is necessary to report an additional condition code and the preceding HI data elements have been used to report other condition codes. ,"If not required by this implementation guide, do not send.",S,Both,
+,HI12-1,Code List Qualifier,ID,1-3,R,,,BG,BG=Condition,R,Both,BG
+,HI12-2,Industry code,AN,1-30,R,,,,Condition Code,R,Both,
+,HI12-3,Date Time Period Format Qualifier,ID,2-3,N/U,,,,,N/U,N/U,
+,HI12-4,Date Time Period,AN,1-35,N/U,,,,,N/U,N/U,
+,HI12-5,Monetary Amount,R,1-18,N/U,,,,,N/U,N/U,
+,HI12-6,Quantity,R,1-15,N/U,,,,,N/U,N/U,
+,HI12-7,Version Identifier,AN,1-30,N/U,,,,,N/U,N/U,
+,HI12-8,Industry code,AN,1-30,N/U,,,,,N/U,N/U,
+,HI12-9,Yes/No Condition or response Code,ID,1-1,N/U,,,,,N/U,N/U,
+,HCP,CLAIM PRICING /REPRICING INFORMATION,,Segment Repeat: 1,S,2300.0,,"Required when this information is deemed necessary by the repricer. The segment is not completed by providers. The information is completed by repricers only. If not required by this implementation guide, do not send.
+",,R,Both,"
+Inbound Example 
+HCP*10*2000.00*416.65*9327*******UN*1~
+"
+Network Status,HCP01,Pricing Methodology,ID,2-2,R,,,"00' = Out-of-Network
+'01' = Allowed=Billed  
+'10' = Other Reprising (UHCG will use this for all In-Network Reprising)
+","01' - When Allowed Amount >= Billed Amount and Claim is INN
+'10' - When Allowed Amount < Billed Amount and Claim is INN
+'00' - When Claim is ONN 
+
+
+",R,Both,
+Allowed Amount,HCP02,Monetary Amount,R,1-18,R,,,,Repriced Allowed Amount                   The Repriced Allowed Amount is the amount after Reduction amounts (COB/iCES/Duplicate) have been subtracted. The Allowable Amount is then the basis for the Benefit Determination. ,R,Both,"Outbound:
+Repriced Allowed Amount
+"
+Discount Amount,HCP03,Monetary Amount,R,1-18,S,,,"Required when this information is deemed necessary by the repricer. The segment is not completed by providers. The information is completed by repricers only.  If not required by this implementation guide, do not send.
+","Repriced Saving Amount
+
+This information is specific to the destination payer reported in Loop ID-2010BB.
+
+Repriced Saving Amount is calculated as Billed Amount - Allowed Amount. 
+For Fee Calculation, EDI Client would need to deduct the reduction amount to determine the discount. 
+
+Reprised Savings Amount = Billed Amount - Allowed Amount 
+Discount Amount  = Billed Amount - Allowed Amount - Reduction Amount ",S,Both,"Outbound:
+Repriced Savings Amount
+
+"
+N/A,HCP04,Reference Identification,AN,1-50,S,,,IANA Number,UHCG will send a value of 9327 in this element,R,Both,9327.0
+N/A,HCP05,Rate,R,1-9,S,,,,,N/U,N/U,
+N/A,HCP06,Reference Identification  ,AN,1-50,S,,,,DRG Code,S,Both,
+N/A,HCP07,Monetary Amount,R,1-18,S,,,,,N/U,N/U,
+N/A,HCP08,Product/ Service ID,AN,1-48,S,,,,,N/U,N/U,
+N/A,HCP09,Product/ Service ID Qualifier,ID,2-2,N/U,,,,,N/U,N/U,
+N/A,HCP10,Product/ Service ID,AN,1-48,N/U,,,,,N/U,N/U,
+N/A,HCP11,Unit or Basis for Measurement Code,ID,2-2,S,,,"DA, UN","UHCG will send a value of ""UN"" in this element
+UN=Unit",S,Both,UN
+N/A,HCP12,Quantity ,R,1-15,S,,,"Required when this information is deemed necessary by the repricer. The segment is not completed by providers. The information is completed by repricers only. If not required by this implementation guide, do not send.
+
+Repriced Approved Service Unit Count
+
+This information is specific to the destination payer reported in Loop ID-2010BB.  The maximum length for this field is 8 digits excluding the decimal.  When a decimal is used, the maximum number of digits allowed to  the right of the decimal","UHCG will send a value of ""1"" in this element",S,Both,1.0
+N/A,HCP13,Reject Reason Code,ID,2-2,S,,,,,S,Both,
+N/A,HCP14,Policy Compliance Code,ID,1-2,S,,,,,S,Both,
+N/A,HCP15,Exception Code,ID,1-2,S,,,,,S,Both,
+N/A,NM1,ATTENDING PROVIDER NAME  ,,Segment Repeat: 1,S,2310A,1.0,"Required when the claim contains any services other than non-scheduled transportation claims. If not required by this implementation guide, do not send.
+","1. The Attending Provider is the individual who has overall responsibility for the patient’s medical care and treatment reported in this claim.
+
+UHCG will only send this information if available in claim",S,Both,NM1*71*1* LAST NAME*FIRST NAME****XX*1760499999~
+N/A,NM101,Entity Identifier Code,ID,2-3,R,,,71,"71=Attending Physician
+When used, the term physician is any type of provider filling this role.",R,Both,
+N/A,NM102,Entity Type Qualifier,ID,1-1,R,,,1,1=Person,R,Both,
+Attending Provider Name,NM103,Name Last or Organization Name,AN,1-60,R,,,,Attending Provider Last Name,R,Both,
+Attending Provider Name,NM104,Name First,AN,1-35,S,,,Required when the person has a first name. ,"If not required by this implementation guide, do not send.
+
+Attending Provider First Name
+",S,Both,
+N/A,NM105,Name Middle,AN,1-25,S,,,Required when the middle name or initial of the person is needed to identify the individual.,"If not required by this implementation guide, do not send.
+
+Attending Provider Middle Name or Initial",S,Both,
+N/A,NM106,Name Prefix,AN,1-10,N/U,,,,,N/U,N/U,
+N/A,NM107,Name Suffix,AN,1-10,S,,,Required when the name suffix is needed to identify the individual.,"If not required by this implementation guide, do not send.
+
+Attending Provider Name Suffix",S,Both,
+N/A,NM108,Identification Code Qualifier,ID,1-2,S,,,"XX
+
+Required for providers in the United States or its territories on or after the mandated HIPAA National Provider Identifier (NPI) implementation date when the provider is eligible to receive an NPI. OR  Required for providers not in the United States or its territories on or after the mandated HIPAA National Provider Identifier (NPI) implementation date when the provider has received an NPI. 
+
+
+","OR Required for providers prior to the mandated NPI implementation date when the provider has received an NPI and the submitter has the capability to send it. If not required by this implementation guide, do not send. 
+
+XX=Centers for Medicare and Medicaid Services National Provider Identifier
+
+
+",S,Both,XX
+N/A,NM109,Identification Code  ,AN,2-80,S,,,Required for providers in the United States or its territories on or after the mandated HIPAA National Provider Identifier (NPI) implementation date when the provider is eligible to receive an NPI. OR  Required for providers not in the United States or its territories on or after the mandated HIPAA National Provider Identifier (NPI) implementation date when the provider has received an NPI. ,"OR Required for providers prior to the mandated NPI implementation date when the provider has received an NPI and the submitter has the capability to send it. If not required by this implementation guide, do not send.
+
+Attending Provider Primary Identifier",S,Both,
+,NM110,Entity Relationship Code,ID,2-2,N/U,,,,,N/U,N/U,
+,NM111,Entity Identifier Code,ID,2-3,N/U,,,,,N/U,N/U,
+,NM112,Name Last or Organization Name,AN,1-60,N/U,,,,,N/U,N/U,
+N/A,NM1,SERVICE FACILITY LOCATION NAME,,Segment Repeat: 1,S,2310E,1.0,"Required when the location of health care service is different than that carried in Loop ID-2010AA (Billing Provider). If not required by this implementation guide, do not send.  1. When an organization health care provider’s NPI is provided to identify the Service Location, the organization health care provider must be external to the entity identified as the Billing Provider (for
+example, reference lab). ","It is not permissible to report an organization health care provider NPI as the Service Location if the entity being identified is a component (for example, subpart) of the Billing Provider. In that case, the subpart must be the Billing Provider.
+
+UHCG will send this segment if Service Facility information is present on the claim",S,Both,"In/Outbound Example:
+NM1*77*2*TEST HEALTH CARE INC~"
+,NM101,Entity Identifier Code,ID,2-3,R,,,77,77=Service Location,R,Both,77.0
+,NM102,Entity Type Qualifier,ID,1-1,R,,,2,2=Non-Person Entity,R,Both,2.0
+,NM103,Name Last or Organization Name,AN,1-60,R,,,,Laboratory or Facility Name,R,Both,
+,NM104,Name First,AN,1-35,N/U,,,,,N/U,N/U,
+,NM105,Name Middle,AN,1-25,N/U,,,,,N/U,N/U,
+,NM106,Name Prefix,AN,1-10,N/U,,,,,N/U,N/U,
+,NM107,Name Suffix,AN,1-10,N/U,,,,,N/U,N/U,
+,NM108,Identification Code Qualifier,ID,1-2,S,,,"XX
+
+Required for providers in the United States or its territories on or after the mandated HIPAA National Provider Identifier (NPI) implementation date when the provider is eligible to receive an NPI. OR Required for providers not in the United States or its territories on or after the mandated HIPAA National Provider Identifier (NPI) implementation date when the provider has received an NPI.","OR Required for providers prior to the mandated NPI implementation date when the provider has received an NPI and the submitter has the capability to send it. If not required by this implementation guide, do not send.
+
+XX=Centers for Medicare and Medicaid Services National Provider Identifier
+
+
+",N/U,N/U,
+,NM109,Identification Code  ,AN,2-80,S,,,Required for providers in the United States or its territories on or after the mandated HIPAA National Provider Identifier (NPI) implementation date when the provider is eligible to receive an NPI. OR Required for providers not in the United States or its territories on or after the mandated HIPAA National Provider Identifier (NPI) implementation date when the provider has received an NPI. ,"OR Required for providers prior to the mandated NPI implementation date when the provider has received an NPI and the submitter has the capability to send it. If not required by this implementation guide, do not send.
+
+Attending Provider Primary Identifier",N/U,N/U,
+,NM110,Entity Relationship Code,ID,2-2,N/U,,,,,N/U,N/U,
+,NM111,Entity Identifier Code,ID,2-3,N/U,,,,,N/U,N/U,
+,NM112,Name Last or Organization Name,AN,1-60,N/U,,,,,N/U,N/U,
+,N3,SERVICE FACILITY LOCATION ADDRESS,,Segment Repeat: 1,R,2310E, ,This is required segment only when Service Facility Name(NM1*77) is Present,"
+1. If service facility location is in an area where there are no street addresses, enter a description of where the service was rendered (for example, “crossroad of State Road 34 and 45” or “Exit near Mile marker 265 on Interstate 80”.)",R,Both,"In/Outbound Example:  
+N3*123 PEACEFUL CT~"
+,N301,Address Line,AN,1-55,R,,,,Laboratory or Facility Address Line,R,Both,
+,N302,Address Line,AN,1-55,S,,,Required when there is a second address line.," If not required by this implementation guide, do not send.
+
+Laboratory or Facility Address Line2",S,Both,
+,N4,SERVICE FACILITY LOCATION CITY/STATE/ ZIP CODE,,Segment Repeat: 1,R,2310E, ,This is required segment only when Service Facility Name(NM1*77) is Present,,R,Both,"In/Outbound Example: 
+N4*GREEN*WI*54312~ "
+,N401,City Name,AN,2-30,R,,,,Laboratory or Facility City Name,R,Both,
+,N402,State or Province Code,ID,2-2,S,,,"Required when the address is in the United States of America, including its territories, or Canada."," If not required by this implementation guide, do not send.
+
+Laboratory or Facility State or Province Code",S,Both,
+,N403,Postal Code,ID,3-15,S,,,"Required when the address is in the United States of America, including its territories, or Canada, or when a postal code exists for the country in N404."," If not required by this implementation guide, do not send.
+
+Laboratory or Facility Postal Zone or ZIP Code
+
+When reporting the ZIP code for U.S. addresses, the full nine digit ZIP code must be provided.",S,Both,
+,N404,Country Code,ID,2-3,S,,,Required when the address is outside the United States of America.," If not required by this implementation guide, do not send.  Use the alpha-2 country codes from Part 1 of ISO 3166.",S,Both,
+,N405,Location Qualifier,ID,1-2,N/U,,,,,N/U,N/U,
+,N406,Location Identifier,AN,1-30,N/U,,,,,N/U,N/U,
+,N407,Country Subdivision Code,ID,1-3,S,,,"Required when the address is not in the United States of America, including its territories, or Canada, and the country in N404 has administrative subdivisions such as but not limited to states, provinces, cantons, etc."," If not required by this implementation guide, do not send.
+Use the country subdivision codes from Part 2 of ISO 3166.",S,Both,
+N/A,SBR,OTHER SUBSCRIBER INFORMATION,,Segment Repeat: 1,S,2320.0,10.0,,UHCG expects EDI Client to pass this information in Adjudicated File,R,Inbound,"Inbound Example- 
+SBR*P*18*767000579999001******ZZ~"
+N/A,SBR01,Payer Responsibility Sequence Number Code,ID,1-1,R,,,,UHCG suggests to replicate the information from SBR Segment in Loop 2000B to the SBR Segment of Loop 2320,R,Inbound,
+N/A,SBR02,Individual Relationship Code,ID,2-2,R,,,,,R,Inbound,
+N/A,SBR03,Reference Identification,AN,1-50,S,,,,,R,Inbound,
+N/A,SBR04,Name,AN,1-60,S,,,,,S,Inbound,
+N/A,SBR05,Insurance Type Code,ID,1-3,N/U,,,,,N/U,N/U,
+N/A,SBR06,Coordination of Benefits Code,ID,1-1,N/U,,,,,N/U,N/U,
+N/A,SBR07,Yes/No Condition or Response Code,ID,1-1,N/U,,,,,N/U,N/U,
+N/A,SBR08,Employment Status Code,ID,2-2,N/U,,,,,N/U,N/U,
+N/A,SBR09,Claim Filing Indicator Code,ID,1-2,S,,,ZZ,,R,Inbound,
+,CAS,CLAIM LEVEL ADJUSTMENTS,,Segment Repeat: 5,S,2320.0, ,Required when the claim has been adjudicated by the EDI Client identified in this loop.,,R,Inbound,"Inbound Example:
+CAS*PR*1*0**2*0**3*0~
+"
+Patient Responsibility,CAS01,Claim Adjustment Group Code,ID,1-2,R,,,PR,PR=Patient Responsibility,R,Inbound,
+Deductible,CAS02,Claim Adjustment Reason Code,ID,1-5,R,,,,"Adjustment Reason Code
+1=Deductible Amount
+",R,Inbound,
+Deductible,CAS03,Monetary Amount ,R,1-18,R,,,,"Deductible Amount 
+
+
+Deductible is a portion of the benefits, under a policy that a covered person must satisfy before any reimbursement occurs.",R,Inbound,
+N/A,CAS04,Quantity,R,1-15,S,,,,,N/U,N/U,
+Co-Insurance($),CAS05,Claim Adjustment Reason Code,ID,1-5,S,,,,"Adjustment Reason Code
+
+2= Coinsurance Amount
+
+",R,Inbound,
+Co-Insurance($),CAS06,Monetary Amount ,R,1-18,S,,,,"Coinsurance Amount
+Coinsurance Amount is the portion of covered health care costs the covered person is financially responsible for, usually according to a fixed percentage.  Coinsurance is often applied, according to a fixed percentage, after a Deductible and/or Co-Payment requirements are met.
+",R,Inbound,
+N/A,CAS07,Quantity,R,1-15,S,,,,,N/U,N/U,
+Copay,CAS08,Claim Adjustment Reason Code,ID,1-5,S,,,,"Adjustment Reason Code
+
+
+3=Co-pay Amount
+",R,Inbound,
+Copay,CAS09,Monetary Amount ,R,1-18,S,,,,"Co-pay Amount
+
+A cost-sharing arrangement in which a covered person pays a specified amount for a specified service, such as $20 for an office visit.  The covered person is responsible for payment at the time the health care is rendered.  Typical co-payments are fixed or variable flat amounts for physician office visits, prescriptions, or hospital services.  Some co-payments are referred to as coinsurance, with the distinguishing characteristics that co-payments are flat or variable dollar amounts and coinsurance is a defined percentage of the charges for services rendered.A cost-sharing arrangement in which a covered person pays a specified amount for a specified service, such as $20 for an office visit.  The covered person is responsible for payment at the time the health care is rendered.  Typical co-payments are fixed or variable flat amounts for physician office visits, prescriptions, or hospital services.  Some co-payments are referred to as coinsurance, with the distinguishing characteristics that co-payments are flat or variable dollar amounts and coinsurance is a defined percentage of the charges for services rendered.",R,Inbound,
+N/A,CAS10,Quantity,R,1-15,S,,,,,N/U,N/U,
+N/A,CAS11,Claim Adjustment Reason Code,ID,1-5,S,,,,,N/U,N/U,
+N/A,CAS12,Monetary Amount ,R,1-18,S,,,,,N/U,N/U,
+N/A,CAS13,Quantity,R,1-15,S,,,,,N/U,N/U,
+N/A,CAS14,Claim Adjustment Reason Code,ID,1-5,S,,,,,N/U,N/U,
+N/A,CAS15,Monetary Amount ,R,1-18,S,,,,,N/U,N/U,
+N/A,CAS16,Quantity,R,1-15,S,,,,,N/U,N/U,
+N/A,CAS17,Claim Adjustment Reason Code,ID,1-5,S,,,,,N/U,N/U,
+N/A,CAS18,Monetary Amount ,R,1-18,S,,,,,N/U,N/U,
+N/A,CAS19,Quantity,R,1-15,S,,,,,N/U,N/U,
+,AMT,REMAINING PATIENT LIABILITY,,Segment Repeat: 1,S,2320.0, ,"
+",This is the remaining amount to be paid after adjudication by the other payer identified in the Loop Id- 2330B of this iteration of the Loop I'd - 2320.,R,Inbound,"Inbound Example
+AMT*EAF*0.00~
+"
+Total Patient Responsibility,AMT01,Amount Qualifier Code,ID,1-3,R,,,EAF,"
+EAF=Patient Remaining Liability",R,Inbound,Qualifier = EAF
+Total Patient Responsibility,AMT02,Monetary Amount ,R,1-18,R,,,,"
+Remaining Patient Liability Amount",R,Inbound,Remaining Patient Liability Amount
+N/A,AMT03,Credit/Debit Flag Code,ID,1-1,N/U,,,,,N/U,N/U,
+,LX,SERVICE LINE NUMBER,,Segment Repeat: 1,R,2400.0,999.0,"1. The LX functions as a line counter.
+2. The Service Line LX segment must begin with one and is incremented by one for each additional service line of a claim.",3. LX01 is used to indicate bundling in SVD06 in the Line Item Adjudication loop. See Section 1.4.1.2 for more information on bundling and unbundling.,R,Both,"In/Outbound Example:
+LX*1~
+"
+Line Number in the Grid,LX01,Assigned Number,N,1-6,R,,,,,R,Both,
+,SV2,INSTITUTIONAL SERVICE LINE,,Segment Repeat: 1,R,2400.0,,,,R,Both,"In/Outbound Example:
+SV2*750*HC:45378:PT*2416.65*UN*1~"
+Rev Code,SV201,Revenue Code,AN,1-48,R,,,,"Service Line Revenue Code
+
+See Code Source 132:  National Uniform Billing Committee (NUBC) Codes.",R,Both,
+HCPCS Rate on gridlines,SV202,COMPOSITE ,,,S,,,Required for outpatient claims when an appropriate procedure code exists for this service line item.," OR  Required for inpatient claims when an appropriate HCPCS (drugs and/or biologics only) or HIPPS code exists for this service line item.  If not required by this implementation guide, do not send.",S,Both,
+,SV202-1,Product or Service ID Qualifier,ID,2-2,R,,,"ER, HC, HP, IV, WK
+
+Product or Service ID Qualifier
+
+ER=Jurisdiction Specific Procedure and Supply Codes.  This code set is not allowed for use under HIPAA at the time of this writing. The qualifier can only be used:  If a new rule names the Jurisdiction Specific Procedure and Supply Codes as an allowable code set under HIPAA, OR The Secretary grants an exception to use the code set as a pilot project as allowed under the law, OR  For claims which are not covered under HIPAA.
+HC=Health Care Financing Administration Common.  Procedural Coding System (HCPCS) Codes.  Because the AMA’s CPT codes are also level 1 HCPCS codes, they are reported under HC.
+HP=Health Insurance Prospective Payment System (HIPPS) Skilled Nursing Facility Rate Code","IV=Home Infusion EDI Coalition (HIEC) Product/Service Code.  This code set is not allowed for use under HIPAA at the time of this writing. The qualifier can only be used:  If a new rule names the Home Infusion EDI Coalition (HIEC) Product/Service Codes as an allowable code set under HIPAA, OR The Secretary grants an exception to use the code set as a pilot project as allowed under the law, OR For claims which are not covered under HIPAA.
+WK=Advanced Billing Concepts (ABC) Codes.  At the time of this writing, this code set has been approved by the Secretary of HHS as a pilot project allowed under HIPAA law.  The qualifier may only be used in transactions covered under HIPAA; By parties registered in the pilot project and their trading partners, OR If a new rule names the Complementary, Alternative, or Holistic Procedure Codes as an allowable code set under HIPAA, OR For claims which are not covered under HIPAA.",R,Both,HC
+,SV202-2,Procedure Code,AN,1-48,R,,,,Procedure Code,S,Both,
+,SV202-3,Procedure Modifier ,AN,2-2,S,,,Required when a modifier clarifies or improves the reporting accuracy of the associated procedure code. ,"This is the first procedure code modifier. If not required by this implementation guide, do not send.",S,Both,
+,SV202-4,Procedure Modifier ,AN,2-2,S,,,Required when a second modifier clarifies or improves the reporting accuracy of the associated procedure code.,"If not required by this implementation guide, do not send.",S,Both,
+,SV202-5,Procedure Modifier ,AN,2-2,S,,,Required when a third modifier clarifies or improves the reporting accuracy of the associated procedure code.,"If not required by this implementation guide, do not send.",S,Both,
+,SV202-6,Procedure Modifier ,AN,2-2,S,,,Required when a fourth modifier clarifies or improves the reporting accuracy of the associated procedure code.,"If not required by this implementation guide, do not send.",S,Both,
+,SV202-7,Description,AN,1-80,S,,,"Required when, in the judgment of the submitter, the Procedure Code does not definitively describe the service/product/ supply and Loop ID-2410 is not used. OR Required when SV202-2 is a non-specific Procedure Code. ","Non-specific codes may include in their descriptors terms such as: Not Otherwise Classified (NOC); Unlisted; Unspecified; Unclassified; Other; Miscellaneous;
+Prescription Drug, Generic; or Prescription Drug, Brand Name. If not required by this implementation guide, do not send.",S,Both,
+,SV202-8,Product/Service ID,AN,1-48,N/U,,,,,N/U,N/U,
+Billed Amount on line,SV203,Monetary Amount,R,1-18,R,,,"Line Item Charge Amount
+
+This is the total charge amount for this service line.",The amount is inclusive of the provider’s base charge and any applicable tax amounts reported within this line’s AMT segments. Zero “0” is an acceptable value for this element.,R,Both,
+N/A,SV204,Unit or Basis for Measurement Code,ID,2-2,R,,,"DA, UN","UHCG will always pass a value of ""UN"" in this element
+UN=Unit",R,Both,UN
+Units,SV205,Quantity,R,1-15,R,,,"Service Unit Count
+
+The maximum length for this field is 8 digits excluding the decimal. ","When a decimal is used, the maximum number of digits allowed to the right of the decimal is three.",R,Both,
+N/A,SV206,Unit Rate,ID,1-10,N/U,,,,,N/U,N/U,
+N/A,SV207,Monetary Amount,R,1-18,S,,,Required if needed to report line specific noncovered charge amount.,,N/U,N/U,
+N/A,SV208,Yes/No Condition or Response Code,ID,1-1,N/U,,,,,N/U,N/U,
+N/A,SV209,Nursing Home Residential Status Code,ID,1-1,N/U,,,,,N/U,N/U,
+N/A,SV210,Level of Care Code,ID,1-1,N/U,,,,,N/U,N/U,
+,DTP,DATE - SERVICE DATE,,Segment Repeat: 1,S,2400.0,,,,R,Both,"In/Outbound Example: 
+DTP*472*D8*20220808~
+
+
+"
+N/A,DTP01,Date Time Qualifier,ID,3-3,R,,,472,"Date Time Qualifier
+472=Service",R,Both,
+N/A,DTP02,Date Time Period Format Qualifier,ID,2-3,R,,,"D8, RD8","D8=Date Expressed in Format CCYYMMDD
+",R,Both,D8
+Line level From Date,DTP03,Date Time Period,AN,1-35,R,,,"CCYYMMDD, 
+CCYYMMDD-CCYYMMDD",Service Date,R,Both,CCYYMMDD
+,NTE,THIRD PARTY ORGANIZATION NOTES,,Segment Repeat: 1,S,2400.0,,TPO Notes will have the information about UHCG [Remark Code] | [Reduction Amount] | [Reduction Reason] | [iCES Line Disp] | [Special Instructions Indicator] | [Special Instructions]. All the information would be ‘|’ pipe delimited. ,"*Required when UHCG needs to pass Reduction Information and / or Special Instructions at Line Level.
+Note - Pipe delimiter ""|"" will be used to separate Reduction Information
+[Remark Code] | [Reduction Amount] | [Reduction Reason] | [iCES Line Disp] | [Special Instructions Indicator] | [Special Instructions]
+
+Outbound Examples 
+NTE*TPO*Y|Special Instructions~ 
+Note-
+1) Maximum length of Special Instructions can be 78 Characters.
+
+Inbound Example 
+NTE*TPO*Y|Special Instructions~ 
+EDI Client can pass special instructions, if required, to UHCG in this field. Note – 
+1) Maximum length of free text can be 78 characters. 
+2) EDI Client is not required to pass Reduction Information back to UHCG.",S,Both,"Outbound Example- 
+NTE*TPO*00|153.48|COB|NA|Y|MEDICAID REIMB $206.52~
+
+Inbound Example- Multiple Coverage or Not covered amount
+1. UHCG expects a NTE special instruction with remark code on every line where Not Covered Amount is greater than 0
+EX: NTE*TPO*Y|742~
+2. NTE Segment must be populated incase of multiple coverage percentage or incase if coinsurance has met at line level as mentioned below
+Ex: NTE*TPO*Y|444.36x90 1176.49x100 Pay 1576.41~"
+N/A,NTE01,Note Reference Code,ID,3-3,R,,,TPO,"
+TPO=Third Party Organization Notes",R,Both,TPO
+Special Instruction on Line,NTE02,Description,AN,1-80,R,,,,"
+Line Note Test",R,Both,
+,HCP,LINE PRICING/REPRICING INFORMATION,,Segment Repeat: 1,S,2400.0,,"Required when this information is deemed necessary by the repricer. The segment is not completed by providers. The information is completed by repricers only. If not required by this implementation guide, do not send. ","1. This information is specific to the destination payer reported in Loop ID-2010BB. 2. For capitated encounters, pricing or repricing information usually is not applicable and is provided to qualify other information within the claim.",R,Both,"Outbound Standard Example: 
+HCP*10*790.00*210.00*9327*0.00*73110RT*0.00****UN*1~  
+Inbound Standard Example- 
+HCP*10*2000.00*416.65*9327*0.00*45378PT*0.00****UN*1~ "
+Network Status,HCP01,Pricing Methodology,ID,2-2,R,,,"10' - When Claim is INN
+'00' - When Claim is ONN ","10' - When Claim is INN
+'00' - When Claim is ONN ",R,Both,"Outbound:
+Pricing Methodology Qualifier
+
+
+"
+Allowed Amount,HCP02,Monetary Amount,R,1-18,R,,,,"Repriced Allowed Amount
+
+The Repriced Allowable Amount is the amount after Reduction amounts (COB/iCES/Duplicate) have been subtracted.  The Allowable Amount is then the basis for the Benefit Determination. ",R,Both,"Outbound:
+Allowed Amount"
+N/A,HCP03,Repriced Saving Amount ,R,1-18,S,,,,"Repriced Savings Amount
+
+Repriced Saving Amount is calculated as Billed Amount - Allowed Amount. 
+For Fee Calculation, EDI Client would need to deduct the reduction amount to determine the discount. 
+
+Reprised Savings Amount = Billed Amount - Allowed Amount 
+Discount Amount  = Billed Amount - Allowed Amount - Reduction Amount ",S,Both,
+N/A,HCP04,Reference Identification,AN,1-50,S,,,,IANA Number,R,Both,9327.0
+N/A,HCP05,Repricing Per Diem or Flat Rate Amount ,R,1-9,S,,,,,S,Both,
+N/A,HCP06,Repriced Approved Ambulatory Patient Group Code,AN,1-50,S,,,,,S,Both,
+N/A,HCP07,Repriced Approved Ambulatory Patient Group Amount ,R,1-18,S,,,,,S,Both,
+N/A,HCP08,Product/Service ID,AN,1-48,N/U,,,,,N/U,N/U,
+N/A,HCP09,Product or Service ID Qualifier,ID,2-2,S,,,,Blank Value,S,Both,
+N/A,HCP10,Procedure Code,AN,1-48,S,,,,Blank Value,S,Both,
+N/A,HCP11,Unit or Basis for Measurement Code,ID,2-2,S,,,"DA, UN
+
+Required when this information is deemed necessary by the repricer. The segment is not completed by providers. ","UHCG will pass value of ""UN"" in this element",S,Both,UN
+Units,HCP12,Quantity,R,1-15,S,,,,,S,Both,
+N/A,HCP13,Reject Reason Code,ID,2-2,S,,,,,S,Both,
+N/A,HCP14,Policy Compliance Code,ID,1-2,S,,,,Blank Value,N/U,N/U,
+N/A,HCP15,Exception Code,ID,1-2,S,,,,Blank Value,N/U,N/U,
+,SVD,LINE ADJUDICATION INFORMATION,,Segment Repeat: 1,S,2430.0,15.0,,UHCG is expecting EDI Client to send this Segment as a part of Level 1 HIPAA Compliance. ,R,Inbound,"Inbound Example: 
+SVD*Submitter Identifier*96.94*HC:G0463*0510*1~
+CAS*CO*45*96.94~
+SVD 03 To be populated from SV202  
+SVD 04 To be populated from SV201
+SVD 05  To be populated from SV205
+"
+N/A,SVD01,Identification Code,AN,2-80,R,,,,Value of NM109 from 2010BB Loop where NM101 is 'PR' and NM108 is 'PI',R,Inbound,SVD 01  NM109 from 2010BB Loop (NM1 01 is 'PR' and NM108 is 'PI' )
+N/A,SVD02,Monetary Amount,R,1-18,R,,,,"Net Paid Amount for the line
+Example- (CAS*CO*45*12345.67~)",R,Inbound,SVD 02 Net Paid Amount for the line
+CPT/HCPCS,SVD02,COMPOSITE MEDICAL PROCEDURE IDENTIFIER,,,R,,,,SVD 03 To be populated from SV1 01,R,Inbound,SVD 03 To be populated from SV2 02  
+,SVD03-1,Product or Service ID Qualifier,ID,2-2,R,,,"HC=Health Care Financing Administration Common Procedural Coding System (HCPCS) Codes.  Because the AMA’s CPT codes are also level 1 HCPCS codes, they are reported under HC.
+",,R,Inbound,HC
+,SVD03-2,Procedure Code,AN,1-48,R,,,,,R,Inbound,
+,SVD03-3,Procedure Modifier,AN,2-2,S,,,,,R,Inbound,
+,SVD03-4,Procedure Modifier,AN,2-2,S,,,,,R,Inbound,
+,SVD03-5,Procedure Modifier,AN,2-2,S,,,,,R,Inbound,
+,SVD03-6,Procedure Modifier,AN,2-2,S,,,,,R,Inbound,
+,SVD03-7,Procedure Code Description,AN,1-80,S,,,,,R,Inbound,
+,SVD03-8,Product/Service ID,AN,1-48,N/U,,,,,N/U,N/U,
+,SVD04,Product or Service ID ,AN,1-48,R,,,,,R,Inbound,SVD 04 To be populated from SV2 01
+Units,SVD05,Paid Service Unit Count                                                                                                           ,R,1-15,R,,,,,R,Inbound,SVD 05  To be populated from SV2 05
+,SVD06,Bundled or Unbundled Line Number ,N,1-6,S,,,,,S,Inbound,
+,CAS,LINE ADJUSTMENT,,Segment Repeat: 5,S,2430.0, ,Required when the claim has been adjudicated by the EDI Client identified in this loop.,"UHCG is expecting EDI Client to send the Copay, Co-insurance, Deductible and Not Covered Amount information in this segment. 
+
+In addition to the Amount Fields, UHCG is also expecting Coverage Percentage value in this Segment",R,Inbound,"Inbound Example: 
+CAS*PR*1*12345.67**2*12345.67**3*12345.67**96*123.45~"
+N/A,CAS01,Claim Adjustment Group Code,ID,1-2,R,,,PR,"PR=Patient Responsibility
+
+Net Patient Responsibility is the amount the patient or his/her representative(s) is responsible for paying to the provider:                      Net Patient Responsibility equals Copay + Coinsurance + Deductible + Not Covered Amount.",R,Inbound,
+Deductible,CAS02,Claim Adjustment Reason Code,ID,1-5,R,,,,"Adjustment Reason Code
+1=Deductible Amount
+",R,Inbound,
+Deductible,CAS03,Monetary Amount ,R,1-18,R,,,,"Deductible Amount 
+
+Deductible Amount is a portion of the benefits, under a policy that a covered person must satisfy before any reimbursement occurs.",R,Inbound,
+N/A,CAS04,Quantity,R,1-15,S,,,,,N/U,N/U,
+Coinsurance,CAS05,Claim Adjustment Reason Code,ID,1-5,S,,,,"Adjustment Reason Code
+
+2= Coinsurance Amount
+
+",R,Inbound,
+Coinsurance,CAS06,Monetary Amount ,R,1-18,S,,,,"Coinsurance Amount
+
+Coinsurance Amount is the portion of covered health care costs the covered person is financially responsible for, usually according to a fixed percentage.  Coinsurance is often applied, according to a fixed percentage, after a Deductible and/or Co-Payment requirements are met.",R,Inbound,
+N/A,CAS07,Quantity,R,1-15,S,,,,,N/U,N/U,
+Copay,CAS08,Claim Adjustment Reason Code,ID,1-5,S,,,,"Adjustment Reason Code
+
+
+3=Co-pay Amount
+",R,Inbound,
+Copay,CAS09,Monetary Amount ,R,1-18,S,,,,"Co-pay Amount
+
+A cost-sharing arrangement in which a covered person pays a specified amount for a specified service, such as $20 for an office visit.                                                    
+The covered person is responsible for payment at the time the health care is rendered.  Typical co-payments are fixed or variable flat amounts for physician office visits, prescriptions, or hospital services.  Some co-payments are referred to as coinsurance, with the distinguishing characteristics that co-payments are flat or variable dollar amounts and coinsurance is a defined percentage of the charges for services rendered.",R,Inbound,
+N/A,CAS10,Quantity,R,1-15,S,,,,,N/U,N/U,
+N/A,CAS11,Claim Adjustment Reason Code,ID,1-5,S,,,,96= Not Covered Amount,R,Inbound,
+Not Covered,CAS12,Monetary Amount ,R,1-18,S,,,,"Not Covered Amount
+
+The Not Covered Amount includes Benefit Limits/Sub Limits, Exclusions (Specific conditions or circumstances for which the policy or plan will not provide coverage reimbursement), and Plan Maximums.",R,Inbound,
+,CAS,LINE ADJUSTMENT,,Segment Repeat: 5,S,2430.0,,,"UHCG is expecting EDI Client  to send the Copay, Co-insurance, Deductible and Not Covered Amount information in this segment. 
+
+In addition to the Amount Fields, UHCG is also expecting Coverage Percentage value in this Segment",R,Inbound ,"Inbound Example
+
+CAS*CO*45*1000.00~
+"
+N/A,CAS01,Claim Adjustment Group Code,ID,1-2,R,,,CO,CO= Contractual Obligations,R,Inbound ,Considered by UHCG as Net Paid
+N/A,CAS02,Claim Adjustment Reason Code,ID,1-5,R,,,,Adjustment Reason Code,R,Inbound ,UHCG Always expects 45 in this element under Contractual Obligations
+N/A,CAS03,Monetary Amount,R,1-18,R,,,,Adjustment Amount (UHCG expects Net Paid Amount in this field),R,Inbound ,UHCG expects Net Paid Amount in this field
+N/A,CAS04,Quantity,R,1-15,S,,,,"If not required by this implementation guide, do not send.
+
+Adjustment Quantity",N/U,N/U,
+,CAS,LINE ADJUSTMENT,,Segment Repeat: 5,S,2430.0,,,"UHCG is expecting EDI Client to send the Copay, Co-insurance, Deductible and Not Covered Amount information in this segment. 
+
+In addition to the Amount Fields, UHCG is also expecting Coverage Percentage value in this Segment",R,Inbound ,"Inbound Example
+
+
+CAS*OA*23*100~
+"
+N/A,CAS01,Claim Adjustment Group Code,ID,1-2,R,,,OA,"OA=Other adjustments
+",R,Inbound ,Considered by UHCG as Coverage Percentage
+N/A,CAS02,Claim Adjustment Reason Code,ID,1-5,R,,,,Adjustment Reason Code,R,Inbound ,UHCG Always expects 23 in this element under Other adjustments
+Coverage %,CAS03,Monetary Amount,R,1-18,R,,,,Adjustment Amount (UHCG expects Coverage Percentage in this field),R,Inbound ,"UHCG expects Coverage Percentage in this field
+Cov% should be a whole number"
+N/A,CAS04,Quantity,R,1-15,S,,,,"If not required by this implementation guide, do not send.
+
+Adjustment Quantity",N/U,N/U,
+N/A,SE,TRANSACTION SET TRAILER,,Segment Repeat: 1,R,___,>1,,,R,Both,"In/Outbound Example:
+SE*33*003056509~
+"
+N/A,SE01,Number of Included Segments,N,1-10,R,,,,Transaction Segment Count,R,Both,
+N/A,SE02,Transaction Set Control Number,AN,4-9,R,,,,"The Transaction Set Control Number in ST02 and SE02 must be identical. The number must be unique within a specific interchange (ISA-IEA), but can repeat in other interchanges.",R,Both,
+N/A,GE,FUNCTION GROUP TRAILER,,Segment Repeat: 1,R,___,1.0,,,R,Both,"In/Outbound Example:
+
+GE*1*3~
+"
+N/A,GE01,Number of Transaction Sets Included,N,1-6,R,,,,,R,Both,
+N/A,GE02,Group Control Number,N,1-9,R,,,,,R,Both,
+N/A,IEA,INTERCHANGE CONTROL TRAILER,,Segment Repeat: 1,R,___,1.0,,,R,Both,"In/Outbound Example:
+IEA*1*764771193~"
+N/A,IEA01,Number of Included Functional Groups,N,1-5,R,,,,,R,Both,
+N/A,IEA02,Interchange Control Number,N,9-9,R,,,,,R,Both,

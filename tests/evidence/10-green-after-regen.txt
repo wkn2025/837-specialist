@@ -1,0 +1,25 @@
+[PASS]  1. exactly 9 CLM segments                                                      
+[PASS]  2. single ISA/GS/GE/IEA wrapping 9 ST-SE sets                                  
+[PASS]  3. 837I 005010X223A2 in GS08 and every ST03                                    
+[PASS]  4. claim spine identical to source after masking approved fields               
+[PASS]  5. every service line matches a source line template                           
+[PASS]  6. per-claim service-line counts match the matrix                              
+[PASS]  7. LX starts at 1 and is sequential in every claim                             
+[PASS]  8. claim and line amounts balance                                              
+[PASS]  9. units x rate = line charge, HCP12 = SV205                                   
+[PASS] 10. ST02, REF*9A, CLM01 and REF*F8 unique per claim and match the matrix        
+[PASS] 11. SE01 equals the real ST..SE segment count                                   
+[PASS] 12. SE02 equals ST02                                                            
+[PASS] 13. GE01 = number of ST sets and IEA01 = number of GS groups                    
+[PASS] 14. GE02 equals GS06                                                            
+[PASS] 15. IEA02 equals ISA13                                                          
+[PASS] 16. HL numbering starts at 1, increments, parents resolve                       
+[PASS] 17. delimiters, terminators and ISA geometry match the source                   
+[PASS] 18. every UHCG-required segment present in all nine claims                      
+[PASS] 19. no malformed, truncated, empty or space-padded segments                     
+[PASS] 20. project validator: none shipped with the skill, this suite is the validator 
+[PASS] 21. ISA (except ISA13) and GS identical to source                               
+[PASS] 22. every DTP*472 line date is well-formed and inside the claim's DTP*434 period
+[PASS] 23. no retired member id, birth date, name or account number remains            
+
+23 checks, 23 passed, 0 failed

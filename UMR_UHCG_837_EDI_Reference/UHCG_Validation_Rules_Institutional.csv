@@ -1,0 +1,1116 @@
+Scenario,Claim Type,"Benefit Decision 
+Claim Level  Determined by Client", Adjudication Outcome Determined by Client,Reductions ( COB / None) Set by UHCG,Billed Amount,Allowed Amount,Coverage Percentage,Copay,Coinsurance Amount,Deductible,Not Covered Amount ,Net Paid Amount ,Total Patient Responsibility,Special Instructions 
+All Lines Covered,Institutional,Covered (1),Covered,None ,"Set by UHCG
+
+Note - This field should NOT BE CHANGED on the Adjudication File returned by the Client. UHCG data sent on the original file will be retained. 
+
+Claim Level  Validation Check
+Error: Billed Amt Validation Failed. Billed Amount must not be changed.
+Sent Billed Amt $ ______ 
+Returned Billed Amt $ ______
+
+Line Level  Validation Check
+Error: Billed Amt Validation Failed. Billed Amount must not be changed.
+Sent Billed Amt $ ______ 
+Returned Billed Amt $ ______
+
+Note: Need to capture both Claim and Line level error","Set by UHCG
+
+Note - This field should NOT BE CHANGED on the Adjudication File returned by the Client. UHCG data sent on the original file will be retained. 
+
+
+Claim Level  Validation Check
+Error: Allowed Amt Validation Failed. Allowed Amount must not be changed.
+UHCG Required Allowed Amt $ ______ 
+Client adjudicated Allowed Amt $ ______
+
+Line Level  Validation Check
+Error: Allowed Amt Validation Failed. Allowed Amount must not be changed.
+Sent Allowed Amt $ ______ 
+Returned Allowed Amt $ ______
+
+Note: Need to capture both Claim and Line level error","Coverage Percentage  >=0 AND  <= 100
+1) Must be a value greater than or equal to zero and less than or equal to 100
+2) Must be a whole number with no decimals
+
+Claim Level  Validation Check
+Not Applicable
+
+Line Level Validation Check
+Error: Coverage Percent Validation Failed. It must be a whole number.  Sent _______%
+
+Error: Coverage Percent Validation Failed. Coverage Percent should be >=0 AND  <= 100.  ","Copay is a variable $ Amount.
+
+Claim Level  Validation Check
+Sum of all the Copay $ Amounts at Line Level  = Copay $ Amount at Claim Level
+Error: Copay Amount Validation Failed
+
+Line Level Validation Check
+Cannot be greater than:
+Original Allowed $ Amount – Coinsurance $ Amount – Deductible  $ Amount – Not Covered  $ Amount
+Error: Copay Amount Validation Failed","Coinsurance is a variable $ Amount.
+
+Claim Level  Validation Check
+Sum of all the Coinsurance $ Amounts at Line Level  = Coinsurance $ Amount at Claim Level
+Error: Coinsurance Amount Validation Failed
+
+Line Level Validation Check
+Cannot be greater than:
+Original Allowed $ Amount – Copay $ Amount – Deductible $ Amount – Not Covered $ Amount
+Error: Coinsurance Amount Validation Failed","Deductible is a variable $ Amount
+
+Claim Level  Validation Check
+Sum of all the Deductible $ Amounts at Line Level  = Deductible $ Amount at Claim Level
+Error: Deductible Amount Validation Failed
+
+Line Level Validation Check
+Cannot be greater than:
+Original Allowed $ Amount – Copay $ Amount – Coinsurance $ Amount – Not Covered $ Amount
+Error: Deductible Amount Validation Failed","Not Covered $ Amount
+
+Claim Level  Validation Check
+Sum of all the Not Covered $ Amounts at Line Level  = Not Covered $ Amount at Claim Level
+Error: Not Covered Amount Validation Failed
+
+Line Level Validation Check
+Cannot be greater than:
+Original Allowed $ Amount  – Copay $ Amount – Coinsurance $ Amount – Deductible $ Amount
+Error: Not Covered Amount Validation Failed","Net Paid $ Amount
+
+Claim Level  Validation Check
+Sum of all the Net Paid $ Amounts at Line Level = Net Paid $ Amount at Claim Level
+Error: Net Paid Amount Validation Failed
+
+Line Level Validation Check
+EQUALS:
+Original Allowed $ Amount  – Copay  $ Amount – Coinsurance  $ Amount  – Deductible  $ Amount – Not Covered  $ Amount
+Error: Net Paid Amount Validation Failed","Total Patient Responsibility $ Amount
+
+Claim Level  Validation Check
+EQUALS:
+Copay  $ Amount + Coinsurance  $ Amount + Deductible  $ Amount + Not Covered  $ Amount
+Error: Total Net Patient Amount Validation Failed
+
+Line Level Validation Check
+Not Applicable",Special instructions at line level are required when Not covered amount is greater than $0
+All Lines NOT Covered, Institutional,Not Covered (2),Not Covered,None,"Set by UHCG
+
+Note - This field should NOT BE CHANGED on the Adjudication File returned by the Client. UHCG data sent on the original file will be retained. 
+
+Claim Level  Validation Check
+Error: Billed Amt Validation Failed. Billed Amount must not be changed.
+Sent Billed Amt $ ______ 
+Returned Billed Amt $ ______
+
+Line Level  Validation Check
+Error: Billed Amt Validation Failed. Billed Amount must not be changed.
+Sent Billed Amt $ ______ 
+Returned Billed Amt $ ______
+
+Note: Need to capture both Claim and Line level error","Set by UHCG
+
+Note - This field should NOT BE CHANGED on the Adjudication File returned by the Client. UHCG data sent on the original file will be retained. 
+
+
+Claim Level  Validation Check
+Error: Allowed Amt Validation Failed. Allowed Amount must not be changed.
+UHCG Required Allowed Amt $ ______ 
+Client adjudicated Allowed Amt $ ______
+
+Line Level  Validation Check
+Error: Allowed Amt Validation Failed. Allowed Amount must not be changed.
+Sent Allowed Amt $ ______ 
+Returned Allowed Amt $ ______
+
+Note: Need to capture both Claim and Line level error","Coverage Percentage Must be EQUAL to Zero 
+
+UHCG sets Coverage Percentage to Zero, when the Benefit Decision is  Not Covered (2)
+
+Claim Level  Validation Check
+Not Applicable
+
+Line Level Validation Check
+Not Applicable","Copay $ Amount Must be EQUAL to Zero
+
+UHCG sets Copay $ Amount to Zero, when the Benefit Decision is Not Covered (2)
+
+Claim Level  Validation Check
+Not Applicable
+
+Line Level Validation Check
+Not Applicable","Coinsurance $ Amount Must be EQUAL to Zero
+
+UHCG sets Coinsurance $ Amount to Zero, when the Benefit Decision is  Not Covered (2) 
+
+Claim Level  Validation Check
+Not Applicable
+
+Line Level Validation Check
+Not Applicable","Deductible $ Amount Must be EQUAL to Zero
+
+UHCG sets Deductible $ Amount to Zero, when the Benefit Decision is Not Covered (2)
+
+Claim Level  Validation Check
+Not Applicable
+
+Line Level Validation Check
+Not Applicable","Not Covered $ Amount
+
+Claim Level  Validation Check
+Sum of all the Not Covered $ Amount at Line Level  = Not Covered $ Amount at Claim Level
+Error: Not Covered Amount Validation Failed
+
+Line Level Validation Check
+EQUALS:
+Billed $ Amount. 
+Error: Not Covered Amount Validation Failed
+","Net Paid $ Amount Must be EQUAL to Zero
+
+UHCG sets Net Paid $ Amount to Zero, when the Benefit Decision is  Not Covered (2)
+
+Claim Level  Validation Check
+Not Applicable
+
+Line Level Validation Check
+Not Applicable","Total Patient Responsibility $ Amount 
+
+Claim Level  Validation Check
+EQUALS:
+Copay  $ Amount + Coinsurance  $ Amount + Deductible  $ Amount + Not Covered  $ Amount
+Error:  Total  Net Patient Amount Validation Failed
+
+Line Level Validation Check
+Not Applicable","Special Instructions are Required
+
+Claim Level  Validation Check
+Not Applicable
+
+Line Level  Validation Check
+Error: Special instructions are required when the benefit decision is Not Covered (2)"
+All Lines Duplicate, Institutional,Duplicate (3),Duplicate,None ,"Set by UHCG
+
+Note - This field should NOT BE CHANGED on the Adjudication File returned by the Client. UHCG data sent on the original file will be retained. 
+
+Claim Level  Validation Check
+Error: Billed Amt Validation Failed. Billed Amount must not be changed.
+Sent Billed Amt $ ______ 
+Returned Billed Amt $ ______
+
+Line Level  Validation Check
+Error: Billed Amt Validation Failed. Billed Amount must not be changed.
+Sent Billed Amt $ ______ 
+Returned Billed Amt $ ______
+
+Note: Need to capture both Claim and Line level error","Set by UHCG
+
+Note - This field should NOT BE CHANGED on the Adjudication File returned by the Client. UHCG data sent on the original file will be retained. 
+
+
+Claim Level  Validation Check
+Error: Allowed Amt Validation Failed. Allowed Amount must not be changed.
+UHCG Required Allowed Amt $ ______ 
+Client adjudicated Allowed Amt $ ______
+
+Line Level  Validation Check
+Error: Allowed Amt Validation Failed. Allowed Amount must not be changed.
+Sent Allowed Amt $ ______ 
+Returned Allowed Amt $ ______
+
+Note: Need to capture both Claim and Line level error","Coverage Percentage Must be EQUAL to Zero 
+
+UHCG sets Coverage Percentage to Zero, when the Benefit Decision is Duplicate (3)
+
+Claim Level  Validation Check
+Not Applicable
+
+Line Level Validation Check
+Not Applicable","Copay $ Amount Must be EQUAL to Zero
+
+UHCG sets Copay $ Amount to Zero, when the Benefit Decision is Duplicate (3)
+
+Claim Level  Validation Check
+Not Applicable
+
+Line Level Validation Check
+Not Applicable","Coinsurance $ Amount Must be EQUAL to Zero
+
+UHCG sets Coinsurance $ Amount to Zero, when the Benefit Decision is  Duplicate (3)
+
+Claim Level  Validation Check
+Not Applicable
+
+Line Level Validation Check
+Not Applicable","Deductible $ Amount Must be EQUAL to Zero
+
+UHCG sets Deductible $ Amount to Zero, when the Benefit Decision is Duplicate (3)
+
+Claim Level  Validation Check
+Not Applicable
+
+Line Level Validation Check
+Not Applicable","Not Covered $ Amount Must be EQUAL to Zero
+
+UHCG sets Not Covered $ Amount to Zero, when the Benefit Decision is Duplicate (3)
+
+Claim Level  Validation Check
+Not Applicable
+
+Line Level Validation Check
+Not Applicable ","Net Paid $ Amount Must be EQUAL to Zero
+
+UHCG sets Net Paid $ Amount to Zero, when the Benefit Decision is  Duplicate (3)
+
+Claim Level  Validation Check
+Not Applicable
+
+Line Level Validation Check
+Not Applicable","Total Patient Responsibility $ Amount Must be EQUAL to Zero
+
+UHCG sets Patient Responsibility $ Amount  to Zero, when the Benefit Decision is Duplicate (3)
+
+Claim Level  Validation Check
+Not Applicable
+
+Line Level Validation Check
+Not Applicable ",Special instructions at line level are required when Not covered amount is greater than $0
+One or More lines (but not all) NOT Covered,Institutional,Covered (1),Covered,None ,"Set by UHCG
+
+Note - This field should NOT BE CHANGED on the Adjudication File returned by the Client. UHCG data sent on the original file will be retained. 
+
+Claim Level  Validation Check
+Error: Billed Amt Validation Failed. Billed Amount must not be changed.
+Sent Billed Amt $ ______ 
+Returned Billed Amt $ ______
+
+Line Level  Validation Check
+Error: Billed Amt Validation Failed. Billed Amount must not be changed.
+Sent Billed Amt $ ______ 
+Returned Billed Amt $ ______
+
+Note: Need to capture both Claim and Line level error","Set by UHCG
+
+Note - This field should NOT BE CHANGED on the Adjudication File returned by the Client. UHCG data sent on the original file will be retained. 
+
+
+Claim Level  Validation Check
+Error: Allowed Amt Validation Failed. Allowed Amount must not be changed.
+UHCG Required Allowed Amt $ ______ 
+Client adjudicated Allowed Amt $ ______
+
+Line Level  Validation Check
+Error: Allowed Amt Validation Failed. Allowed Amount must not be changed.
+Sent Allowed Amt $ ______ 
+Returned Allowed Amt $ ______
+
+Note: Need to capture both Claim and Line level error","Coverage Percentage  >=0 AND  <= 100
+1) Must be a value greater than or equal to zero and less than or equal to 100
+2) Must be a whole number with no decimals
+
+Claim Level  Validation Check
+Not Applicable
+
+Line Level Validation Check
+Error: Coverage Percent Validation Failed. It must be a whole number.  Sent _______%
+
+Error: Coverage Percent Validation Failed. Coverage Percent should be >=0 AND  <= 100.  ","Copay is a variable $ Amount.
+
+Claim Level  Validation Check
+Sum of all the Copay $ Amounts at Line Level  = Copay $ Amount at Claim Level
+Error: Copay Amount Validation Failed
+
+Line Level Validation Check
+Cannot be greater than:
+Original Allowed $ Amount – Coinsurance $ Amount – Deductible  $ Amount – Not Covered  $ Amount
+Error: Copay Amount Validation Failed","Coinsurance is a variable $ Amount.
+
+Claim Level  Validation Check
+Sum of all the Coinsurance $ Amounts at Line Level  = Coinsurance $ Amount at Claim Level
+Error: Coinsurance Amount Validation Failed
+
+Line Level Validation Check
+Cannot be greater than:
+Original Allowed $ Amount – Copay $ Amount – Deductible $ Amount – Not Covered $ Amount
+Error: Coinsurance Amount Validation Failed","Deductible is a variable $ Amount
+
+Claim Level  Validation Check
+Sum of all the Deductible $ Amounts at Line Level  = Deductible $ Amount at Claim Level
+Error: Deductible Amount Validation Failed
+
+Line Level Validation Check
+Cannot be greater than:
+Original Allowed $ Amount – Copay $ Amount – Coinsurance $ Amount – Not Covered $ Amount
+Error: Deductible Amount Validation Failed","Not Covered $ Amount
+
+Claim Level  Validation Check
+Sum of all the Not Covered $ Amounts at Line Level  = Not Covered $ Amount at Claim Level
+Error: Not Covered Amount Validation Failed
+
+Line Level Validation Check
+Cannot be greater than:
+Original Allowed $ Amount  – Copay $ Amount – Coinsurance $ Amount – Deductible $ Amount
+Error: Not Covered Amount Validation Failed","Net Paid $ Amount
+
+Claim Level  Validation Check
+Sum of all the Net Paid $ Amounts at Line Level = Net Paid $ Amount at Claim Level
+Error: Net Paid Amount Validation Failed
+
+Line Level Validation Check
+EQUALS:
+Original Allowed $ Amount  – Copay  $ Amount – Coinsurance  $ Amount  – Deductible  $ Amount – Not Covered  $ Amount
+Error: Net Paid Amount Validation Failed","Total Patient Responsibility $ Amount
+
+Claim Level  Validation Check
+EQUALS:
+Copay  $ Amount + Coinsurance  $ Amount + Deductible  $ Amount + Not Covered  $ Amount
+Error: Total Net Patient Amount Validation Failed
+
+Line Level Validation Check
+Not Applicable",Special instructions at line level are required when Not covered amount is greater than $0
+One or More lines (but not all) NOT Covered,Institutional,Covered (1),Not Covered,None ,"Set by UHCG
+
+Note - This field should NOT BE CHANGED on the Adjudication File returned by the Client. UHCG data sent on the original file will be retained. 
+
+Claim Level  Validation Check
+Error: Billed Amt Validation Failed. Billed Amount must not be changed.
+Sent Billed Amt $ ______ 
+Returned Billed Amt $ ______
+
+Line Level  Validation Check
+Error: Billed Amt Validation Failed. Billed Amount must not be changed.
+Sent Billed Amt $ ______ 
+Returned Billed Amt $ ______
+
+Note: Need to capture both Claim and Line level error","Set by UHCG
+
+Note - This field should NOT BE CHANGED on the Adjudication File returned by the Client. UHCG data sent on the original file will be retained. 
+
+
+Claim Level  Validation Check
+Error: Allowed Amt Validation Failed. Allowed Amount must not be changed.
+UHCG Required Allowed Amt $ ______ 
+Client adjudicated Allowed Amt $ ______
+
+Line Level  Validation Check
+Error: Allowed Amt Validation Failed. Allowed Amount must not be changed.
+Sent Allowed Amt $ ______ 
+Returned Allowed Amt $ ______
+
+Note: Need to capture both Claim and Line level error","Coverage Percentage on this LINE Must be EQUAL to Zero 
+
+Claim Level  Validation Check
+Not Applicable
+
+Line Level Validation Check
+Not Applicable","Copay $ Amount on this LINE Must be EQUAL to Zero
+
+Claim Level  Validation Check
+Sum of all the Copay $ Amounts at Line Level  = Copay $ Amount at Claim Level
+Error: Copay Amount Validation Failed
+
+Line Level Validation Check
+Not Applicable","Coinsurance $ Amount on this LINE Must be EQUAL to Zero
+
+Claim Level  Validation Check
+Sum of all the Coinsurance $ Amounts at Line Level  = Coinsurance $ Amount at Claim Level
+Error: Coinsurance Amount Validation Failed
+
+Line Level Validation Check
+Not Applicable","Deductible $ Amount on this LINE Must be EQUAL to Zero
+
+Claim Level  Validation Check
+Sum of all the Deductible $ Amounts at Line Level  = Deductible $ Amount at Claim Level
+Error: Deductible Amount Validation Failed
+
+Line Level Validation Check
+Not Applicable","Not Covered $ Amount
+
+Claim Level  Validation Check
+Sum of all the Not Covered $ Amount at Line Level  = Not Covered $ Amount at Claim Level
+Error: Not Covered Amount Validation Failed
+
+Line Level Validation Check
+EQUALS:
+Allowed $ Amount.
+Error: Not Covered Amount Validation Failed
+
+ATTENTION: Institutional Claims have NO ""Line level Benefit Decision"", So Allowed Amount must be used","Net Paid $ Amount on this LINE Must be EQUAL to Zero
+
+Claim Level  Validation Check
+Sum of all the Net Paid $ Amounts at Line Level = Net Paid $ Amount at Claim Level
+Error: Net Paid Amount Validation Failed
+
+Line Level Validation Check
+EQUALS:
+Original Allowed $ Amount  – Copay  $ Amount – Coinsurance  $ Amount  – Deductible  $ Amount – Not Covered  $ Amount
+Error: Net Paid Amount Validation Failed
+
+ATTENTION: Institutional Claims have NO ""Line level Benefit Decision"", So Allowed Amount must be used","Total Patient Responsibility $ Amount
+
+Claim Level  Validation Check
+EQUALS:
+Copay  $ Amount + Coinsurance  $ Amount + Deductible  $ Amount + Not Covered  $ Amount
+Error: Total Net Patient Amount Validation Failed
+
+Line Level Validation Check
+Not Applicable
+
+ATTENTION: Institutional Claims have NO ""Line level Benefit Decision"", So Allowed Amount must be used","Special Instructions are Required
+
+Claim Level  Validation Check
+Not Applicable 
+
+Line Level  Validation Check
+Error: Special instructions are required when the adjudiction outcome is Not Covered
+"
+One or More  lines (but Not All) Duplicate,Institutional,Covered (1),Covered,None ,"Set by UHCG
+
+Note - This field should NOT BE CHANGED on the Adjudication File returned by the Client. UHCG data sent on the original file will be retained. 
+
+Claim Level  Validation Check
+Error: Billed Amt Validation Failed. Billed Amount must not be changed.
+Sent Billed Amt $ ______ 
+Returned Billed Amt $ ______
+
+Line Level  Validation Check
+Error: Billed Amt Validation Failed. Billed Amount must not be changed.
+Sent Billed Amt $ ______ 
+Returned Billed Amt $ ______
+
+Note: Need to capture both Claim and Line level error","Set by UHCG
+
+Note - This field should NOT BE CHANGED on the Adjudication File returned by the Client. UHCG data sent on the original file will be retained. 
+
+
+Claim Level  Validation Check
+Error: Allowed Amt Validation Failed. Allowed Amount must not be changed.
+UHCG Required Allowed Amt $ ______ 
+Client adjudicated Allowed Amt $ ______
+
+Line Level  Validation Check
+Error: Allowed Amt Validation Failed. Allowed Amount must not be changed.
+Sent Allowed Amt $ ______ 
+Returned Allowed Amt $ ______
+
+Note: Need to capture both Claim and Line level error","Coverage Percentage  >=0 AND  <= 100
+1) Must be a value greater than or equal to zero and less than or equal to 100
+2) Must be a whole number with no decimals
+
+Claim Level  Validation Check
+Not Applicable
+
+Line Level Validation Check
+Error: Coverage Percent Validation Failed. It must be a whole number.  Sent _______%
+
+Error: Coverage Percent Validation Failed. Coverage Percent should be >=0 AND  <= 100.","Copay is a variable $ Amount.
+
+Claim Level  Validation Check
+Sum of all the Copay $ Amounts at Line Level  = Copay $ Amount at Claim Level
+Error: Copay Amount Validation Failed
+
+Line Level Validation Check
+Cannot be greater than:
+Original Allowed $ Amount – Coinsurance $ Amount – Deductible  $ Amount – Not Covered  $ Amount
+Error: Copay Amount Validation Failed","Coinsurance is a variable $ Amount.
+
+Claim Level  Validation Check
+Sum of all the Coinsurance $ Amounts at Line Level  = Coinsurance $ Amount at Claim Level
+Error: Coinsurance Amount Validation Failed
+
+Line Level Validation Check
+Cannot be greater than:
+Original Allowed $ Amount – Copay $ Amount – Deductible $ Amount – Not Covered $ Amount
+Error: Coinsurance Amount Validation Failed","Deductible is a variable $ Amount
+
+Claim Level  Validation Check
+Sum of all the Deductible $ Amounts at Line Level  = Deductible $ Amount at Claim Level
+Error: Deductible Amount Validation Failed
+
+Line Level Validation Check
+Cannot be greater than:
+Original Allowed $ Amount – Copay $ Amount – Coinsurance $ Amount – Not Covered $ Amount
+Error: Deductible Amount Validation Failed","Not Covered $ Amount
+
+Claim Level  Validation Check
+Sum of all the Not Covered $ Amounts at Line Level  = Not Covered $ Amount at Claim Level
+Error: Not Covered Amount Validation Failed
+
+Line Level Validation Check
+Cannot be greater than:
+Original Allowed $ Amount  – Copay $ Amount – Coinsurance $ Amount – Deductible $ Amount
+Error: Not Covered Amount Validation Failed","Net Paid $ Amount
+
+Claim Level  Validation Check
+Sum of all the Net Paid $ Amounts at Line Level = Net Paid $ Amount at Claim Level
+Error: Net Paid Amount Validation Failed
+
+Line Level Validation Check
+EQUALS:
+Original Allowed $ Amount  – Copay  $ Amount – Coinsurance  $ Amount  – Deductible  $ Amount – Not Covered  $ Amount
+Error: Net Paid Amount Validation Failed","Total Patient Responsibility $ Amount
+
+Claim Level  Validation Check
+EQUALS:
+Copay  $ Amount + Coinsurance  $ Amount + Deductible  $ Amount + Not Covered  $ Amount
+Error: Total Net Patient Amount Validation Failed
+
+Line Level Validation Check
+Not Applicable",Special instructions at line level are required when Not covered amount is greater than $0
+One or More  lines (but Not All) Duplicate,Institutional,Covered (1),Duplicate,None ,"Set by UHCG
+
+Note - This field should NOT BE CHANGED on the Adjudication File returned by the Client. UHCG data sent on the original file will be retained. 
+
+Claim Level  Validation Check
+Error: Billed Amt Validation Failed. Billed Amount must not be changed.
+Sent Billed Amt $ ______ 
+Returned Billed Amt $ ______
+
+Line Level  Validation Check
+Error: Billed Amt Validation Failed. Billed Amount must not be changed.
+Sent Billed Amt $ ______ 
+Returned Billed Amt $ ______
+
+Note: Need to capture both Claim and Line level error","Set by UHCG
+
+Note - This field should NOT BE CHANGED on the Adjudication File returned by the Client. UHCG data sent on the original file will be retained. 
+
+
+Claim Level  Validation Check
+Error: Allowed Amt Validation Failed. Allowed Amount must not be changed.
+UHCG Required Allowed Amt $ ______ 
+Client adjudicated Allowed Amt $ ______
+
+Line Level  Validation Check
+Error: Allowed Amt Validation Failed. Allowed Amount must not be changed.
+Sent Allowed Amt $ ______ 
+Returned Allowed Amt $ ______
+
+Note: Need to capture both Claim and Line level error","Coverage Percentage on this LINE Must be EQUAL to Zero 
+
+Claim Level  Validation Check
+Not Applicable
+
+Line Level Validation Check
+Not Applicable","Copay $ Amount on this LINE Must be EQUAL to Zero
+
+Claim Level  Validation Check
+Sum of all the Copay $ Amounts at Line Level  = Copay $ Amount at Claim Level
+Error: Copay Amount Validation Failed
+
+Line Level Validation Check
+Not Applicable","Coinsurance $ Amount on this LINE Must be EQUAL to Zero
+
+Claim Level  Validation Check
+Sum of all the Coinsurance $ Amounts at Line Level  = Coinsurance $ Amount at Claim Level
+Error: Coinsurance Amount Validation Failed
+
+Line Level Validation Check
+Not Applicable","Deductible $ Amount on this LINE Must be EQUAL to Zero
+
+Claim Level  Validation Check
+Sum of all the Deductible $ Amounts at Line Level  = Deductible $ Amount at Claim Level
+Error: Deductible Amount Validation Failed
+
+Line Level Validation Check
+Not Applicable","Not Covered $ Amount
+
+Claim Level  Validation Check
+Sum of all the Not Covered $ Amount at Line Level  = Not Covered $ Amount at Claim Level
+Error: Not Covered Amount Validation Failed
+
+Line Level Validation Check
+EQUALS:
+Allowed $ Amount. 
+Error: Not Covered Amount Validation Failed
+
+ATTENTION: Institutional Claims have NO ""Line level Benefit Decision"", So Allowed Amount must be used","Net Paid $ Amount on this LINE Must be EQUAL to Zero
+
+Claim Level  Validation Check
+Sum of all the Net Paid $ Amounts at Line Level = Net Paid $ Amount at Claim Level
+Error: Net Paid Amount Validation Failed
+
+Line Level Validation Check
+Not Applicable","Total Patient Responsibility $ Amount
+
+Claim Level  Validation Check
+EQUALS:
+Copay  $ Amount + Coinsurance  $ Amount + Deductible  $ Amount + Not Covered  $ Amount
+Error: Total Net Patient Amount Validation Failed
+
+Line Level Validation Check
+Not Applicable
+
+ATTENTION: Institutional Claims have NO ""Line level Benefit Decision"", So Allowed Amount must be used","Special Instructions are Required
+
+Claim Level  Validation Check
+Not Applicable 
+
+Line Level  Validation Check
+Error: Special instructions are required when the adjudiction outcome is Duplicate
+"
+All Lines Covered with Reductions,Institutional,Covered (1),Covered,COB,"Set by UHCG
+
+Note - This field should NOT BE CHANGED on the Adjudication File returned by the Client. UHCG data sent on the original file will be retained. 
+
+Claim Level  Validation Check
+Error: Billed Amt Validation Failed. Billed Amount must not be changed.
+Sent Billed Amt $ ______ 
+Returned Billed Amt $ ______
+
+Line Level  Validation Check
+Error: Billed Amt Validation Failed. Billed Amount must not be changed.
+Sent Billed Amt $ ______ 
+Returned Billed Amt $ ______
+
+Note: Need to capture both Claim and Line level error","Set by UHCG
+
+Note - This field should NOT BE CHANGED on the Adjudication File returned by the Client. UHCG data sent on the original file will be retained. 
+
+
+Claim Level  Validation Check
+Error: Allowed Amt Validation Failed. Allowed Amount must not be changed.
+UHCG Required Allowed Amt $ ______ 
+Client adjudicated Allowed Amt $ ______
+
+Line Level  Validation Check
+Error: Allowed Amt Validation Failed. Allowed Amount must not be changed.
+Sent Allowed Amt $ ______ 
+Returned Allowed Amt $ ______
+
+Note: Need to capture both Claim and Line level error","Coverage Percentage  >=0 AND  <= 100
+1) Must be a value greater than or equal to zero and less than or equal to 100
+2) Must be a whole number with no decimals
+
+Claim Level  Validation Check
+Not Applicable
+
+Line Level Validation Check
+Error: Coverage Percent Validation Failed. It must be a whole number.  Sent _______%
+
+Error: Coverage Percent Validation Failed. Coverage Percent should be >=0 AND  <= 100.  ","Copay is a variable $ Amount.
+
+Claim Level  Validation Check
+Sum of all the Copay $ Amounts at Line Level  = Copay $ Amount at Claim Level
+Error: Copay Amount Validation Failed
+
+Line Level Validation Check
+Cannot be greater than:
+Original Allowed $ Amount – Coinsurance $ Amount – Deductible  $ Amount – Not Covered  $ Amount
+Error: Copay Amount Validation Failed","Coinsurance is a variable $ Amount.
+
+Claim Level  Validation Check
+Sum of all the Coinsurance $ Amounts at Line Level  = Coinsurance $ Amount at Claim Level
+Error: Coinsurance Amount Validation Failed
+
+Line Level Validation Check
+Cannot be greater than:
+Original Allowed $ Amount – Copay $ Amount – Deductible $ Amount – Not Covered $ Amount
+Error: Coinsurance Amount Validation Failed","Deductible is a variable $ Amount
+
+Claim Level  Validation Check
+Sum of all the Deductible $ Amounts at Line Level  = Deductible $ Amount at Claim Level
+Error: Deductible Amount Validation Failed
+
+Line Level Validation Check
+Cannot be greater than:
+Original Allowed $ Amount – Copay $ Amount – Coinsurance $ Amount – Not Covered $ Amount
+Error: Deductible Amount Validation Failed","Not Covered $ Amount
+
+Claim Level  Validation Check
+Sum of all the Not Covered $ Amounts at Line Level  = Not Covered $ Amount at Claim Level
+Error: Not Covered Amount Validation Failed
+
+Line Level Validation Check
+Cannot be greater than:
+Original Allowed $ Amount  – Copay $ Amount – Coinsurance $ Amount – Deductible $ Amount
+Error: Not Covered Amount Validation Failed","Net Paid $ Amount
+
+Claim Level  Validation Check
+Sum of all the Net Paid $ Amounts at Line Level = Net Paid $ Amount at Claim Level
+Error: Net Paid Amount Validation Failed
+
+Line Level Validation Check
+EQUALS:
+Original Allowed $ Amount  – Copay  $ Amount – Coinsurance  $ Amount  – Deductible  $ Amount – Not Covered  $ Amount
+Error: Net Paid Amount Validation Failed","Total Patient Responsibility $ Amount
+
+Claim Level  Validation Check
+EQUALS:
+Copay  $ Amount + Coinsurance  $ Amount + Deductible  $ Amount + Not Covered  $ Amount
+Error: Total Net Patient Amount Validation Failed
+
+Line Level Validation Check
+Not Applicable",Special instructions at line level are required when Not covered amount is greater than $0
+All lines NOT Covered with Reductions,Institutional,Not Covered (2),Not Covered,COB,"Set by UHCG
+
+Note - This field should NOT BE CHANGED on the Adjudication File returned by the Client. UHCG data sent on the original file will be retained. 
+
+Claim Level  Validation Check
+Error: Billed Amt Validation Failed. Billed Amount must not be changed.
+Sent Billed Amt $ ______ 
+Returned Billed Amt $ ______
+
+Line Level  Validation Check
+Error: Billed Amt Validation Failed. Billed Amount must not be changed.
+Sent Billed Amt $ ______ 
+Returned Billed Amt $ ______
+
+Note: Need to capture both Claim and Line level error","Set by UHCG
+
+Note - This field should NOT BE CHANGED on the Adjudication File returned by the Client. UHCG data sent on the original file will be retained. 
+
+
+Claim Level  Validation Check
+Error: Allowed Amt Validation Failed. Allowed Amount must not be changed.
+UHCG Required Allowed Amt $ ______ 
+Client adjudicated Allowed Amt $ ______
+
+Line Level  Validation Check
+Error: Allowed Amt Validation Failed. Allowed Amount must not be changed.
+Sent Allowed Amt $ ______ 
+Returned Allowed Amt $ ______
+
+Note: Need to capture both Claim and Line level error","Coverage Percentage Must be EQUAL to Zero 
+
+UHCG sets Coverage Percentage to Zero, when the Benefit Decision is Not Covered (2)
+
+Claim Level  Validation Check
+Not Applicable
+
+Line Level Validation Check
+Not Applicable","Copay $ Amount Must be EQUAL to Zero
+
+UHCG sets Copay $ Amount to Zero, when the Benefit Decision is Not Covered (2)
+
+Claim Level  Validation Check
+Sum of all the Copay $ Amounts at Line Level  = Copay $ Amount at Claim Level
+Error: Copay Amount Validation Failed
+
+Line Level Validation Check
+Not Applicable","Coinsurance $ Amount Must be EQUAL to Zero
+
+UHCG sets Coinsurance $ Amount to Zero, when the Benefit Decision is Not Covered (2)
+
+Claim Level  Validation Check
+Claim Level  Validation Check
+Sum of all the Copay $ Amounts at Line Level  = Copay $ Amount at Claim Level
+Error: Coinsurance Amount Validation Failed
+
+Line Level Validation Check
+Not Applicable","Deductible $ Amount Must be EQUAL to Zero
+
+UHCG sets Deductible $ Amount to Zero, when the Benefit Decision is Not Covered (2)
+
+Claim Level  Validation Check
+Claim Level  Validation Check
+Sum of all the Copay $ Amounts at Line Level  = Copay $ Amount at Claim Level
+Error: Deductible Amount Validation Failed
+
+Line Level Validation Check
+Not Applicable","Not Covered $ Amount MUST be EQUAL to Allowed $ Amount only for lines with COB Reductions
+
+Claim Level  Validation Check
+Sum of all the Not Covered $ Amount at Line Level  = Not Covered $ Amount at Claim Level
+Error: Not Covered Amount Validation Failed
+
+Line Level Validation Check
+EQUALS:
+Allowed $ Amount. 
+Error: Not Covered Amount Validation Failed","Net Paid $ Amount Must be EQUAL to Zero
+
+UHCG sets Net Paid $ Amount to Zero, when the Benefit Decision is Not Covered (2)
+
+Claim Level  Validation Check
+Sum of all the Not Covered $ Amount at Line Level  = Not Covered $ Amount at Claim Level
+Error: Net Paid Amount Validation Failed
+
+Line Level Validation Check
+Not Applicable","Total Patient Responsibility $ Amount
+
+Claim Level  Validation Check
+EQUALS:
+Copay  $ Amount + Coinsurance  $ Amount + Deductible  $ Amount + Not Covered  $ Amount
+Error: Total Net Patient Amount Validation Failed
+
+Line Level Validation Check
+Not Applicable","Special Instructions are Required
+
+Claim Level  Validation Check
+Not Applicable
+
+Line Level  Validation Check
+Error: Special instructions are required when the benefit decision is Not Covered (2)"
+All Lines Duplicate with Reductions,Institutional,Duplicate (3),Duplicate,COB,"Set by UHCG
+
+Note - This field should NOT BE CHANGED on the Adjudication File returned by the Client. UHCG data sent on the original file will be retained. 
+
+Claim Level  Validation Check
+Error: Billed Amt Validation Failed. Billed Amount must not be changed.
+Sent Billed Amt $ ______ 
+Returned Billed Amt $ ______
+
+Line Level  Validation Check
+Error: Billed Amt Validation Failed. Billed Amount must not be changed.
+Sent Billed Amt $ ______ 
+Returned Billed Amt $ ______
+
+Note: Need to capture both Claim and Line level error","Set by UHCG
+
+Note - This field should NOT BE CHANGED on the Adjudication File returned by the Client. UHCG data sent on the original file will be retained. 
+
+
+Claim Level  Validation Check
+Error: Allowed Amt Validation Failed. Allowed Amount must not be changed.
+UHCG Required Allowed Amt $ ______ 
+Client adjudicated Allowed Amt $ ______
+
+Line Level  Validation Check
+Error: Allowed Amt Validation Failed. Allowed Amount must not be changed.
+Sent Allowed Amt $ ______ 
+Returned Allowed Amt $ ______
+
+Note: Need to capture both Claim and Line level error","Coverage Percentage Must be EQUAL to Zero 
+
+UHCG sets Coverage Percentage to Zero, when the Benefit Decision is Duplicate (3)
+
+Claim Level  Validation Check
+Not Applicable
+
+Line Level Validation Check
+Not Applicable","Copay $ Amount Must be EQUAL to Zero
+
+UHCG sets Copay $ Amount to Zero, when the Benefit Decision is Duplicate (3)
+
+Claim Level  Validation Check
+Not Applicable
+
+Line Level Validation Check
+Not Applicable","Coinsurance $ Amount Must be EQUAL to Zero
+
+UHCG sets Coinsurance $ Amount to Zero, when the Benefit Decision is  Duplicate (3)
+
+Claim Level  Validation Check
+Not Applicable
+
+Line Level Validation Check
+Not Applicable","Deductible $ Amount Must be EQUAL to Zero
+
+UHCG sets Deductible $ Amount to Zero, when the Benefit Decision is Duplicate (3)
+
+Claim Level  Validation Check
+Not Applicable
+
+Line Level Validation Check
+Not Applicable","Not Covered $ Amount Must be EQUAL to Zero
+
+UHCG sets Not Covered $ Amount to Zero, when the Benefit Decision is Duplicate (3)
+
+Claim Level  Validation Check
+Not Applicable
+
+Line Level Validation Check
+Not Applicable ","Net Paid $ Amount Must be EQUAL to Zero
+
+UHCG sets Net Paid $ Amount to Zero, when the Benefit Decision is  Duplicate (3)
+
+Claim Level  Validation Check
+Not Applicable
+
+Line Level Validation Check
+Not Applicable","Total Patient Responsibility $ Amount Must be EQUAL to Zero
+
+UHCG sets Patient Responsibility $ Amount  to Zero, when the Benefit Decision is Duplicate (3)
+
+Claim Level  Validation Check
+Not Applicable
+
+Line Level Validation Check
+Not Applicable ",Special instructions at line level are required when Not covered amount is greater than $0
+One or more lines (but not all) NOT Covered with Reductions,Institutional,Covered (1),Not Covered,COB,"Set by UHCG
+
+Note - This field should NOT BE CHANGED on the Adjudication File returned by the Client. UHCG data sent on the original file will be retained. 
+
+Claim Level  Validation Check
+Error: Billed Amt Validation Failed. Billed Amount must not be changed.
+Sent Billed Amt $ ______ 
+Returned Billed Amt $ ______
+
+Line Level  Validation Check
+Error: Billed Amt Validation Failed. Billed Amount must not be changed.
+Sent Billed Amt $ ______ 
+Returned Billed Amt $ ______
+
+Note: Need to capture both Claim and Line level error","Set by UHCG
+
+Note - This field should NOT BE CHANGED on the Adjudication File returned by the Client. UHCG data sent on the original file will be retained. 
+
+
+Claim Level  Validation Check
+Error: Allowed Amt Validation Failed. Allowed Amount must not be changed.
+UHCG Required Allowed Amt $ ______ 
+Client adjudicated Allowed Amt $ ______
+
+Line Level  Validation Check
+Error: Allowed Amt Validation Failed. Allowed Amount must not be changed.
+Sent Allowed Amt $ ______ 
+Returned Allowed Amt $ ______
+
+Note: Need to capture both Claim and Line level error","Coverage Percentage on this LINE Must be EQUAL to Zero 
+
+Claim Level  Validation Check
+Not Applicable
+
+Line Level Validation Check
+Not Applicable","Copay $ Amount on this LINE Must be EQUAL to Zero
+
+Claim Level  Validation Check
+Sum of all the Copay $ Amounts at Line Level  = Copay $ Amount at Claim Level
+Error: Copay Amount Validation Failed
+
+Line Level Validation Check
+Not Applicable","Coinsurance $ Amount on this LINE Must be EQUAL to Zero
+
+Claim Level  Validation Check
+Sum of all the Coinsurance $ Amounts at Line Level  = Coinsurance $ Amount at Claim Level
+Error: Coinsurance Amount Validation Failed
+
+Line Level Validation Check
+Not Applicable","Deductible $ Amount on this LINE Must be EQUAL to Zero
+
+Claim Level  Validation Check
+Sum of all the Deductible $ Amounts at Line Level  = Deductible $ Amount at Claim Level
+Error: Deductible Amount Validation Failed
+
+Line Level Validation Check
+Not Applicable","Not Covered $ Amount
+
+Claim Level  Validation Check
+Sum of all the Not Covered $ Amount at Line Level  = Not Covered $ Amount at Claim Level
+Error: Not Covered Amount Validation Failed
+
+Line Level Validation Check
+EQUALS:
+Allowed $ Amount. 
+Error: Not Covered Amount Validation Failed
+
+ATTENTION: Institutional Claims have NO ""Line level Benefit Decision"", So Allowed Amount must be used","Net Paid $ Amount on this LINE Must be EQUAL to Zero
+
+Claim Level  Validation Check
+Sum of all the Net Paid $ Amounts at Line Level = Net Paid $ Amount at Claim Level
+Error: Net Paid Amount Validation Failed
+
+Line Level Validation Check
+EQUALS:
+Original Allowed $ Amount  – Copay  $ Amount – Coinsurance  $ Amount  – Deductible  $ Amount – Not Covered  $ Amount
+Error: Net Paid Amount Validation Failed
+
+ATTENTION: Institutional Claims have NO ""Line level Benefit Decision"", So Allowed Amount must be used","Total Patient Responsibility $ Amount
+
+Claim Level  Validation Check
+EQUALS:
+Copay  $ Amount + Coinsurance  $ Amount + Deductible  $ Amount + Not Covered  $ Amount
+Error: Total Net Patient Amount Validation Failed
+
+Line Level Validation Check
+Not Applicable
+
+ATTENTION: Institutional Claims have NO ""Line level Benefit Decision"", So Allowed Amount must be used","Special Instructions are Required
+
+Claim Level  Validation Check
+Not Applicable 
+
+Line Level  Validation Check
+Error: Special instructions are required when the adjudiction outcome is Not Covered
+"
+One or more lines (but not all) NOT Covered with Reductions,Institutional,Covered (1),Covered,None ,"Set by UHCG
+
+Note - This field should NOT BE CHANGED on the Adjudication File returned by the Client. UHCG data sent on the original file will be retained. 
+
+Claim Level  Validation Check
+Error: Billed Amt Validation Failed. Billed Amount must not be changed.
+Sent Billed Amt $ ______ 
+Returned Billed Amt $ ______
+
+Line Level  Validation Check
+Error: Billed Amt Validation Failed. Billed Amount must not be changed.
+Sent Billed Amt $ ______ 
+Returned Billed Amt $ ______
+
+Note: Need to capture both Claim and Line level error","Set by UHCG
+
+Note - This field should NOT BE CHANGED on the Adjudication File returned by the Client. UHCG data sent on the original file will be retained. 
+
+
+Claim Level  Validation Check
+Error: Allowed Amt Validation Failed. Allowed Amount must not be changed.
+UHCG Required Allowed Amt $ ______ 
+Client adjudicated Allowed Amt $ ______
+
+Line Level  Validation Check
+Error: Allowed Amt Validation Failed. Allowed Amount must not be changed.
+Sent Allowed Amt $ ______ 
+Returned Allowed Amt $ ______
+
+Note: Need to capture both Claim and Line level error","Coverage Percentage  >=0 AND  <= 100
+1) Must be a value greater than or equal to zero and less than or equal to 100
+2) Must be a whole number with no decimals
+
+Claim Level  Validation Check
+Not Applicable
+
+Line Level Validation Check
+Error: Coverage Percent Validation Failed. It must be a whole number.  Sent _______%
+
+Error: Coverage Percent Validation Failed. Coverage Percent should be >=0 AND  <= 100.","Copay is a variable $ Amount.
+
+Claim Level  Validation Check
+Sum of all the Copay $ Amounts at Line Level  = Copay $ Amount at Claim Level
+Error: Copay Amount Validation Failed
+
+Line Level Validation Check
+Cannot be greater than:
+Original Allowed $ Amount – Coinsurance $ Amount – Deductible  $ Amount – Not Covered  $ Amount
+Error: Copay Amount Validation Failed","Coinsurance is a variable $ Amount.
+
+Claim Level  Validation Check
+Sum of all the Coinsurance $ Amounts at Line Level  = Coinsurance $ Amount at Claim Level
+Error: Coinsurance Amount Validation Failed
+
+Line Level Validation Check
+Cannot be greater than:
+Original Allowed $ Amount – Copay $ Amount – Deductible $ Amount – Not Covered $ Amount
+Error: Coinsurance Amount Validation Failed","Deductible is a variable $ Amount
+
+Claim Level  Validation Check
+Sum of all the Deductible $ Amounts at Line Level  = Deductible $ Amount at Claim Level
+Error: Deductible Amount Validation Failed
+
+Line Level Validation Check
+Cannot be greater than:
+Original Allowed $ Amount – Copay $ Amount – Coinsurance $ Amount – Not Covered $ Amount
+Error: Deductible Amount Validation Failed","Not Covered $ Amount
+
+Claim Level  Validation Check
+Sum of all the Not Covered $ Amounts at Line Level  = Not Covered $ Amount at Claim Level
+Error: Not Covered Amount Validation Failed
+
+Line Level Validation Check
+Cannot be greater than:
+Original Allowed $ Amount  – Copay $ Amount – Coinsurance $ Amount – Deductible $ Amount
+Error: Not Covered Amount Validation Failed","Net Paid $ Amount
+
+Claim Level  Validation Check
+Sum of all the Net Paid $ Amounts at Line Level = Net Paid $ Amount at Claim Level
+Error: Net Paid Amount Validation Failed
+
+Line Level Validation Check
+EQUALS:
+Original Allowed $ Amount  – Copay  $ Amount – Coinsurance  $ Amount  – Deductible  $ Amount – Not Covered  $ Amount
+Error: Net Paid Amount Validation Failed","Total Patient Responsibility $ Amount
+
+Claim Level  Validation Check
+EQUALS:
+Copay  $ Amount + Coinsurance  $ Amount + Deductible  $ Amount + Not Covered  $ Amount
+Error: Total Net Patient Amount Validation Failed
+
+Line Level Validation Check
+Not Applicable",Special instructions at line level are required when Not covered amount is greater than $0

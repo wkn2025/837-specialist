@@ -1,0 +1,11 @@
+mutation                 expect  caught  exit  all failing checks
+old_member_one_claim     4       YES     1     [4, 23]
+old_dob_one_claim        4       YES     1     [4, 23]
+retired_account_number   10      YES     1     [10, 23]
+duplicate_clm01          10      YES     1     [10]
+duplicate_reff8          10      YES     1     [10]
+short_reff8              10      YES     1     [10]
+swapped_name_order       4       YES     1     [4]
+gender_changed           4       YES     1     [4]
+
+8 mutations, 0 uncaught
