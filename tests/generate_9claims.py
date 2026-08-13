@@ -12,7 +12,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 SRC = os.path.join(HERE, "..", "837 Sample",
                    "fromUHCG-837I-HappyPath_E2E260811121257.x12")
 OUT = os.path.join(HERE, "..", "837 Sample",
-                   "fromUHCG-837I-HappyPath_E2E260811121257_9claims.x12")
+                   "fromUHCG-837I-WKN_9claims.x12")
 
 NEW_ISA13 = "780100228"
 RATES = {"HC:97530": Decimal("210.00"), "HC:92507": Decimal("384.00")}

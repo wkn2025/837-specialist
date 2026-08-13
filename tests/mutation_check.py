@@ -9,7 +9,7 @@ import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 TARGET = os.path.join(HERE, "..", "837 Sample",
-                      "fromUHCG-837I-HappyPath_E2E260811121257_9claims.x12")
+                      "fromUHCG-837I-WKN_9claims.x12")
 
 ALL = "all"  # substitute every occurrence, whatever the count happens to be
 
