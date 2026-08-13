@@ -320,7 +320,7 @@ DEFAULT_INPUT = os.path.join(HERE, "..", "837 Sample",
                              "fromUHCG-837I-WKN_9claims.x12")
 DEFAULT_OUTDIR = os.path.join(HERE, "..", "837 Sample", "WKN_9claims_split")
 NAME = "fromUHCG-837I-WKN_claim%02d.x12"
-ISA13_PREFIX = "78010022"
+ISA13_PREFIX = "78010023"
 EXPECTED_SETS = 9
 
 
@@ -688,10 +688,13 @@ VALIDATOR_MUTATIONS = [
 ]
 
 # (label, claim file to mutate, old, new)
+# NOTE: the shipped script carries two more fields per row — substitutions to
+# make and occurrences the literal must have — and pins the expected round-trip
+# check number, both added by the final-review fix wave.
 ROUNDTRIP_MUTATIONS = [
-    ("duplicate_interchange_control", 2, "*780100222*", "*780100221*"),
+    ("duplicate_interchange_control", 2, "*780100232*", "*780100231*"),
     ("payload_segment_deleted", 9, "DTP*096*TM*0000~\n", ""),
-    ("iea02_out_of_step", 4, "IEA*1*780100224~", "IEA*1*780100229~"),
+    ("iea02_out_of_step", 4, "IEA*1*780100234~", "IEA*1*780100239~"),
 ]
 
 

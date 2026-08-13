@@ -20,33 +20,35 @@ SRC_INPUT = SC.DEFAULT_INPUT
 SRC_OUTDIR = SC.DEFAULT_OUTDIR
 NAME = SC.NAME
 
-# (label, claim file to mutate, old, new, expected substitution count, expected
-# failing validator check). `count` is how many occurrences the mutation must
-# replace; a mismatch means the pattern rotted (matched more, fewer, or zero
-# times) and the mutation is BROKEN rather than evidence of anything.
+# (label, claim file to mutate, old, new, substitutions to make, occurrences
+# the literal must have, expected failing validator check). The two counts are
+# separate on purpose: `occurrences` pins how many times the literal exists in
+# the file, so a pattern that starts matching more places than intended is
+# BROKEN, not silently narrowed to its first hit; `count` is how many of those
+# the mutation edits.
 VALIDATOR_MUTATIONS = [
-    ("dropped_line_date", 3, "DTP*472*D8*20241123~\n", "", 1, 22),
+    ("dropped_line_date", 3, "DTP*472*D8*20241123~\n", "", 1, 1, 22),
     # HCP*10*357.00*... occurs three times, identically, in claim 4 (one per
     # line block that happens to price the same). Only the first is mutated,
-    # deliberately: count=1 pins that intent so a future edit that makes the
-    # pattern ambiguous fails loudly instead of silently mutating all three.
+    # deliberately: occurrences=3 with count=1 states that intent outright, so
+    # a future edit that changes how often the literal matches fails loudly.
     ("line_hcp_amount_changed", 4,
      "HCP*10*357.00*63.00*9327*0.00**0.00****UN*2~\n",
-     "HCP*10*358.00*63.00*9327*0.00**0.00****UN*2~\n", 1, 8),
-    ("st02_from_another_claim", 5, "ST*837*010649905*", "ST*837*010649907*", 1, 10),
-    ("se01_decremented", 6, "SE*55*010649906~", "SE*54*010649906~", 1, 11),
+     "HCP*10*358.00*63.00*9327*0.00**0.00****UN*2~\n", 1, 3, 8),
+    ("st02_from_another_claim", 5, "ST*837*010649905*", "ST*837*010649907*", 1, 1, 10),
+    ("se01_decremented", 6, "SE*55*010649906~", "SE*54*010649906~", 1, 1, 11),
     ("last_line_block_dropped", 7,
      "LX*7~\nSV2*0440*HC:92507*384.00*UN*1~\nDTP*472*D8*20241127~\n"
-     "HCP*10*326.40*57.60*9327*0.00**0.00****UN*1~\n", "", 1, 6),
-    ("group_control_wrong", 8, "*8*X*005010X223A2~", "*3*X*005010X223A2~", 1, 21),
+     "HCP*10*326.40*57.60*9327*0.00**0.00****UN*1~\n", "", 1, 1, 6),
+    ("group_control_wrong", 8, "*8*X*005010X223A2~", "*3*X*005010X223A2~", 1, 1, 21),
 ]
 
-# (label, claim file to mutate, old, new, expected substitution count,
-# expected failing round-trip check)
+# (label, claim file to mutate, old, new, substitutions to make, occurrences
+# the literal must have, expected failing round-trip check)
 ROUNDTRIP_MUTATIONS = [
-    ("duplicate_interchange_control", 2, "*780100232*", "*780100231*", 1, 6),
-    ("payload_segment_deleted", 9, "DTP*096*TM*0000~\n", "", 1, 5),
-    ("iea02_out_of_step", 4, "IEA*1*780100234~", "IEA*1*780100239~", 1, 6),
+    ("duplicate_interchange_control", 2, "*780100232*", "*780100231*", 1, 1, 6),
+    ("payload_segment_deleted", 9, "DTP*096*TM*0000~\n", "", 1, 1, 5),
+    ("iea02_out_of_step", 4, "IEA*1*780100234~", "IEA*1*780100239~", 1, 1, 6),
 ]
 
 
@@ -59,23 +61,26 @@ def stage():
     return tmp
 
 
-def mutate(tmp, claim, old, new, count):
-    """Apply exactly `count` substitutions; return (made, ok).
+def mutate(tmp, claim, old, new, count, occurrences):
+    """Replace the first `count` of `occurrences` matches; return (present, ok).
 
-    `made` is the number of occurrences actually replaced, capped at `count`.
-    `ok` is False whenever `made` != `count` (too few or too many occurrences)
-    or the file did not change, following mutation_check.py's BROKEN pattern:
-    a mismatch means the literal rotted, so the caller must not score this as
-    an uncaught mutation.
+    `present` is how many times the literal really occurs in the file. `ok` is
+    False whenever `present` != `occurrences` or the file did not change:
+    a literal that starts matching MORE places than declared is as rotten as
+    one that matches fewer, because the mutation then edits bytes nobody
+    intended. Following mutation_check.py's BROKEN pattern, the caller must
+    not score a mismatch as an uncaught mutation.
     """
     path = os.path.join(tmp, NAME % claim)
     raw = io.open(path, encoding="utf-8", newline="").read()
-    made = min(raw.count(old), count)
+    present = raw.count(old)
+    if present != occurrences:
+        return present, False
     mutated = raw.replace(old, new, count)
-    if made == 0 or made != count or mutated == raw:
-        return made, False
+    if mutated == raw:
+        return present, False
     io.open(path, "w", encoding="utf-8", newline="").write(mutated)
-    return made, True
+    return present, True
 
 
 def run_validator(tmp, claim):
@@ -112,12 +117,12 @@ def main():
 
     uncaught, broken = [], []
     print("mutation                        kind        expect  caught     failing checks")
-    for label, claim, old, new, count, expect in VALIDATOR_MUTATIONS:
+    for label, claim, old, new, count, occurrences, expect in VALIDATOR_MUTATIONS:
         tmp = stage()
-        made, mutated_ok = mutate(tmp, claim, old, new, count)
+        present, mutated_ok = mutate(tmp, claim, old, new, count, occurrences)
         if not mutated_ok:
-            print("%-31s %-11s BROKEN - made %d substitutions, expected %d"
-                  % (label, "validator", made, count))
+            print("%-31s %-11s BROKEN - literal occurs %d times, expected %d"
+                  % (label, "validator", present, occurrences))
             broken.append(label)
             continue
         fails, _rc = run_validator(tmp, claim)
@@ -127,12 +132,12 @@ def main():
         print("%-31s %-11s %-7d %-10s %s"
               % (label, "validator", expect, "YES" if ok else "*** NO ***", fails))
 
-    for label, claim, old, new, count, expect in ROUNDTRIP_MUTATIONS:
+    for label, claim, old, new, count, occurrences, expect in ROUNDTRIP_MUTATIONS:
         tmp = stage()
-        made, mutated_ok = mutate(tmp, claim, old, new, count)
+        present, mutated_ok = mutate(tmp, claim, old, new, count, occurrences)
         if not mutated_ok:
-            print("%-31s %-11s BROKEN - made %d substitutions, expected %d"
-                  % (label, "roundtrip", made, count))
+            print("%-31s %-11s BROKEN - literal occurs %d times, expected %d"
+                  % (label, "roundtrip", present, occurrences))
             broken.append(label)
             continue
         fails, rc = run_roundtrip(tmp)
