@@ -13,30 +13,40 @@ import subprocess
 import sys
 import tempfile
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-SRC_INPUT = os.path.join(HERE, "..", "837 Sample", "fromUHCG-837I-WKN_9claims.x12")
-SRC_OUTDIR = os.path.join(HERE, "..", "837 Sample", "WKN_9claims_split")
-NAME = "fromUHCG-837I-WKN_claim%02d.x12"
+import split_claims as SC
 
-# (label, claim file to mutate, old, new, expected failing validator check)
+HERE = os.path.dirname(os.path.abspath(__file__))
+SRC_INPUT = SC.DEFAULT_INPUT
+SRC_OUTDIR = SC.DEFAULT_OUTDIR
+NAME = SC.NAME
+
+# (label, claim file to mutate, old, new, expected substitution count, expected
+# failing validator check). `count` is how many occurrences the mutation must
+# replace; a mismatch means the pattern rotted (matched more, fewer, or zero
+# times) and the mutation is BROKEN rather than evidence of anything.
 VALIDATOR_MUTATIONS = [
-    ("dropped_line_date", 3, "DTP*472*D8*20241123~\n", "", 22),
+    ("dropped_line_date", 3, "DTP*472*D8*20241123~\n", "", 1, 22),
+    # HCP*10*357.00*... occurs three times, identically, in claim 4 (one per
+    # line block that happens to price the same). Only the first is mutated,
+    # deliberately: count=1 pins that intent so a future edit that makes the
+    # pattern ambiguous fails loudly instead of silently mutating all three.
     ("line_hcp_amount_changed", 4,
      "HCP*10*357.00*63.00*9327*0.00**0.00****UN*2~\n",
-     "HCP*10*358.00*63.00*9327*0.00**0.00****UN*2~\n", 8),
-    ("st02_from_another_claim", 5, "ST*837*010649905*", "ST*837*010649907*", 10),
-    ("se01_decremented", 6, "SE*55*010649906~", "SE*54*010649906~", 11),
+     "HCP*10*358.00*63.00*9327*0.00**0.00****UN*2~\n", 1, 8),
+    ("st02_from_another_claim", 5, "ST*837*010649905*", "ST*837*010649907*", 1, 10),
+    ("se01_decremented", 6, "SE*55*010649906~", "SE*54*010649906~", 1, 11),
     ("last_line_block_dropped", 7,
      "LX*7~\nSV2*0440*HC:92507*384.00*UN*1~\nDTP*472*D8*20241127~\n"
-     "HCP*10*326.40*57.60*9327*0.00**0.00****UN*1~\n", "", 6),
-    ("group_control_wrong", 8, "*8*X*005010X223A2~", "*3*X*005010X223A2~", 21),
+     "HCP*10*326.40*57.60*9327*0.00**0.00****UN*1~\n", "", 1, 6),
+    ("group_control_wrong", 8, "*8*X*005010X223A2~", "*3*X*005010X223A2~", 1, 21),
 ]
 
-# (label, claim file to mutate, old, new)
+# (label, claim file to mutate, old, new, expected substitution count,
+# expected failing round-trip check)
 ROUNDTRIP_MUTATIONS = [
-    ("duplicate_interchange_control", 2, "*780100222*", "*780100221*"),
-    ("payload_segment_deleted", 9, "DTP*096*TM*0000~\n", ""),
-    ("iea02_out_of_step", 4, "IEA*1*780100224~", "IEA*1*780100229~"),
+    ("duplicate_interchange_control", 2, "*780100232*", "*780100231*", 1, 6),
+    ("payload_segment_deleted", 9, "DTP*096*TM*0000~\n", "", 1, 5),
+    ("iea02_out_of_step", 4, "IEA*1*780100234~", "IEA*1*780100239~", 1, 6),
 ]
 
 
@@ -49,17 +59,23 @@ def stage():
     return tmp
 
 
-def mutate(tmp, claim, old, new):
-    """Apply exactly one substitution; return True if it actually changed the file."""
+def mutate(tmp, claim, old, new, count):
+    """Apply exactly `count` substitutions; return (made, ok).
+
+    `made` is the number of occurrences actually replaced, capped at `count`.
+    `ok` is False whenever `made` != `count` (too few or too many occurrences)
+    or the file did not change, following mutation_check.py's BROKEN pattern:
+    a mismatch means the literal rotted, so the caller must not score this as
+    an uncaught mutation.
+    """
     path = os.path.join(tmp, NAME % claim)
     raw = io.open(path, encoding="utf-8", newline="").read()
-    if raw.count(old) < 1:
-        return False
-    mutated = raw.replace(old, new, 1)
-    if mutated == raw:
-        return False
+    made = min(raw.count(old), count)
+    mutated = raw.replace(old, new, count)
+    if made == 0 or made != count or mutated == raw:
+        return made, False
     io.open(path, "w", encoding="utf-8", newline="").write(mutated)
-    return True
+    return made, True
 
 
 def run_validator(tmp, claim):
@@ -96,10 +112,12 @@ def main():
 
     uncaught, broken = [], []
     print("mutation                        kind        expect  caught     failing checks")
-    for label, claim, old, new, expect in VALIDATOR_MUTATIONS:
+    for label, claim, old, new, count, expect in VALIDATOR_MUTATIONS:
         tmp = stage()
-        if not mutate(tmp, claim, old, new):
-            print("%-31s %-11s BROKEN - pattern made no change" % (label, "validator"))
+        made, mutated_ok = mutate(tmp, claim, old, new, count)
+        if not mutated_ok:
+            print("%-31s %-11s BROKEN - made %d substitutions, expected %d"
+                  % (label, "validator", made, count))
             broken.append(label)
             continue
         fails, _rc = run_validator(tmp, claim)
@@ -109,18 +127,20 @@ def main():
         print("%-31s %-11s %-7d %-10s %s"
               % (label, "validator", expect, "YES" if ok else "*** NO ***", fails))
 
-    for label, claim, old, new in ROUNDTRIP_MUTATIONS:
+    for label, claim, old, new, count, expect in ROUNDTRIP_MUTATIONS:
         tmp = stage()
-        if not mutate(tmp, claim, old, new):
-            print("%-31s %-11s BROKEN - pattern made no change" % (label, "roundtrip"))
+        made, mutated_ok = mutate(tmp, claim, old, new, count)
+        if not mutated_ok:
+            print("%-31s %-11s BROKEN - made %d substitutions, expected %d"
+                  % (label, "roundtrip", made, count))
             broken.append(label)
             continue
         fails, rc = run_roundtrip(tmp)
-        ok = bool(fails) and rc != 0
+        ok = expect in fails and rc != 0
         if not ok:
             uncaught.append(label)
-        print("%-31s %-11s %-7s %-10s %s"
-              % (label, "roundtrip", "any", "YES" if ok else "*** NO ***", fails))
+        print("%-31s %-11s %-7d %-10s %s"
+              % (label, "roundtrip", expect, "YES" if ok else "*** NO ***", fails))
 
     print("\n%d mutations, %d uncaught, %d broken"
           % (len(VALIDATOR_MUTATIONS) + len(ROUNDTRIP_MUTATIONS),

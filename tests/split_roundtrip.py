@@ -4,15 +4,18 @@ import argparse
 import hashlib
 import io
 import os
+import shutil
+import subprocess
 import sys
+import tempfile
 
+import split_claims as SC
 import x12_parse as X
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-DEFAULT_INPUT = os.path.join(HERE, "..", "837 Sample",
-                             "fromUHCG-837I-WKN_9claims.x12")
-DEFAULT_OUTDIR = os.path.join(HERE, "..", "837 Sample", "WKN_9claims_split")
-NAME = "fromUHCG-837I-WKN_claim%02d.x12"
+DEFAULT_INPUT = SC.DEFAULT_INPUT
+DEFAULT_OUTDIR = SC.DEFAULT_OUTDIR
+NAME = SC.NAME
 ENVELOPE = ("ISA*", "GS*", "GE*", "IEA*")
 
 results = []
@@ -46,6 +49,7 @@ def run(args):
         for num in range(2, 7):
             check(num, "not evaluated (files missing)", False, "see check 1")
         check(7, "input sha256 unchanged", sha256(args.input) == before, before)
+        check_producer(args)
         return
 
     outs = [X.read_segments(p) for p in paths]
@@ -112,6 +116,15 @@ def run(args):
         if len(isa13) != 9:
             env_ok = False
             env_detail += "file %d ISA13 %r is not 9 characters; " % (n, isa13)
+        # ISA13's VALUE, not just its length, is asserted: a validator that only
+        # checked length would pass nine distinct non-numeric ICNs.
+        expected_isa13 = "%s%d" % (SC.ISA13_PREFIX, n)
+        if not isa13.isdigit():
+            env_ok = False
+            env_detail += "file %d ISA13 %r is not all digits; " % (n, isa13)
+        if isa13 != expected_isa13:
+            env_ok = False
+            env_detail += "file %d ISA13 %r != expected %r; " % (n, isa13, expected_isa13)
         if iea02 != isa13:
             env_ok = False
             env_detail += "file %d IEA02 %s != ISA13 %s; " % (n, iea02, isa13)
@@ -134,6 +147,40 @@ def run(args):
     # 7. the input was not touched
     check(7, "input sha256 unchanged by the split", sha256(args.input) == before,
           before)
+
+    # 8. the splitter itself, run fresh, reproduces the committed output. Without
+    # this, only the committed artifacts are ever graded and the producer script
+    # could silently drift from them.
+    check_producer(args)
+
+
+def check_producer(args):
+    tmp = tempfile.mkdtemp(prefix="x12producer-")
+    try:
+        r = subprocess.run(
+            [sys.executable, os.path.join(HERE, "split_claims.py"),
+             "--input", args.input, "--outdir", tmp, "--force"],
+            capture_output=True, text=True)
+        if r.returncode != 0:
+            check(8, "splitter run fresh reproduces the committed output byte-for-byte",
+                  False, "split_claims.py exited %d: %s" % (r.returncode, r.stderr.strip()))
+            return
+        mismatches = []
+        for n in range(1, 10):
+            committed = os.path.join(args.outdir, NAME % n)
+            produced = os.path.join(tmp, NAME % n)
+            if not os.path.exists(produced):
+                mismatches.append("claim %d not produced by a fresh run" % n)
+                continue
+            if not os.path.exists(committed):
+                mismatches.append("claim %d has no committed file to compare against" % n)
+                continue
+            if io.open(produced, "rb").read() != io.open(committed, "rb").read():
+                mismatches.append("claim %d differs from the committed file" % n)
+        check(8, "splitter run fresh reproduces the committed output byte-for-byte",
+              not mismatches, "; ".join(mismatches))
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
 
 
 def report():

@@ -5,5 +5,6 @@
 [PASS]  5. the nine files together hold every non-envelope segment, once           
 [PASS]  6. unique ISA13 per file, IEA02=ISA13, GS06=N, GE02=GS06, GE01=IEA01=1     
 [PASS]  7. input sha256 unchanged by the split                                     
+[PASS]  8. splitter run fresh reproduces the committed output byte-for-byte        
 
-7 checks, 7 passed, 0 failed
+8 checks, 8 passed, 0 failed

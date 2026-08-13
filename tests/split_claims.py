@@ -20,7 +20,7 @@ DEFAULT_INPUT = os.path.join(HERE, "..", "837 Sample",
                              "fromUHCG-837I-WKN_9claims.x12")
 DEFAULT_OUTDIR = os.path.join(HERE, "..", "837 Sample", "WKN_9claims_split")
 NAME = "fromUHCG-837I-WKN_claim%02d.x12"
-ISA13_PREFIX = "78010022"
+ISA13_PREFIX = "78010023"
 EXPECTED_SETS = 9
 
 

@@ -36,20 +36,20 @@ standalone X12 interchange. The nine-claim file is never modified.
 Each file:
 
 ```
-ISA ... *78010022N*1*T*:~     ISA13 = 78010022N
+ISA ... *78010023N*1*T*:~     ISA13 = 78010023N
 GS*HC*UHCG*ECUSA*...*N*X*005010X223A2~   GS06 = N
 ST*837*01064990N*005010X223A2~
   ... transaction set N, copied verbatim ...
 SE*<count>*01064990N~
 GE*1*N~
-IEA*1*78010022N~
+IEA*1*78010023N~
 ```
 
 ### Envelope rules
 
 | Element | Value | Reason |
 |---|---|---|
-| ISA13 | `78010022N`, N = 1..9 | Unique interchange control number per file; a trading partner rejects a duplicate ICN, so nine files sharing `780100228` would not mimic production. Width stays 9 characters, so ISA fixed-width layout is preserved. |
+| ISA13 | `78010023N`, N = 1..9 | Unique interchange control number per file; a trading partner rejects a duplicate ICN, so nine files sharing `780100228` would not mimic production. `78010023N` was chosen (rather than `78010022N`) so that no split file's ICN collides with the nine-claim source file's own ICN (`780100228`) or with the HappyPath source file's ICN (`780100227`) — the UHCG TA1/999 guide requires ISA13 to be unique per file sent. Width stays 9 characters, so ISA fixed-width layout is preserved. |
 | IEA02 | equals ISA13 | X12 envelope rule. |
 | GS06 | `N` | Unique group control number within the interchange. |
 | GE02 | equals GS06 | X12 envelope rule. |

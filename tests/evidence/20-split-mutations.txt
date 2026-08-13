@@ -7,8 +7,8 @@ st02_from_another_claim         validator   10      YES        [10, 12]
 se01_decremented                validator   11      YES        [11]
 last_line_block_dropped         validator   6       YES        [6, 8, 11]
 group_control_wrong             validator   21      YES        [14, 21]
-duplicate_interchange_control   roundtrip   any     YES        [6]
-payload_segment_deleted         roundtrip   any     YES        [3, 4, 5]
-iea02_out_of_step               roundtrip   any     YES        [6]
+duplicate_interchange_control   roundtrip   6       YES        [6, 8]
+payload_segment_deleted         roundtrip   5       YES        [3, 4, 5, 8]
+iea02_out_of_step               roundtrip   6       YES        [6, 8]
 
 9 mutations, 0 uncaught, 0 broken

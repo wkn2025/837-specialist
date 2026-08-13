@@ -4,9 +4,11 @@ import os
 import subprocess
 import sys
 
+import split_claims as SC
+
 HERE = os.path.dirname(os.path.abspath(__file__))
-OUTDIR = os.path.join(HERE, "..", "837 Sample", "WKN_9claims_split")
-NAME = "fromUHCG-837I-WKN_claim%02d.x12"
+OUTDIR = SC.DEFAULT_OUTDIR
+NAME = SC.NAME
 
 
 def main():
