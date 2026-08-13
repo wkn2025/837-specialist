@@ -1,0 +1,11 @@
+claim 1: exit 0  24 checks, 24 passed, 0 failed
+claim 2: exit 0  24 checks, 24 passed, 0 failed
+claim 3: exit 0  24 checks, 24 passed, 0 failed
+claim 4: exit 0  24 checks, 24 passed, 0 failed
+claim 5: exit 0  24 checks, 24 passed, 0 failed
+claim 6: exit 0  24 checks, 24 passed, 0 failed
+claim 7: exit 0  24 checks, 24 passed, 0 failed
+claim 8: exit 0  24 checks, 24 passed, 0 failed
+claim 9: exit 0  24 checks, 24 passed, 0 failed
+
+9 files, 0 failing

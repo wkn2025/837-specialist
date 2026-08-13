@@ -213,7 +213,7 @@ def run(args):
     # 4 + 5. personal data unchanged; only approved elements differ
     spine_ok, line_ok = True, True
     spine_detail, line_detail = "", ""
-    for idx, (st, se) in enumerate(sets, start=1):
+    for idx, (st, se) in enumerate(sets, start=args.claim_index):
         spine, lines = split_claim(segs, st, se)
         ns = normalize_spine(spine)
         if ns != n_src_spine:
@@ -242,7 +242,7 @@ def run(args):
     se01_detail = se02_detail = ""
     st02s, ref9as, clm01s, reff8s, bht03s = [], [], [], [], []
 
-    for idx, (st, se) in enumerate(sets, start=1):
+    for idx, (st, se) in enumerate(sets, start=args.claim_index):
         spine, lines = split_claim(segs, st, se)
         # An unexpected extra claim has no matrix row: fail it, never crash on None.
         want = EXPECTED_LINES.get(idx)
@@ -406,18 +406,19 @@ def run(args):
     check(9, "units x rate = line charge, HCP12 = SV205", unit_ok, unit_detail)
 
     # 10. required unique identifiers
+    base = args.claim_index
     uniq_ok = (len(set(st02s)) == len(st02s) == args.expect_claims
                and len(set(ref9as)) == len(ref9as)
                and len(set(clm01s)) == len(clm01s)
                and len(set(reff8s)) == len(reff8s)
                and len(set(bht03s)) == len(bht03s)
                # .get(): a 10th claim has no matrix entry and must fail, not raise.
-               and all(st02s[i] == EXPECTED_ST02.get(i + 1) for i in range(len(st02s)))
-               and all(ref9as[i] == EXPECTED_REF9A.get(i + 1) for i in range(len(ref9as)))
-               and all(clm01s[i] == EXPECTED_CLM01.get(i + 1) for i in range(len(clm01s)))
-               and all(reff8s[i] == EXPECTED_REFF8.get(i + 1) for i in range(len(reff8s)))
+               and all(st02s[i] == EXPECTED_ST02.get(i + base) for i in range(len(st02s)))
+               and all(ref9as[i] == EXPECTED_REF9A.get(i + base) for i in range(len(ref9as)))
+               and all(clm01s[i] == EXPECTED_CLM01.get(i + base) for i in range(len(clm01s)))
+               and all(reff8s[i] == EXPECTED_REFF8.get(i + base) for i in range(len(reff8s)))
                # EXPECTED_BHT03 == EXPECTED_ST02, so this also pins BHT03 == ST02.
-               and all(bht03s[i] == EXPECTED_BHT03.get(i + 1) for i in range(len(bht03s)))
+               and all(bht03s[i] == EXPECTED_BHT03.get(i + base) for i in range(len(bht03s)))
                and all(r is not None and len(r) == 11 and r.isdigit() for r in reff8s))
     check(10, "ST02, BHT03, REF*9A, CLM01 and REF*F8 unique per claim and match the matrix",
           uniq_ok,
@@ -441,7 +442,7 @@ def run(args):
 
     # 16. HL identifiers and parent references
     hl_ok, hl_detail = True, ""
-    for idx, (st, se) in enumerate(sets, start=1):
+    for idx, (st, se) in enumerate(sets, start=args.claim_index):
         seen = []
         for s in segs[st:se + 1]:
             if not s.startswith("HL*"):
@@ -497,7 +498,7 @@ def run(args):
                 "HI*ABF", "HCP*", "NM1*71*", "NM1*77*", "LX*", "SV2*", "DTP*472*",
                 "SE*"]
     req_ok, req_detail = True, ""
-    for idx, (st, se) in enumerate(sets, start=1):
+    for idx, (st, se) in enumerate(sets, start=args.claim_index):
         body = segs[st:se + 1]
         for r in required:
             if not any(s.startswith(r) for s in body):
@@ -537,17 +538,25 @@ def run(args):
     isa_masked = blank(isa[0], [13]) if isa else ""
     s_isa_masked = blank(s_isa[0], [13]) if s_isa else ""
     isa_env_ok = bool(isa) and bool(s_isa) and isa_masked == s_isa_masked
-    gs_env_ok = bool(gs) and bool(s_gs) and gs[0] == s_gs[0]
+    # GS06 is the group control number: masked here like ISA13, then pinned to
+    # the value this file is supposed to carry, so it can never drift silently.
+    gs_masked = blank(gs[0], [6]) if gs else ""
+    s_gs_masked = blank(s_gs[0], [6]) if s_gs else ""
+    gs_env_ok = (bool(gs) and bool(s_gs) and gs_masked == s_gs_masked
+                 and X.elems(gs[0])[6] == args.group_control)
     env_ok = isa_env_ok and gs_env_ok
-    env_detail = "ISA target=%r source=%r (masked ISA13); GS target=%r source=%r" % (
-        isa[0] if isa else None, s_isa[0] if s_isa else None,
-        gs[0] if gs else None, s_gs[0] if s_gs else None)
-    check(21, "ISA (except ISA13) and GS identical to source", env_ok, env_detail)
+    env_detail = ("ISA target=%r source=%r (masked ISA13); "
+                  "GS target=%r source=%r (masked GS06); GS06 expected %r" % (
+                      isa[0] if isa else None, s_isa[0] if s_isa else None,
+                      gs[0] if gs else None, s_gs[0] if s_gs else None,
+                      args.group_control))
+    check(21, "ISA (except ISA13) and GS identical to source, GS06 as expected",
+          env_ok, env_detail)
 
     # 22. every service-line DTP*472 date is well-formed and falls inside the
     # claim's DTP*434 statement period (TA1/999 checklist points 24 and 25).
     date_ok, date_detail = True, ""
-    for idx, (st, se) in enumerate(sets, start=1):
+    for idx, (st, se) in enumerate(sets, start=args.claim_index):
         spine, lines = split_claim(segs, st, se)
         dtp434 = [s for s in spine if s.startswith("DTP*434*")]
         if not dtp434:
@@ -614,6 +623,12 @@ def main():
     ap.add_argument("target")
     ap.add_argument("--source", default=DEFAULT_SOURCE)
     ap.add_argument("--expect-claims", type=int, default=9)
+    # The first transaction set in the file is claim N of the nine-claim matrix.
+    # Default 1 keeps the nine-claim invocation byte-identical in behaviour.
+    ap.add_argument("--claim-index", type=int, default=1)
+    # GS06/GE02 group control number expected in this file. The nine-claim file
+    # carries the source value 1; a per-claim file carries its own claim index.
+    ap.add_argument("--group-control", default="1")
     args = ap.parse_args()
 
     # A file the suite cannot process must still produce printed FAILs, not a
