@@ -66,6 +66,42 @@ If a question is generic X12 5010 (not UHCG-specific) and none of these files co
 
 **Special Instructions (NTE)**: Claim-level = qualifier `ADD` in NTE01, Loop 2300, NTE02 free text ≤80 characters. Line-level = qualifier `TPO` in NTE01, Loop 2400, pipe-delimited fields, primarily used by UHCG outbound to carry reduction detail; UHCG expects the client to send a remark code or special instruction on every line where Not Covered Amount > 0, and never to echo UHCG's own special instructions back on the returned file.
 
+## Deriving test files from an existing 837 file
+
+Splitting a multi-claim file into per-claim files, subsetting one, or re-enveloping a sample. For the general method — payload-vs-envelope split, the four proofs, mutation testing — use the `deriving-test-fixtures` skill; the X12-specific rules are below.
+
+**What is payload, what is envelope.** `ST` through `SE` inclusive is payload: copy it verbatim, byte for byte. Never regenerate a claim you can slice — regeneration re-derives CLM02, HCP02/03, SE01 and the line math, and any drift from the reviewed original becomes invisible. `ISA`/`GS`/`GE`/`IEA` are envelope: rebuild them per derived file.
+
+**Envelope values for a single-transaction interchange:**
+
+| Element | Value | Why |
+|---|---|---|
+| ISA13 | new 9-character positive unsigned number, unique across every file you send | Companion guide 837I/837P ISA13; TA1/999 guide: "The ISA13 Control number should not be duplicate while sending the X12 EDI file to UHCG" |
+| IEA02 | equals ISA13 | envelope rule |
+| GS06 | group control number, unique within the interchange | |
+| GE02 | equals GS06 | envelope rule |
+| GE01 | `1` — one ST..SE in the group | GE01 must equal the ST count |
+| IEA01 | `1` — one GS..GE in the interchange | |
+| SE01 | unchanged — still correct, because the payload is untouched | |
+| everything else in ISA/GS | copied from the source file | same sender, receiver, date, version, delimiters, `T` usage indicator |
+
+**ISA13 collision is the trap.** Pick the numbering scheme *after* listing the ISA13 of every file already in the sample directory, including the parent you are splitting. The obvious scheme — reusing the parent's prefix and appending the claim index — usually reproduces the parent's own ICN on one of the derived files. Widen the prefix instead.
+
+**ISA geometry survives only if the width does.** ISA is fixed-record-length: the full segment is 106 characters and ISA13 is exactly 9. A replacement control number of a different width silently breaks the segment for any receiver that parses ISA by offset.
+
+**Reusing `validate_9claims.py` on a single-claim file.** Two things assume nine claims in file order, and both fail *silently* when a per-claim file is graded:
+
+- Positional expectations — `enumerate(sets, start=1)` and `EXPECTED_*.get(i + 1)` grade the derived file against claim 1's matrix. Pass `--claim-index N` (and `--expect-claims 1`), and confirm the offset reached every site: a partially applied offset still prints 24/24 while checking the wrong claim's ST02, line count and amounts.
+- Check 21 requires `GS` to equal the source `GS` byte for byte, which a per-file group control number breaks. `--group-control N` masks GS06 out of that comparison and pins it separately. Never mask without pinning — the field then goes unasserted forever.
+
+**Per-file invocation:**
+```bash
+python validate_9claims.py "<dir>/fromUHCG-837I-WKN_claimNN.x12" \
+    --expect-claims 1 --claim-index N --group-control N
+```
+
+**Also verify against the guides, not intuition:** max 999 ST-SE per file, one GS-GE per file, ST02 unique within the GS-GE envelope, HL01 starting at 1 and incrementing with no self-parenting, no leading zeros on numerics, no `+` on monetary amounts, no space adjacent to a delimiter outside ISA.
+
 ## Known limitations of this knowledge base
 
 - The source documentation is UMR/UHCG's own internal EDI trading-partner package (not the public X12 store TR3s) — it's authoritative for what UHCG specifically expects, but doesn't replace the full X12 837 TR3 for anything it doesn't explicitly override.
