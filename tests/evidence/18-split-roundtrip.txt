@@ -1,0 +1,9 @@
+[PASS]  1. nine per-claim files exist                                              
+[PASS]  2. exactly one ST..SE transaction set per file                             
+[PASS]  3. each file's ST..SE matches the input transaction set segment for segment
+[PASS]  4. each file's ST..SE bytes appear verbatim in the nine-claim file         
+[PASS]  5. the nine files together hold every non-envelope segment, once           
+[PASS]  6. unique ISA13 per file, IEA02=ISA13, GS06=N, GE02=GS06, GE01=IEA01=1     
+[PASS]  7. input sha256 unchanged by the split                                     
+
+7 checks, 7 passed, 0 failed
