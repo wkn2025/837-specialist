@@ -91,8 +91,14 @@ where the code currently does `enumerate(sets, start=1)` — those become
 `enumerate(sets, start=args.claim_index)`. With the default the nine-claim invocation
 behaves exactly as it does today.
 
+Add `--group-control V` (default `"1"`). Check 21 ("ISA except ISA13 and GS identical
+to source") currently requires GS to match the source byte for byte, which a split file
+cannot satisfy: it carries its own group control number. GS06 is therefore masked out of
+that comparison the way ISA13 already is, and pinned separately to `--group-control`, so
+the value can never drift unasserted. The nine-claim file keeps the source value `1`.
+
 Per-file invocation:
-`python validate_9claims.py <...>/claimNN.x12 --expect-claims 1 --claim-index N`
+`python validate_9claims.py <...>/claimNN.x12 --expect-claims 1 --claim-index N --group-control N`
 
 ### `tests/generate_9claims.py` (modified)
 
@@ -100,6 +106,11 @@ Per-file invocation:
 longer exists — the file was renamed to `fromUHCG-837I-WKN_9claims.x12`. Point `OUT`
 at the current name so regeneration targets the file the rest of the suite validates.
 No other change.
+
+### `tests/mutation_check.py` (modified)
+
+`TARGET` carries the same stale name, so the mutation battery raises `FileNotFoundError`
+before it can run. Point it at `fromUHCG-837I-WKN_9claims.x12`. No other change.
 
 ### `tests/split_roundtrip.py` (new)
 
