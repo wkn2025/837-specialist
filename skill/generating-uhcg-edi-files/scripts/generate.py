@@ -14,12 +14,9 @@ class BuildError(Exception):
     """The seed did not have the shape the profile declares."""
 
 
-SEED_CYCLE = 9
-
-
-def source_index(n):
+def source_index(n, profile):
     """1-based seed block for output claim n, under the cycle policy."""
-    return ((n - 1) % SEED_CYCLE) + 1
+    return ((n - 1) % len(profile.block_lens)) + 1
 
 
 def set_elem(seg, idx, val):
@@ -32,8 +29,8 @@ def set_elem(seg, idx, val):
 
 def edits_for(profile, alloc, n):
     """[(literal, must_occur, replace_n, replacement), ...] for claim n."""
-    src = source_index(n)
-    i = src - 1
+    i = source_index(n, profile) - 1
+    src_clm = profile.src_clm[i]
     ed = [
         ("ST*837*%s*%s" % (profile.src_st02[i], profile.version), 1, 1,
          "ST*837*%s*%s" % (alloc.st02[n - 1], profile.version)),
@@ -43,30 +40,51 @@ def edits_for(profile, alloc, n):
          "BHT*0019*00*%s*%s*%s*CH" % (alloc.bht03[n - 1],
                                       alloc.envelope_date,
                                       alloc.envelope_time)),
-        ("CLM*%s*%s***13:A:1**A*Y*Y" % (profile.src_clm01[i],
-                                        profile.src_clm02[i]), 1, 1,
-         "CLM*%s*%s***13:A:1**A*Y*Y" % (alloc.clm01[n - 1],
-                                        profile.src_clm02[i])),
+        # The whole CLM segment is the literal; only element 1 moves. That
+        # keeps every facility/frequency code the seed carried without the
+        # generator ever spelling one out.
+        (src_clm, 1, 1, set_elem(src_clm, 1, alloc.clm01[n - 1])),
         ("REF*F8*%s" % profile.src_ref_f8[i], 1, 1,
          "REF*F8*%s" % alloc.ref_f8[n - 1]),
         ("REF*9A*%s" % profile.src_ref_9a[i], 1, 1,
          "REF*9A*%s" % alloc.ref_9a[n - 1]),
-        ("DTP*434*RD8*%s" % profile.src_statement, 1, 1,
-         "DTP*434*RD8*%s" % alloc.statement),
     ]
-    # Service dates: source date at offset k becomes window_start + k. The
-    # counts are read off the block itself, so a block that repeats a date
-    # (seed claims 8 and 9 do) is handled without a hand-maintained table.
+    if profile.statement_qualifier:
+        ed.append(
+            ("DTP*%s*RD8*%s" % (profile.statement_qualifier,
+                                profile.src_statement), 1, 1,
+             "DTP*%s*RD8*%s" % (profile.statement_qualifier,
+                                alloc.statement)))
     return ed
 
 
+def _service_date_forms(profile):
+    """(segment prefix, value formatter) for the declared date shape."""
+    if profile.service_date_shape == "D8":
+        return "DTP*472*D8*", lambda d: d
+    if profile.service_date_shape == "RD8_same_day":
+        return "DTP*472*RD8*", lambda d: "%s-%s" % (d, d)
+    raise BuildError("unknown service_date_shape %r"
+                     % profile.service_date_shape)
+
+
 def _date_edits(payload, profile, alloc):
-    """DTP*472 edits for one block, counted from the block itself."""
+    """DTP*472 edits for one block, counted from the block itself.
+
+    The counts are read off the block, so a block that repeats a date (seed
+    claims 8 and 9 of the institutional seed do) needs no hand-kept table.
+    """
+    prefix, form = _service_date_forms(profile)
     counts = {}
     for s in payload:
-        if s.startswith("DTP*472*D8*"):
-            d = X.elems(s)[3]
-            counts[d] = counts.get(d, 0) + 1
+        if not s.startswith(prefix):
+            continue
+        body = s[len(prefix):]
+        day = body.split("-")[0]
+        if body != form(day):
+            raise BuildError("service date %r is not the declared %s shape"
+                             % (body, profile.service_date_shape))
+        counts[day] = counts.get(day, 0) + 1
     ed = []
     for src_date in sorted(counts):
         if src_date not in profile.src_dates:
@@ -74,8 +92,8 @@ def _date_edits(payload, profile, alloc):
                              % src_date)
         k = profile.src_dates.index(src_date)
         n = counts[src_date]
-        ed.append(("DTP*472*D8*%s" % src_date, n, n,
-                   "DTP*472*D8*%s" % alloc.service_dates[k]))
+        ed.append((prefix + form(src_date), n, n,
+                   prefix + form(alloc.service_dates[k])))
     return ed
 
 
@@ -109,14 +127,16 @@ def build(seed_segs, profile, alloc, claims):
     if len(seed_segs) < 2 or not seed_segs[1].startswith("GS*"):
         raise BuildError("second seed segment is not GS")
     src_blocks = seeds.blocks(seed_segs)
-    if len(src_blocks) != SEED_CYCLE:
+    cycle = len(profile.block_lens)
+    if len(src_blocks) != cycle:
         raise BuildError("seed has %d ST..SE sets, expected %d"
-                         % (len(src_blocks), SEED_CYCLE))
+                         % (len(src_blocks), cycle))
 
     isa = seed_segs[0]
     isa = set_elem(isa, 9, alloc.envelope_date[2:])
     isa = set_elem(isa, 10, alloc.envelope_time)
     isa = set_elem(isa, 13, alloc.isa13)
+    isa = set_elem(isa, 15, profile.isa15)
     if len(alloc.isa13) != 9:
         raise BuildError("ISA13 %r is not 9 characters" % alloc.isa13)
     if len(isa) != len(seed_segs[0]):
@@ -130,11 +150,12 @@ def build(seed_segs, profile, alloc, claims):
 
     body = []
     for n in range(1, claims + 1):
-        payload = src_blocks[source_index(n) - 1]
-        if len(payload) != profile.block_lens[source_index(n) - 1]:
+        payload = src_blocks[source_index(n, profile) - 1]
+        if len(payload) != profile.block_lens[source_index(n, profile) - 1]:
             raise BuildError(
                 "claim %d: seed block is %d segments, profile declares %d"
-                % (n, len(payload), profile.block_lens[source_index(n) - 1]))
+                % (n, len(payload),
+                   profile.block_lens[source_index(n, profile) - 1]))
         edits = edits_for(profile, alloc, n) + _date_edits(payload, profile,
                                                            alloc)
         body.extend(renumber_se(apply_edits(payload, edits, str(n)), str(n)))

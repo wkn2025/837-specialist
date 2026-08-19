@@ -11,6 +11,7 @@ import x12_parse as X
 
 REPO = os.environ.get("EDI_REPO", r"C:\Users\wkn\837-specialist")
 PROFILE = seeds.get("I")
+PROFILE_P = seeds.get("P")
 
 
 def fake_alloc(claims):
@@ -29,12 +30,37 @@ def fake_alloc(claims):
     )
 
 
+def fake_alloc_p(claims):
+    return M.Allocation(
+        isa13="900000901", gs06="901",
+        envelope_date="20240215", envelope_time="0930",
+        window_start="20240201", window_end="20240208",
+        statement="20240201-20240208",
+        service_dates=["2024020%d" % d for d in range(1, 9)],
+        st02=["%09d" % (19900201 + i) for i in range(claims)],
+        bht03=["%09d" % (19900201 + i) for i in range(claims)],
+        clm01=["TEST240215%03d" % (i + 1) for i in range(claims)],
+        ref_f8=["%011d" % (90012155900 + i) for i in range(claims)],
+        # Padded like st02/bht03 above (not the brief's bare "%d"): unpadded,
+        # 19900201 is an 8-digit string that the date-detector test below
+        # cannot tell apart from a real date, which is a fixture collision,
+        # not a generator defect - REF*9A is never treated as a date.
+        ref_9a=["%09d" % (19900201 + i) for i in range(claims)])
+
+
 class TestSourceIndex(unittest.TestCase):
     def test_cycles_the_nine_seed_blocks(self):
-        got = [G.source_index(n) for n in range(1, 21)]
+        got = [G.source_index(n, PROFILE) for n in range(1, 21)]
         self.assertEqual(got, [1, 2, 3, 4, 5, 6, 7, 8, 9,
                                1, 2, 3, 4, 5, 6, 7, 8, 9,
                                1, 2])
+
+
+class TestSourceIndexP(unittest.TestCase):
+    def test_cycles_the_eight_seed_blocks(self):
+        got = [G.source_index(n, PROFILE_P) for n in range(1, 19)]
+        self.assertEqual(got, [1, 2, 3, 4, 5, 6, 7, 8,
+                               1, 2, 3, 4, 5, 6, 7, 8, 1, 2])
 
 
 class TestBuild(unittest.TestCase):
@@ -97,10 +123,13 @@ class TestBuild(unittest.TestCase):
                 self.assertIn(seg, b, "claim %d lost %r" % (i + 1, seg))
 
     def test_every_date_is_2024_except_the_dob(self):
+        import re
         segs, _ = self.out_blocks(9)
         text = G.render(segs)
-        self.assertNotIn("2025", text)
-        self.assertIn("DMG*D8*19941217*F", text)
+        found = {m.group(0) for m in re.finditer(
+            r"(?<![0-9])(?:19|20)[0-9]{6}(?![0-9])", text)}
+        outside = sorted(d for d in found if not d.startswith("2024"))
+        self.assertEqual(outside, sorted(PROFILE.dob_exceptions))
 
     def test_bht03_is_ten_characters(self):
         _, blocks = self.out_blocks(9)
@@ -120,6 +149,80 @@ class TestBuild(unittest.TestCase):
         self.assertNotIn("\r", text)
         self.assertTrue(text.endswith("~\n"))
         self.assertEqual(text.count("\n"), len(segs))
+
+
+class TestBuildP(unittest.TestCase):
+    def setUp(self):
+        self.seed = seeds.load_seed(PROFILE_P, REPO)
+        self.seed_blocks = seeds.blocks(self.seed)
+
+    def out_blocks(self, claims):
+        segs = G.build(self.seed, PROFILE_P, fake_alloc_p(claims), claims)
+        return segs, [segs[st:se + 1] for st, se in X.transaction_sets(segs)]
+
+    def test_eight_claims_reverse_to_the_eight_seed_blocks(self):
+        _, blocks = self.out_blocks(8)
+        alloc = fake_alloc_p(8)
+        for i, b in enumerate(blocks):
+            self.assertEqual(_reverse(b, PROFILE_P, alloc, i + 1),
+                             self.seed_blocks[i],
+                             "claim %d did not reverse" % (i + 1))
+
+    def test_ten_claims_wrap_onto_seed_blocks_one_and_two(self):
+        _, blocks = self.out_blocks(10)
+        alloc = fake_alloc_p(10)
+        self.assertEqual(len(blocks[8]), PROFILE_P.block_lens[0])
+        self.assertEqual(_reverse(blocks[8], PROFILE_P, alloc, 9),
+                         self.seed_blocks[0])
+        self.assertEqual(_reverse(blocks[9], PROFILE_P, alloc, 10),
+                         self.seed_blocks[1])
+
+    def test_clm01_is_swapped_and_the_rest_of_the_clm_survives(self):
+        _, blocks = self.out_blocks(4)
+        clm = [s for s in blocks[3] if s.startswith("CLM*")][0]
+        self.assertEqual(clm,
+                         "CLM*TEST240215004*474.05***23:B:1*N*C*Y*Y*P")
+
+    def test_isa15_is_forced_to_test(self):
+        segs, _ = self.out_blocks(2)
+        self.assertEqual(X.elems(segs[0])[15], "T")
+        self.assertEqual(len(segs[0]) + 1, 106)
+
+    def test_no_statement_segment_is_emitted(self):
+        segs, _ = self.out_blocks(8)
+        self.assertNotIn("DTP*434", G.render(segs))
+
+    def test_both_halves_of_every_rd8_are_rewritten(self):
+        _, blocks = self.out_blocks(8)
+        window = ["2024020%d" % d for d in range(1, 9)]
+        for b in blocks:
+            for s in b:
+                if s.startswith("DTP*472*"):
+                    lo, hi = X.elems(s)[3].split("-")
+                    self.assertEqual(lo, hi)
+                    self.assertIn(lo, window)
+
+    def test_frozen_segments_survive_in_every_claim(self):
+        _, blocks = self.out_blocks(11)
+        for i, b in enumerate(blocks):
+            for seg in PROFILE_P.frozen:
+                self.assertIn(seg, b, "claim %d lost %r" % (i + 1, seg))
+
+    def test_every_date_is_2024_except_the_declared_dobs(self):
+        import re
+        segs, _ = self.out_blocks(8)
+        text = G.render(segs)
+        found = {m.group(0) for m in re.finditer(
+            r"(?<![0-9])(?:19|20)[0-9]{6}(?![0-9])", text)}
+        outside = sorted(d for d in found if not d.startswith("2024"))
+        self.assertEqual(outside, sorted(PROFILE_P.dob_exceptions))
+
+    def test_refuses_a_service_date_the_profile_does_not_declare(self):
+        broken = [s.replace("DTP*472*RD8*20260130-20260130",
+                            "DTP*472*RD8*20260131-20260131")
+                  for s in self.seed]
+        with self.assertRaises(G.BuildError):
+            G.build(broken, PROFILE_P, fake_alloc_p(1), 1)
 
 
 class TestCli(unittest.TestCase):
@@ -217,8 +320,11 @@ class TestCli(unittest.TestCase):
 
 def _reverse(block, profile, alloc, n):
     """Undo the declared edits so the block should equal its seed block."""
-    src = G.source_index(n)
-    i = src - 1
+    i = G.source_index(n, profile) - 1
+    src_clm = profile.src_clm[i]
+    out_clm = "*".join(
+        [e if k != 1 else alloc.clm01[n - 1]
+         for k, e in enumerate(src_clm.split("*"))])
     pairs = [
         ("ST*837*%s*%s" % (alloc.st02[n - 1], profile.version),
          "ST*837*%s*%s" % (profile.src_st02[i], profile.version)),
@@ -228,21 +334,26 @@ def _reverse(block, profile, alloc, n):
          "BHT*0019*00*%s*%s*%s*CH" % (profile.src_st02[i],
                                       profile.src_bht_date,
                                       profile.src_bht_time)),
-        ("CLM*%s*%s***13:A:1**A*Y*Y" % (alloc.clm01[n - 1],
-                                        profile.src_clm02[i]),
-         "CLM*%s*%s***13:A:1**A*Y*Y" % (profile.src_clm01[i],
-                                        profile.src_clm02[i])),
+        (out_clm, src_clm),
         ("REF*F8*%s" % alloc.ref_f8[n - 1],
          "REF*F8*%s" % profile.src_ref_f8[i]),
         ("REF*9A*%s" % alloc.ref_9a[n - 1],
          "REF*9A*%s" % profile.src_ref_9a[i]),
-        ("DTP*434*RD8*%s" % alloc.statement,
-         "DTP*434*RD8*%s" % profile.src_statement),
         ("SE*%d*%s" % (profile.block_lens[i], alloc.st02[n - 1]),
          "SE*%d*%s" % (profile.block_lens[i], profile.src_st02[i])),
     ]
+    if profile.statement_qualifier:
+        pairs.append(
+            ("DTP*%s*RD8*%s" % (profile.statement_qualifier,
+                                alloc.statement),
+             "DTP*%s*RD8*%s" % (profile.statement_qualifier,
+                                profile.src_statement)))
     for a, b in zip(alloc.service_dates, profile.src_dates):
-        pairs.append(("DTP*472*D8*%s" % a, "DTP*472*D8*%s" % b))
+        if profile.service_date_shape == "D8":
+            pairs.append(("DTP*472*D8*%s" % a, "DTP*472*D8*%s" % b))
+        else:
+            pairs.append(("DTP*472*RD8*%s-%s" % (a, a),
+                          "DTP*472*RD8*%s-%s" % (b, b)))
     out = []
     for s in block:
         for a, b in pairs:
