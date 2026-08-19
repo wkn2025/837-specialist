@@ -23,11 +23,15 @@ SKILL = os.path.join(HERE, "..")
 FIXTURE = os.path.join(SKILL, "tests", "fixtures", "canonical_3claims.x12")
 MANIFEST = os.path.join(SKILL, "tests", "fixtures",
                         "canonical_3claims.manifest.json")
+FIXTURE_P = os.path.join(SKILL, "tests", "fixtures",
+                         "canonical_3claims_P.x12")
+MANIFEST_P = os.path.join(SKILL, "tests", "fixtures",
+                          "canonical_3claims_P.manifest.json")
 VALIDATOR = os.path.join(HERE, "validate.py")
 GENERATOR = os.path.join(HERE, "generate.py")
 
 # name, expected failing check, literal, must_occur, replace_n, replacement
-MUTATIONS = [
+MUTATIONS_I = [
     ("CLM01 does not match the manifest", 1,
      "CLM*TEST240115001*420.00", 1, 1, "CLM*TEST240115009*420.00"),
     ("GE01 no longer counts the ST sets", 2,
@@ -60,10 +64,62 @@ MUTATIONS = [
      "PER*IC*Sanyam Sood*EM*sanyam_sood@optum.com*TE*9999998887~"),
 ]
 
+# name, expected failing check, literal, must_occur, replace_n, replacement
+MUTATIONS_P = [
+    ("CLM01 does not match the manifest", 1,
+     "CLM*TEST240215101*293.00", 1, 1, "CLM*TEST240215109*293.00"),
+    ("ISA15 says the file is production", 2,
+     "*00501*990000101*1*T*:~", 1, 1, "*00501*990000101*1*P*:~"),
+    ("ST03 is the institutional guide identifier", 3,
+     "ST*837*012900101*005010X222A1", 1, 1,
+     "ST*837*012900101*005010X223A2"),
+    ("SE01 does not match the segment count", 4,
+     "SE*32*012900101", 1, 1, "SE*31*012900101"),
+    ("BHT03 is 11 characters", 5,
+     "BHT*0019*00*012900101*", 1, 1, "BHT*0019*00*01290010111*"),
+    ("HL parent points at a non-existent level", 6,
+     "HL*2*1*22*0~", 3, 1, "HL*2*7*22*0~"),
+    ("REF*F8 reuses a seed claim control number", 7,
+     "REF*F8*99012155001", 1, 1, "REF*F8*26031404710"),
+    # The fixture's three claims carry seed dates 20260130 / 20260202 /
+    # 20260204, which are src_dates offsets 4, 5 and 6, so they land on
+    # window days 20240205, 20240206 (twice - claim 2 has two lines) and
+    # 20240207. The window's first four days appear in no claim.
+    ("a service line date leaves the statement window", 8,
+     "DTP*472*RD8*20240205-20240205", 1, 1,
+     "DTP*472*RD8*20240301-20240301"),
+    ("a service line range stops being a single day", 8,
+     "DTP*472*RD8*20240206-20240206", 2, 1,
+     "DTP*472*RD8*20240206-20240207"),
+    ("a date of birth is not one the profile declares", 8,
+     "DMG*D8*19381226*F~", 1, 1, "DMG*D8*19391226*F~"),
+    ("a payload address drifts from the seed", 9,
+     "N4*CHICAGO*IL*606781095~", 1, 1, "N4*CHICAGO*IL*606781096~"),
+    ("a payload segment is dropped", 10,
+     "N3*9532 EAGLE WAY~\n", 1, 1, ""),
+    ("a line's allowed plus savings no longer equals its charge", 11,
+     "HCP*10*278.29*14.71*9327*0.00~", 1, 1,
+     "HCP*10*278.29*15.71*9327*0.00~"),
+    ("the claim HCP is not the sum of its lines", 11,
+     "HCP*10*222.21*83.79*9327~", 1, 1, "HCP*10*221.21*84.79*9327~"),
+    ("a frozen identity segment is altered", 12,
+     "NM1*PR*2*ERCT*****PI*ERCT~", 3, 1, "NM1*PR*2*ERCX*****PI*ERCT~"),
+    ("the file gains a CR line ending", 13,
+     "IEA*1*990000101~\n", 1, 1, "IEA*1*990000101~\r\n"),
+    ("the committed fixture no longer matches its generator", 14,
+     "PER*IC*MacroHealth*EM*support@macrohealth.com*TE*9059064673~", 3, 1,
+     "PER*IC*MacroHealth*EM*support@macrohealth.com*TE*9059064674~"),
+]
 
-def run_validator(path, repo, skip_producer=True):
+FIXTURES = [
+    ("837I", FIXTURE, MANIFEST, MUTATIONS_I),
+    ("837P", FIXTURE_P, MANIFEST_P, MUTATIONS_P),
+]
+
+
+def run_validator(path, manifest, repo, skip_producer=True):
     argv = [sys.executable, VALIDATOR, "--file", path,
-            "--manifest", MANIFEST, "--repo", repo]
+            "--manifest", manifest, "--repo", repo]
     if skip_producer:
         argv.append("--skip-producer")
     proc = subprocess.run(argv, stdout=subprocess.PIPE,
@@ -87,17 +143,21 @@ def guard_cases(repo, tmp):
     out = os.path.join(tmp, "out.x12")
     return [
         ("refuses an unregistered transaction type",
-         ["--repo", repo, "--type", "P", "--claims", "3", "--output", out],
+         ["--repo", repo, "--type", "D", "--claims", "3", "--output", out],
          "no seed is registered"),
         ("refuses a claim count of zero",
          ["--repo", repo, "--type", "I", "--claims", "0", "--output", out],
          "claim count must be between 1 and 999"),
         ("refuses a claim count over 999",
-         ["--repo", repo, "--type", "I", "--claims", "1000", "--output", out],
+         ["--repo", repo, "--type", "P", "--claims", "1000", "--output", out],
          "claim count must be between 1 and 999"),
-        ("refuses to overwrite the fixture without --force",
+        ("refuses to overwrite the institutional fixture without --force",
          ["--repo", repo, "--type", "I", "--claims", "3",
           "--output", FIXTURE],
+         "pass --force to overwrite"),
+        ("refuses to overwrite the professional fixture without --force",
+         ["--repo", repo, "--type", "P", "--claims", "3",
+          "--output", FIXTURE_P],
          "pass --force to overwrite"),
         ("refuses --type without --claims",
          ["--repo", repo, "--type", "I", "--output", out],
@@ -111,47 +171,50 @@ def main():
     args = ap.parse_args()
     repo = os.path.abspath(args.repo)
 
-    baseline = failing_checks(run_validator(FIXTURE, repo))
-    if baseline:
-        sys.stderr.write("baseline is not clean: %s\n" % baseline)
-        return 1
-    print("baseline: all checks pass\n")
-
     broken, missed = [], []
-    for name, expect, literal, must_occur, replace_n, repl in MUTATIONS:
-        with io.open(FIXTURE, encoding="ascii", newline="") as fh:
-            text = fh.read()
-        occurs = text.count(literal)
-        if occurs != must_occur:
-            print("BROKEN  check %2d  %s" % (expect, name))
-            print("        literal occurs %d times, declared %d"
-                  % (occurs, must_occur))
-            broken.append(name)
-            continue
-        mutated = text.replace(literal, repl, replace_n)
-        if mutated == text:
-            print("BROKEN  check %2d  %s (replacement changed nothing)"
-                  % (expect, name))
-            broken.append(name)
-            continue
-        tmp = tempfile.mkdtemp(prefix="edi_mut_")
-        path = os.path.join(tmp, os.path.basename(FIXTURE))
-        with io.open(path, "w", encoding="ascii", newline="") as fh:
-            fh.write(mutated)
-        got = failing_checks(run_validator(path, repo,
-                                           skip_producer=expect != 14))
-        ok = expect in got
-        print("%-7s check %2d  %s" % ("caught" if ok else "MISSED",
-                                      expect, name))
-        print("        checks that went red: %s" % got)
-        if not ok:
-            missed.append(name)
-        shutil.rmtree(tmp, ignore_errors=True)
+    for label, fixture, manifest, mutations in FIXTURES:
+        baseline = failing_checks(run_validator(fixture, manifest, repo))
+        if baseline:
+            sys.stderr.write("%s baseline is not clean: %s\n"
+                             % (label, baseline))
+            return 1
+        print("%s baseline: all checks pass\n" % label)
+        for name, expect, literal, must_occur, replace_n, repl in mutations:
+            with io.open(fixture, encoding="ascii", newline="") as fh:
+                text = fh.read()
+            occurs = text.count(literal)
+            if occurs != must_occur:
+                print("BROKEN  %s check %2d  %s" % (label, expect, name))
+                print("        literal occurs %d times, declared %d"
+                      % (occurs, must_occur))
+                broken.append("%s: %s" % (label, name))
+                continue
+            mutated = text.replace(literal, repl, replace_n)
+            if mutated == text:
+                print("BROKEN  %s check %2d  %s (replacement changed nothing)"
+                      % (label, expect, name))
+                broken.append("%s: %s" % (label, name))
+                continue
+            tmp = tempfile.mkdtemp(prefix="edi_mut_")
+            path = os.path.join(tmp, os.path.basename(fixture))
+            with io.open(path, "w", encoding="ascii", newline="") as fh:
+                fh.write(mutated)
+            got = failing_checks(run_validator(path, manifest, repo,
+                                               skip_producer=expect != 14))
+            ok = expect in got
+            print("%-7s %s check %2d  %s"
+                  % ("caught" if ok else "MISSED", label, expect, name))
+            print("        checks that went red: %s" % got)
+            if not ok:
+                missed.append("%s: %s" % (label, name))
+            shutil.rmtree(tmp, ignore_errors=True)
 
     print("\ngenerator guards\n")
     tmp = tempfile.mkdtemp(prefix="edi_guard_")
-    with open(FIXTURE, "rb") as fh:
-        fixture_before = fh.read()
+    before = {}
+    for _, fixture, _, _ in FIXTURES:
+        with open(fixture, "rb") as fh:
+            before[fixture] = fh.read()
     for name, argv, expected in guard_cases(repo, tmp):
         rc, out = run_generator(argv)
         ok = rc != 0 and expected in out
@@ -159,14 +222,14 @@ def main():
         if not ok:
             print("        rc=%s output=%r" % (rc, out.strip()[:200]))
             missed.append(name)
-    with open(FIXTURE, "rb") as fh:
-        fixture_after = fh.read()
-    if fixture_after != fixture_before:
-        print("MISSED           the fixture was modified by a refused run")
-        missed.append("fixture untouched")
-    else:
-        print("caught           the fixture is byte-identical after all "
-              "refused runs")
+    for fixture, data in before.items():
+        with open(fixture, "rb") as fh:
+            if fh.read() != data:
+                print("MISSED           %s was modified by a refused run"
+                      % os.path.basename(fixture))
+                missed.append("fixture untouched: %s" % fixture)
+    print("caught           both fixtures are byte-identical after all "
+          "refused runs")
     shutil.rmtree(tmp, ignore_errors=True)
 
     print("")
