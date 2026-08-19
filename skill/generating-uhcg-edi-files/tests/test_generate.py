@@ -267,6 +267,19 @@ class TestCli(unittest.TestCase):
         self.assertTrue(os.path.exists(out.replace(".x12",
                                                    ".manifest.json")))
 
+    def test_the_build_leaves_a_claim_summary_beside_the_file(self):
+        out = os.path.join(self.root, "EDI1", "Batch 2", "out.x12")
+        r = self.run_cli("--type", "I", "--claims", "4", "--output", out)
+        self.assertEqual(r.returncode, 0, r.stdout.decode())
+        self.assertTrue(os.path.exists(out[:-4] + "_ClaimSummary.docx"))
+
+    def test_a_refused_build_leaves_no_claim_summary(self):
+        out = os.path.join(self.root, "EDI1", "Batch 2", "out.x12")
+        r = self.run_cli("--type", "I", "--claims", "4", "--output", out,
+                         "--fail-after-validate")
+        self.assertEqual(r.returncode, 1)
+        self.assertFalse(os.path.exists(out[:-4] + "_ClaimSummary.docx"))
+
     def test_records_the_run_in_the_masterfile(self):
         out = os.path.join(self.root, "EDI1", "Batch 2", "out.x12")
         self.run_cli("--type", "I", "--claims", "4", "--output", out)

@@ -6,6 +6,7 @@ times - a literal that has drifted is a hard failure, never a silent no-op.
 """
 from __future__ import annotations
 
+import claim_summary
 import seeds
 import x12_parse as X
 
@@ -316,6 +317,16 @@ def main():
     if not pinned:
         M.append_run(repo, record)
 
+    # The reference .docx is the last thing built, outside the
+    # allocate->validate->move->append sequence. The file and its
+    # manifest are already final here, so a failure costs the summary
+    # and nothing else.
+    try:
+        summary = claim_summary.build(outp, manp)
+    except Exception as exc:                       # noqa: BLE001
+        summary = None
+        sys.stderr.write("claim summary not written: %s\n" % exc)
+
     sys.stdout.write("wrote %s (%d bytes)\n" % (outp, len(text)))
     sys.stdout.write("manifest %s\n" % manp)
     sys.stdout.write("ISA13 %s  GS06 %s  envelope %s %s\n"
@@ -323,6 +334,8 @@ def main():
                         alloc.envelope_time))
     sys.stdout.write("statement %s  claims %d\n" % (alloc.statement, claims))
     sys.stdout.write("CLM01 %s .. %s\n" % (alloc.clm01[0], alloc.clm01[-1]))
+    if summary:
+        sys.stdout.write("summary %s\n" % summary)
     return 0
 
 

@@ -32,6 +32,17 @@ file, no reserved identifiers.
 Report back: the output path, the manifest path, ISA13/GS06, the envelope
 stamp, the statement period, and the CLM01 range. All of it is printed.
 
+The build also leaves a reference `.docx` beside the file:
+`<name>_ClaimSummary.docx`, one section per claim with its detail table, its
+service lines and a billed-vs-lines reconciliation. Every value in it is read
+from the .x12 - the only arithmetic is that reconciliation. It is a reading
+aid, not evidence, so it stays out of `evidence/`. Rebuild one by hand with:
+
+```
+python scripts/claim_summary.py --file <output>.x12 \
+    --manifest <output>.manifest.json
+```
+
 Then write the evidence:
 
 ```
