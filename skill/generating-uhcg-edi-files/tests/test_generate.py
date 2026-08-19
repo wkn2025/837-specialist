@@ -37,15 +37,16 @@ def fake_alloc_p(claims):
         window_start="20240201", window_end="20240208",
         statement="20240201-20240208",
         service_dates=["2024020%d" % d for d in range(1, 9)],
-        st02=["%09d" % (19900201 + i) for i in range(claims)],
-        bht03=["%09d" % (19900201 + i) for i in range(claims)],
+        st02=["%09d" % (12900201 + i) for i in range(claims)],
+        bht03=["%09d" % (12900201 + i) for i in range(claims)],
         clm01=["TEST240215%03d" % (i + 1) for i in range(claims)],
         ref_f8=["%011d" % (90012155900 + i) for i in range(claims)],
-        # Padded like st02/bht03 above (not the brief's bare "%d"): unpadded,
-        # 19900201 is an 8-digit string that the date-detector test below
-        # cannot tell apart from a real date, which is a fixture collision,
-        # not a generator defect - REF*9A is never treated as a date.
-        ref_9a=["%09d" % (19900201 + i) for i in range(claims)])
+        # p_uhap style: REF*9A is ST02 with its leading zero stripped, so it
+        # is unpadded here too. The base sits below the UHAP_CEILING
+        # (19000000) so a stripped REF*9A can never start with 19/20 and
+        # collide with the raw-text date scan - a UHAP must not be
+        # date-shaped, not "REF*9A must be padded".
+        ref_9a=["%d" % (12900201 + i) for i in range(claims)])
 
 
 class TestSourceIndex(unittest.TestCase):
@@ -220,6 +221,13 @@ class TestBuildP(unittest.TestCase):
     def test_refuses_a_service_date_the_profile_does_not_declare(self):
         broken = [s.replace("DTP*472*RD8*20260130-20260130",
                             "DTP*472*RD8*20260131-20260131")
+                  for s in self.seed]
+        with self.assertRaises(G.BuildError):
+            G.build(broken, PROFILE_P, fake_alloc_p(1), 1)
+
+    def test_refuses_an_asymmetric_rd8_range(self):
+        broken = [s.replace("DTP*472*RD8*20260130-20260130",
+                            "DTP*472*RD8*20260130-20260131")
                   for s in self.seed]
         with self.assertRaises(G.BuildError):
             G.build(broken, PROFILE_P, fake_alloc_p(1), 1)
