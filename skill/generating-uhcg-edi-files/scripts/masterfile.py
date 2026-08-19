@@ -7,6 +7,7 @@ cause a silent duplicate.
 """
 from __future__ import annotations
 import glob
+import hashlib
 import io
 import json
 import os
@@ -32,12 +33,14 @@ def scan_disk(repo):
     return scan_disk_excluding(repo, None, None)
 
 
-def scan_disk_excluding(repo, abspath, basename):
-    """scan_disk, skipping any file matching abspath or basename.
+def scan_disk_excluding(repo, abspath, basename, skip_sha=None):
+    """scan_disk, skipping any file matching abspath, basename or skip_sha.
 
-    Both exclusions are needed: when a validator runs against a temp copy, the
-    committed original is still on disk under the same name, and without the
-    basename exclusion every identifier collides with itself.
+    All three exclusions are needed: when a validator runs against a temp copy,
+    the committed original is still on disk under the same name, and without
+    the basename exclusion every identifier collides with itself. skip_sha
+    covers the remaining case - a byte-identical copy filed under a different
+    name, which is what a pinned replay produces.
     """
     found = {k: set() for k in KEYS}
     pattern = os.path.join(repo, "**", "*.x12")
@@ -46,6 +49,10 @@ def scan_disk_excluding(repo, abspath, basename):
             continue
         if basename and os.path.basename(p) == basename:
             continue
+        if skip_sha:
+            with open(p, "rb") as fh:
+                if hashlib.sha256(fh.read()).hexdigest() == skip_sha:
+                    continue
         with io.open(p, encoding="utf-8-sig", newline="") as fh:
             text = fh.read()
         flat = text.replace("\r", "").replace("\n", "")

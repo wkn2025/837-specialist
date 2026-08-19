@@ -226,9 +226,13 @@ def main():
     # Exclude the file under test by path AND by basename - when --file points
     # at a temp copy the committed original is still on disk, and without the
     # basename exclusion every identifier "collides" with itself.
+    # A pinned replay is byte-identical to the file it replays but lands on a
+    # different path, so path and basename alone do not identify "this file".
+    # The content hash does, on disk and in the run log alike.
     target = os.path.abspath(args.file)
     base = os.path.basename(target)
-    others = M.scan_disk_excluding(args.repo, target, base)
+    file_sha = hashlib.sha256(data).hexdigest()
+    others = M.scan_disk_excluding(args.repo, target, base, file_sha)
     try:
         mf = M.load(args.repo)
     except M.MasterfileError:
@@ -236,6 +240,8 @@ def main():
     for run in mf["runs"]:
         if run.get("output") == man.get("output"):
             continue                      # this file's own recorded run
+        if run.get("sha256") and run["sha256"] == file_sha:
+            continue                      # the same bytes, filed elsewhere
         for k in ("st02", "bht03", "clm01", "ref_f8", "ref_9a"):
             others[k] |= set(run.get(k) or [])
         for scalar, plural in (("isa13", "isa13_all"), ("gs06", "gs06_all")):

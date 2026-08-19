@@ -122,6 +122,99 @@ class TestBuild(unittest.TestCase):
         self.assertEqual(text.count("\n"), len(segs))
 
 
+class TestCli(unittest.TestCase):
+    """End-to-end: a scratch repo containing only a copy of the seed."""
+
+    def setUp(self):
+        import shutil
+        import tempfile
+        self.root = tempfile.mkdtemp(prefix="clitest_")
+        dst = os.path.join(self.root, "EDI1", "Batch 1")
+        os.makedirs(dst)
+        shutil.copy(seeds.seed_path(PROFILE, REPO),
+                    os.path.join(dst, os.path.basename(PROFILE.rel_path)))
+        M.bootstrap(self.root)
+        self._shutil = shutil
+
+    def tearDown(self):
+        self._shutil.rmtree(self.root, ignore_errors=True)
+
+    def run_cli(self, *args):
+        import subprocess
+        return subprocess.run(
+            [sys.executable,
+             os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                          "..", "scripts", "generate.py"),
+             "--repo", self.root] + list(args),
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+
+    def test_generates_a_file_and_a_manifest(self):
+        out = os.path.join(self.root, "EDI1", "Batch 2", "out.x12")
+        r = self.run_cli("--type", "I", "--claims", "4", "--output", out)
+        self.assertEqual(r.returncode, 0, r.stdout.decode())
+        self.assertTrue(os.path.exists(out))
+        self.assertTrue(os.path.exists(out.replace(".x12",
+                                                   ".manifest.json")))
+
+    def test_records_the_run_in_the_masterfile(self):
+        out = os.path.join(self.root, "EDI1", "Batch 2", "out.x12")
+        self.run_cli("--type", "I", "--claims", "4", "--output", out)
+        runs = M.load(self.root)["runs"]
+        self.assertEqual(len(runs), 2)          # imported + this run
+        self.assertEqual(runs[-1]["claims"], 4)
+
+    def test_two_runs_never_collide(self):
+        a = os.path.join(self.root, "EDI1", "Batch 2", "a.x12")
+        b = os.path.join(self.root, "EDI1", "Batch 3", "b.x12")
+        self.run_cli("--type", "I", "--claims", "3", "--output", a)
+        r = self.run_cli("--type", "I", "--claims", "3", "--output", b)
+        self.assertEqual(r.returncode, 0, r.stdout.decode())
+        runs = M.load(self.root)["runs"]
+        self.assertNotEqual(runs[-1]["isa13"], runs[-2]["isa13"])
+        self.assertEqual(set(runs[-1]["clm01"]) & set(runs[-2]["clm01"]),
+                         set())
+
+    def test_refuses_an_unregistered_transaction_type(self):
+        r = self.run_cli("--type", "P", "--claims", "3")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("no seed is registered", r.stdout.decode())
+
+    def test_refuses_a_claim_count_over_999(self):
+        r = self.run_cli("--type", "I", "--claims", "1000")
+        self.assertEqual(r.returncode, 1)
+
+    def test_refuses_to_overwrite_without_force(self):
+        out = os.path.join(self.root, "EDI1", "Batch 2", "out.x12")
+        self.run_cli("--type", "I", "--claims", "2", "--output", out)
+        r = self.run_cli("--type", "I", "--claims", "2", "--output", out)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("--force", r.stdout.decode())
+
+    def test_leaves_no_masterfile_record_when_validation_fails(self):
+        # A read-only output directory makes the move fail after validation.
+        before = len(M.load(self.root)["runs"])
+        r = self.run_cli("--type", "I", "--claims", "2",
+                         "--output", os.path.join(self.root, "nope", "x.x12"),
+                         "--fail-after-validate")
+        self.assertEqual(r.returncode, 1)
+        self.assertEqual(len(M.load(self.root)["runs"]), before)
+
+    def test_pin_replays_an_allocation_byte_for_byte(self):
+        out = os.path.join(self.root, "EDI1", "Batch 2", "out.x12")
+        self.run_cli("--type", "I", "--claims", "5", "--output", out)
+        again = os.path.join(self.root, "EDI1", "Batch 9", "again.x12")
+        r = self.run_cli("--pin", out.replace(".x12", ".manifest.json"),
+                         "--output", again)
+        self.assertEqual(r.returncode, 0, r.stdout.decode())
+        with open(again, "rb") as fh:
+            replayed = fh.read()
+        with open(out, "rb") as fh:
+            original = fh.read()
+        self.assertEqual(replayed, original)
+        # a pinned replay must not append a masterfile record
+        self.assertEqual(len(M.load(self.root)["runs"]), 2)
+
+
 def _reverse(block, profile, alloc, n):
     """Undo the declared edits so the block should equal its seed block."""
     src = G.source_index(n)

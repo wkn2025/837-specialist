@@ -147,3 +147,153 @@ def build(seed_segs, profile, alloc, claims):
 def render(segs):
     """One segment per line, LF only, trailing newline - the seed's shape."""
     return "".join(s + X.SEG + "\n" for s in segs)
+
+
+# --------------------------------------------------------------------------
+# CLI
+# --------------------------------------------------------------------------
+import argparse
+import hashlib
+import io
+import json
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+
+import masterfile as M
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+
+
+def _alloc_from_manifest(man):
+    return M.Allocation(
+        isa13=man["isa13"], gs06=man["gs06"],
+        envelope_date=man["envelope_date"],
+        envelope_time=man["envelope_time"],
+        window_start=man["statement"].split("-")[0],
+        window_end=man["statement"].split("-")[1],
+        statement=man["statement"],
+        service_dates=list(man["service_dates"]),
+        st02=list(man["st02"]), bht03=list(man["bht03"]),
+        clm01=list(man["clm01"]), ref_f8=list(man["ref_f8"]),
+        ref_9a=list(man["ref_9a"]))
+
+
+def _default_output(repo, code, claims):
+    n = 1
+    while os.path.isdir(os.path.join(repo, "EDI1", "Batch %d" % n)):
+        n += 1
+    return os.path.join(repo, "EDI1", "Batch %d" % n,
+                        "fromUHCG-837%s-WKN_%dclaims.x12" % (code, claims))
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--repo", required=True)
+    ap.add_argument("--type")
+    ap.add_argument("--claims", type=int)
+    ap.add_argument("--pin", help="replay the allocation in this manifest")
+    ap.add_argument("--output")
+    ap.add_argument("--force", action="store_true")
+    ap.add_argument("--fail-after-validate", action="store_true",
+                    help=argparse.SUPPRESS)
+    args = ap.parse_args()
+
+    repo = os.path.abspath(args.repo)
+    pinned = None
+    if args.pin:
+        with io.open(args.pin, encoding="utf-8") as fh:
+            pinned = json.loads(fh.read())
+        code, claims = pinned["type"], pinned["claims"]
+    else:
+        if not args.type or args.claims is None:
+            sys.stderr.write("--type and --claims are required "
+                             "without --pin\n")
+            return 1
+        code, claims = args.type, args.claims
+
+    try:
+        profile = seeds.get(code)
+    except seeds.UnregisteredSeed:
+        sys.stderr.write(
+            "no seed is registered for transaction type %r. Register a real "
+            "UHCG 837%s file in scripts/seeds.py before generating one.\n"
+            % (code, code.upper()))
+        return 1
+
+    outp = os.path.abspath(args.output or _default_output(repo, profile.code,
+                                                          claims))
+    manp = outp[:-4] + ".manifest.json" if outp.endswith(".x12") \
+        else outp + ".manifest.json"
+    if os.path.exists(outp) and not args.force:
+        sys.stderr.write("%s exists; pass --force to overwrite\n" % outp)
+        return 1
+
+    try:
+        seed_segs = seeds.load_seed(profile, repo)
+        if pinned:
+            alloc = _alloc_from_manifest(pinned)
+        else:
+            mf = M.load(repo)
+            alloc = M.allocate(mf, repo, profile.code, claims)
+        text = render(build(seed_segs, profile, alloc, claims))
+    except (seeds.SeedMismatch, M.MasterfileError, BuildError) as exc:
+        sys.stderr.write("%s\n" % exc)
+        return 1
+
+    with open(seeds.seed_path(profile, repo), "rb") as fh:
+        seed_sha = hashlib.sha256(fh.read()).hexdigest()
+    sha = hashlib.sha256(text.encode("ascii")).hexdigest()
+    record = alloc.as_record(
+        profile.code, claims,
+        os.path.relpath(outp, repo).replace("\\", "/"),
+        sha, profile.rel_path, seed_sha)
+    if pinned:
+        record["timestamp"] = pinned.get("timestamp", record["timestamp"])
+
+    tmp = tempfile.mkdtemp(prefix="edi_gen_")
+    try:
+        tmp_out = os.path.join(tmp, os.path.basename(outp))
+        tmp_man = tmp_out[:-4] + ".manifest.json"
+        with io.open(tmp_out, "w", encoding="ascii", newline="") as fh:
+            fh.write(text)
+        with io.open(tmp_man, "w", encoding="utf-8", newline="\n") as fh:
+            fh.write(json.dumps(record, indent=2, sort_keys=True) + "\n")
+        proc = subprocess.run(
+            [sys.executable, os.path.join(HERE, "validate.py"),
+             "--file", tmp_out, "--manifest", tmp_man, "--repo", repo,
+             "--skip-producer"],
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        out_text = proc.stdout.decode("utf-8", "replace")
+        if proc.returncode != 0:
+            sys.stderr.write(out_text)
+            sys.stderr.write("validation failed; nothing was written\n")
+            return 1
+        if args.fail_after_validate:
+            sys.stderr.write("forced failure after validation\n")
+            return 1
+        d = os.path.dirname(outp)
+        if d and not os.path.isdir(d):
+            os.makedirs(d)
+        shutil.move(tmp_out, outp)
+        shutil.move(tmp_man, manp)
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+    if not pinned:
+        M.append_run(repo, record)
+
+    sys.stdout.write("wrote %s (%d bytes)\n" % (outp, len(text)))
+    sys.stdout.write("manifest %s\n" % manp)
+    sys.stdout.write("ISA13 %s  GS06 %s  envelope %s %s\n"
+                     % (alloc.isa13, alloc.gs06, alloc.envelope_date,
+                        alloc.envelope_time))
+    sys.stdout.write("statement %s  claims %d\n" % (alloc.statement, claims))
+    sys.stdout.write("CLM01 %s .. %s\n" % (alloc.clm01[0], alloc.clm01[-1]))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
