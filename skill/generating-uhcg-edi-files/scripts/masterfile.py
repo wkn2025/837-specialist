@@ -182,6 +182,10 @@ YEAR = 2024
 WINDOW_DAYS = 7
 ENVELOPE_TIME = "0930"
 MAX_CLAIMS = 999
+UHAP_CEILING = 19000000      # a UHAP must never be date-shaped: REF*9A is
+                              # ST02 stripped of its leading zero, and an
+                              # 8-digit value starting 19/20 reads as a date
+                              # to the raw-text scan in validator check 8
 JAN1 = datetime.date(YEAR, 1, 1)
 DEC31 = datetime.date(YEAR, 12, 31)
 
@@ -206,23 +210,25 @@ def _parse(s):
     return datetime.date(int(s[0:4]), int(s[4:6]), int(s[6:8]))
 
 
-def next_window(mf):
-    """First unused 7-day window inside 2024.
+def next_window(mf, window_days=WINDOW_DAYS):
+    """First unused window of `window_days` days inside 2024.
 
-    Starts step 7 days at a time (52 non-overlapping windows); once those are
-    all issued the step drops to 1 day, giving 359 distinct starts in total.
+    Starts step a whole window at a time; once those are all issued the step
+    drops to 1 day. Windows are keyed by start date, so an institutional and
+    a professional window can never share a start even though they differ in
+    length.
     """
     taken = used_windows(mf)
-    last_start = _add(DEC31, -(WINDOW_DAYS - 1))
-    for step in (WINDOW_DAYS, 1):
+    last_start = _add(DEC31, -(window_days - 1))
+    for step in (window_days, 1):
         d = JAN1
         while d <= last_start:
             if _fmt(d) not in taken:
-                return _fmt(d), _fmt(_add(d, WINDOW_DAYS - 1))
+                return _fmt(d), _fmt(_add(d, window_days - 1))
             d = _add(d, step)
     raise Exhausted(
-        "every 7-day window in %d has been used (%d issued)"
-        % (YEAR, len(taken)))
+        "every %d-day window in %d has been used (%d issued)"
+        % (window_days, YEAR, len(taken)))
 
 
 def next_envelope_date(mf, window_end):
@@ -250,6 +256,20 @@ def _next_numeric(used_set, width):
         raise MasterfileError(
             "next value %d does not fit in %d characters" % (nxt, width))
     return out
+
+
+def _next_numeric_below(used_set, width, ceiling):
+    """max(used below ceiling) + 1, zero-padded. Raises when the band is full."""
+    best = 0
+    for v in used_set:
+        n = _numeric(v)
+        if best < n < ceiling:
+            best = n
+    nxt = best + 1
+    if nxt >= ceiling:
+        raise MasterfileError(
+            "the 8-digit UHAP ST02 band is full (last used %d)" % best)
+    return "%0*d" % (width, nxt)
 
 
 @dataclass
@@ -293,22 +313,42 @@ class Allocation:
         }
 
 
-def allocate(mf, repo, type_code, claims):
+def allocate(mf, repo, profile, claims):
     if not isinstance(claims, int) or not 1 <= claims <= MAX_CLAIMS:
         raise MasterfileError(
             "claim count must be between 1 and %d, got %r"
             % (MAX_CLAIMS, claims))
     u = used(mf, repo)
-    window_start, window_end = next_window(mf)
+    window_days = len(profile.src_dates)
+    window_start, window_end = next_window(mf, window_days)
     envelope_date = next_envelope_date(mf, window_end)
     yymmdd = envelope_date[2:]
 
     start = _parse(window_start)
-    service_dates = [_fmt(_add(start, i)) for i in range(WINDOW_DAYS)]
+    service_dates = [_fmt(_add(start, i)) for i in range(window_days)]
 
-    st02_first = int(_next_numeric(u["st02"], 9))
     f8_width = max(11, max((len(v) for v in u["ref_f8"]), default=11))
     f8_first = int(_next_numeric(u["ref_f8"], f8_width))
+
+    if profile.id_style == "i_e2e":
+        st02_first = int(_next_numeric(u["st02"], 9))
+        st02 = ["%09d" % (st02_first + i) for i in range(claims)]
+        bht03 = ["%s%04d" % (yymmdd, i + 1) for i in range(claims)]
+        ref_9a = ["E2E%s12125%03d" % (yymmdd, i + 1) for i in range(claims)]
+    elif profile.id_style == "p_uhap":
+        # REF*9A is the ST02 without its leading zero, and UHCG's is 8
+        # digits, so the ST02 has to come from below the ceiling - the
+        # reserved fixture range would otherwise push it to 9.
+        st02_first = int(_next_numeric_below(u["st02"], 9, UHAP_CEILING))
+        if st02_first + claims - 1 >= UHAP_CEILING:
+            raise MasterfileError(
+                "the 8-digit UHAP ST02 band is full (needs %d from %d)"
+                % (claims, st02_first))
+        st02 = ["%09d" % (st02_first + i) for i in range(claims)]
+        bht03 = list(st02)
+        ref_9a = [str(int(v)) for v in st02]
+    else:
+        raise MasterfileError("unknown id_style %r" % profile.id_style)
 
     alloc = Allocation(
         isa13=_next_numeric(u["isa13"], 9),
@@ -319,11 +359,11 @@ def allocate(mf, repo, type_code, claims):
         window_end=window_end,
         statement="%s-%s" % (window_start, window_end),
         service_dates=service_dates,
-        st02=["%09d" % (st02_first + i) for i in range(claims)],
-        bht03=["%s%04d" % (yymmdd, i + 1) for i in range(claims)],
+        st02=st02,
+        bht03=bht03,
         clm01=["TEST%s%03d" % (yymmdd, i + 1) for i in range(claims)],
         ref_f8=["%0*d" % (f8_width, f8_first + i) for i in range(claims)],
-        ref_9a=["E2E%s12125%03d" % (yymmdd, i + 1) for i in range(claims)],
+        ref_9a=ref_9a,
     )
 
     for key, values in (("isa13", [alloc.isa13]), ("gs06", [alloc.gs06]),
@@ -335,7 +375,7 @@ def allocate(mf, repo, type_code, claims):
             raise MasterfileError(
                 "allocated %s values already in use: %s" % (key, clash))
     for v in alloc.bht03:
-        if len(v) != 10:
-            raise MasterfileError("BHT03 %r is %d characters, must be 10"
+        if not 1 <= len(v) <= 10:
+            raise MasterfileError("BHT03 %r is %d characters, must be 1-10"
                                   % (v, len(v)))
     return alloc

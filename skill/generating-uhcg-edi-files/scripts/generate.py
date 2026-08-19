@@ -268,7 +268,7 @@ def main():
             alloc = _alloc_from_manifest(pinned)
         else:
             mf = M.load(repo)
-            alloc = M.allocate(mf, repo, profile.code, claims)
+            alloc = M.allocate(mf, repo, profile, claims)
         text = render(build(seed_segs, profile, alloc, claims))
     except (seeds.SeedMismatch, M.MasterfileError, BuildError) as exc:
         sys.stderr.write("%s\n" % exc)

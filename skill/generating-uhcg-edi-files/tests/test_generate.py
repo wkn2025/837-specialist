@@ -286,9 +286,24 @@ class TestCli(unittest.TestCase):
                          set())
 
     def test_refuses_an_unregistered_transaction_type(self):
-        r = self.run_cli("--type", "P", "--claims", "3")
+        r = self.run_cli("--type", "D", "--claims", "3")
         self.assertEqual(r.returncode, 1)
         self.assertIn("no seed is registered", r.stdout.decode())
+
+    def test_generates_an_837p_file(self):
+        import shutil
+        p = seeds.get("P")
+        dst = os.path.join(self.root, *os.path.dirname(p.rel_path).split("/"))
+        os.makedirs(dst)
+        shutil.copy(seeds.seed_path(p, REPO),
+                    os.path.join(dst, os.path.basename(p.rel_path)))
+        out = os.path.join(self.root, "EDI1", "Batch 5", "p.x12")
+        r = self.run_cli("--type", "P", "--claims", "3", "--output", out)
+        self.assertEqual(r.returncode, 0, r.stdout.decode())
+        with open(out, encoding="ascii") as fh:
+            text = fh.read()
+        self.assertIn("*005010X222A1~", text)
+        self.assertNotIn("DTP*434", text)
 
     def test_refuses_a_claim_count_over_999(self):
         r = self.run_cli("--type", "I", "--claims", "1000")

@@ -9,8 +9,11 @@ import unittest
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                 "..", "scripts"))
 import masterfile as M
+import seeds
 
 REPO = os.environ.get("EDI_REPO", r"C:\Users\wkn\837-specialist")
+PROFILE_I = seeds.get("I")
+PROFILE_P = seeds.get("P")
 
 MINI = (
     "ISA*00*          *00*          *ZZ*UHCG           *ZZ*ECUSA          "
@@ -217,14 +220,14 @@ class TestAllocate(unittest.TestCase):
 
     def test_rejects_a_claim_count_of_zero(self):
         with self.assertRaises(M.MasterfileError):
-            M.allocate(M.load(self.root), self.root, "I", 0)
+            M.allocate(M.load(self.root), self.root, PROFILE_I, 0)
 
     def test_rejects_a_claim_count_over_999(self):
         with self.assertRaises(M.MasterfileError):
-            M.allocate(M.load(self.root), self.root, "I", 1000)
+            M.allocate(M.load(self.root), self.root, PROFILE_I, 1000)
 
     def test_allocates_a_contiguous_block_of_each_identifier(self):
-        a = M.allocate(M.load(self.root), self.root, "I", 3)
+        a = M.allocate(M.load(self.root), self.root, PROFILE_I, 3)
         self.assertEqual(len(a.st02), 3)
         self.assertEqual(len(a.bht03), 3)
         self.assertEqual(len(a.clm01), 3)
@@ -234,15 +237,15 @@ class TestAllocate(unittest.TestCase):
         self.assertEqual(a.isa13, "900000002")
         self.assertEqual(a.gs06, "78")
 
-    def test_bht03_is_exactly_ten_characters(self):
-        a = M.allocate(M.load(self.root), self.root, "I", 999)
+    def test_institutional_bht03_is_ten_characters(self):
+        a = M.allocate(M.load(self.root), self.root, PROFILE_I, 999)
         for v in a.bht03:
             self.assertEqual(len(v), 10, v)
         self.assertEqual(a.bht03[0], a.envelope_date[2:] + "0001")
         self.assertEqual(a.bht03[-1], a.envelope_date[2:] + "0999")
 
     def test_identifier_shapes(self):
-        a = M.allocate(M.load(self.root), self.root, "I", 2)
+        a = M.allocate(M.load(self.root), self.root, PROFILE_I, 2)
         yymmdd = a.envelope_date[2:]
         self.assertEqual(a.clm01, ["TEST%s001" % yymmdd,
                                    "TEST%s002" % yymmdd])
@@ -254,14 +257,14 @@ class TestAllocate(unittest.TestCase):
             self.assertEqual(len(v), 9, v)
 
     def test_service_dates_are_the_window_days(self):
-        a = M.allocate(M.load(self.root), self.root, "I", 1)
+        a = M.allocate(M.load(self.root), self.root, PROFILE_I, 1)
         self.assertEqual(a.service_dates,
                          ["2024010%d" % d for d in range(1, 8)])
         self.assertEqual(a.statement, "20240101-20240107")
         self.assertEqual(a.envelope_time, "0930")
 
     def test_nothing_allocated_collides_with_disk_or_the_run_log(self):
-        a = M.allocate(M.load(self.root), self.root, "I", 5)
+        a = M.allocate(M.load(self.root), self.root, PROFILE_I, 5)
         u = M.used(M.load(self.root), self.root)
         self.assertNotIn(a.isa13, u["isa13"])
         self.assertNotIn(a.gs06, u["gs06"])
@@ -271,16 +274,91 @@ class TestAllocate(unittest.TestCase):
             self.assertEqual(set(vals) & u[k], set(), k)
 
     def test_two_allocations_in_a_row_never_overlap(self):
-        first = M.allocate(M.load(self.root), self.root, "I", 4)
+        first = M.allocate(M.load(self.root), self.root, PROFILE_I, 4)
         M.append_run(self.root, first.as_record("I", 4, "a.x12", "0" * 64,
                                                 "seed.x12", "1" * 64))
-        second = M.allocate(M.load(self.root), self.root, "I", 4)
+        second = M.allocate(M.load(self.root), self.root, PROFILE_I, 4)
         self.assertNotEqual(first.isa13, second.isa13)
         self.assertNotEqual(first.envelope_date, second.envelope_date)
         self.assertNotEqual(first.statement, second.statement)
         self.assertEqual(set(first.st02) & set(second.st02), set())
         self.assertEqual(set(first.bht03) & set(second.bht03), set())
         self.assertEqual(set(first.clm01) & set(second.clm01), set())
+
+
+class TestProfessionalAllocation(unittest.TestCase):
+    """The P style: BHT03 echoes ST02 and REF*9A is the 8-digit UHAP."""
+
+    def setUp(self):
+        self.root = tempfile.mkdtemp(prefix="alloc_p_")
+        os.makedirs(os.path.join(self.root, "EDI1"))
+        M.bootstrap(self.root)
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def test_bht03_echoes_st02_and_ref_9a_is_the_stripped_form(self):
+        a = M.allocate(M.load(self.root), self.root, PROFILE_P, 3)
+        self.assertEqual(a.bht03, a.st02)
+        self.assertEqual(a.ref_9a, [str(int(v)) for v in a.st02])
+        for v in a.st02:
+            self.assertEqual(len(v), 9)
+        for v in a.ref_9a:
+            self.assertLessEqual(len(v), 8)
+
+    def test_the_window_is_as_long_as_the_seed_has_service_dates(self):
+        a = M.allocate(M.load(self.root), self.root, PROFILE_P, 1)
+        self.assertEqual(len(a.service_dates), 8)
+        self.assertEqual(a.statement,
+                         "%s-%s" % (a.service_dates[0], a.service_dates[-1]))
+
+    def test_st02_stays_below_the_uhap_ceiling(self):
+        a = M.allocate(M.load(self.root), self.root, PROFILE_P, 5)
+        for v in a.st02:
+            self.assertLess(int(v), M.UHAP_CEILING)
+
+    def test_a_high_reserved_st02_does_not_push_p_out_of_the_band(self):
+        M.append_run(self.root, {
+            "type": "I", "claims": 1, "envelope_date": "20240301",
+            "statement": "20240301-20240307", "isa13": "990000900",
+            "gs06": "990", "st02": ["990000900"], "bht03": ["2403010001"],
+            "clm01": ["TEST240301001"], "ref_f8": ["99012154900"],
+            "ref_9a": ["E2E24030112125001"]})
+        a = M.allocate(M.load(self.root), self.root, PROFILE_P, 2)
+        for v in a.st02:
+            self.assertLess(int(v), M.UHAP_CEILING)
+        self.assertEqual(a.ref_9a, [str(int(v)) for v in a.st02])
+
+    def test_refuses_when_the_uhap_band_is_full(self):
+        M.append_run(self.root, {
+            "type": "P", "claims": 1, "envelope_date": "20240301",
+            "statement": "20240301-20240308", "isa13": "990000901",
+            "gs06": "991", "st02": ["018999999"], "bht03": ["018999999"],
+            "clm01": ["TEST240301001"], "ref_f8": ["99012154901"],
+            "ref_9a": ["18999999"]})
+        with self.assertRaises(M.MasterfileError) as ctx:
+            M.allocate(M.load(self.root), self.root, PROFILE_P, 1)
+        self.assertIn("8-digit UHAP", str(ctx.exception))
+
+
+class TestBht03LengthGuard(unittest.TestCase):
+    def setUp(self):
+        self.root = tempfile.mkdtemp(prefix="alloc_len_")
+        os.makedirs(os.path.join(self.root, "EDI1"))
+        M.bootstrap(self.root)
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def test_nine_character_bht03_is_accepted(self):
+        a = M.allocate(M.load(self.root), self.root, PROFILE_P, 2)
+        for v in a.bht03:
+            self.assertEqual(len(v), 9)
+
+    def test_ten_character_bht03_is_accepted(self):
+        a = M.allocate(M.load(self.root), self.root, PROFILE_I, 2)
+        for v in a.bht03:
+            self.assertEqual(len(v), 10)
 
 
 def _run(**kw):
