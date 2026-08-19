@@ -210,11 +210,14 @@ No new checks. The 15 stay, four become profile-driven.
 
 - **check 2** additionally asserts `ISA15 == profile.isa15`. ISA06/08 and
   GS02/GS03 already read the profile, so UHCG -> ERCT needs no change.
-- **check 8** asserts every date is in 2024 except `profile.dob_exceptions`,
-  *and* that every declared DOB is present — a missing DOB is payload drift,
-  the same rule I's single frozen DOB already had. `DTP*434` is asserted only
-  when `statement_qualifier` is set. For `RD8_same_day`, both halves must be
-  equal and inside the window.
+- **check 8** asserts every date is in 2024 except `profile.dob_exceptions`.
+  It does **not** require every declared DOB to be present: a 3-claim P file
+  contains only 3 of the seed's 8 DOBs, so a presence rule would fail every
+  file with fewer than 8 claims. DOB fidelity is check 9's job — byte-identity
+  against the seed block is strictly stronger — and for 837I the DOB is also
+  in `frozen`, so check 12 pins it too. `DTP*434` is asserted only when
+  `statement_qualifier` is set. For `RD8_same_day`, both halves must be equal
+  and inside the window.
 - **check 9** reverses the same profile-driven edit table the generator
   applied: the CLM element-1 swap and the shape-aware date reversal.
 - **check 11** dispatches on `money_rule` and `line_id`:
