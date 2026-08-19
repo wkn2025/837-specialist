@@ -1,0 +1,6 @@
+{
+  "E2E26081112125704": {
+    "benefit_decision": "4",
+    "reason": "The test plan calls this claim the MRR (Medical Record Request) scenario. UHCG_Validation_Rules_Institutional.csv has no scenario row for Benefit Decision 4, so the guide never states what net paid, coverage % and the line adjudication amounts should contain. Zeros are the only values consistent with 'no determination made'."
+  }
+}
