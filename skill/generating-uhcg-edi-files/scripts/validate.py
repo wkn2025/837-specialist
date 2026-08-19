@@ -238,6 +238,12 @@ def main():
     except M.MasterfileError:
         mf = {"version": M.VERSION, "runs": []}
     for run in mf["runs"]:
+        if run.get("type") == "imported":
+            # The bootstrap run is a snapshot of what was on disk, so it
+            # re-adds exactly the values the disk scan just excluded for this
+            # file - and unlike the scan it cannot be filtered per file. The
+            # scan supersedes it here. Allocation still counts it, via used().
+            continue
         if run.get("output") == man.get("output"):
             continue                      # this file's own recorded run
         if run.get("sha256") and run["sha256"] == file_sha:
