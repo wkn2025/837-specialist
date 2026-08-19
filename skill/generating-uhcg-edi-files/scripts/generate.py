@@ -223,6 +223,16 @@ def main():
             % (code, code.upper()))
         return 1
 
+    # An out-of-range claim count is an argument error, so it is refused here
+    # rather than inside allocate() - otherwise a repo with no masterfile yet
+    # reports the missing masterfile instead of the bad count. allocate()
+    # keeps its own check for callers that do not come through this CLI.
+    if not pinned and not (isinstance(claims, int)
+                           and 1 <= claims <= M.MAX_CLAIMS):
+        sys.stderr.write("claim count must be between 1 and %d, got %r\n"
+                         % (M.MAX_CLAIMS, claims))
+        return 1
+
     outp = os.path.abspath(args.output or _default_output(repo, profile.code,
                                                           claims))
     manp = outp[:-4] + ".manifest.json" if outp.endswith(".x12") \
