@@ -3,3 +3,9 @@
 * text eol=lf
 *.x12 text eol=lf
 *.csv text eol=lf
+
+# The 837P seed is a received production file with CRLF endings, and seeds.py
+# pins its sha256 over those exact bytes. Normalizing it to LF would make every
+# 837P run refuse with "seed ... hashes to X, profile declares Y" on a fresh
+# clone. Generated output is unaffected: the generator always writes LF.
+"EDI1/Sample 837P/*.x12" -text

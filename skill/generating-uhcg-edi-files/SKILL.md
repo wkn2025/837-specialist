@@ -21,6 +21,7 @@ the lowest unused batch number.
 ```
 cd <repo>/skill/generating-uhcg-edi-files
 python scripts/generate.py --repo <repo> --type I --claims 10
+python scripts/generate.py --repo <repo> --type P --claims 8
 ```
 
 The generator allocates, builds in memory, writes to a temp directory, runs
@@ -41,21 +42,13 @@ python scripts/mutations.py --repo <repo> \
     > <batch>/evidence/02-mutations.txt
 ```
 
-## 837P is not registered
-
-There is no 837P seed. Stop and ask for a real UHCG 837P file, then register
-it in `scripts/seeds.py` with its sha256, block lengths, source identifiers
-and frozen segments.
-
-**Never synthesize 837P payload from the companion guide.** A spec-correct
-claim is not the same as a claim UHCG actually produced, and the whole value
-of these files is that their payload came from a real one.
-
 ## What is never regenerated
 
 Claim payload is **sliced byte-for-byte** from the seed. No amount, segment
-count or service line is ever computed. These nine segments appear unchanged
-in every claim of every generated file, and validator check 12 pins them:
+count or service line is ever computed. Validator check 12 pins the frozen
+identity segments, which differ by transaction type.
+
+837I - nine segments, the same patient and facility in every claim:
 
 ```
 NM1*IL*1*NISHIMURA*WILLIAM****MI*909001333969
@@ -69,23 +62,45 @@ REF*EI*B03000684
 SBR*P*18*999990570299999******ZZ
 ```
 
-`DMG*D8*19941217*F` is the only date outside 2024. It is personal data, not a
-date to move.
+837P - six segments. Each claim carries its own patient and its own billing
+provider, so only the trading-partner and payer identity is common:
+
+```
+NM1*41*2*UnitedHealthcare Global*****46*UHCG
+PER*IC*MacroHealth*EM*support@macrohealth.com*TE*9059064673
+NM1*40*2*ERCT*****46*ERCT
+N3*PO BOX 30526
+N4*SALT LAKE CITY*UT*84130
+NM1*PR*2*ERCT*****PI*ERCT
+```
+
+Dates of birth are personal data, not dates to move. Each profile declares
+its own: one for 837I (`19941217`), eight for 837P. Check 8 requires every
+declared DOB to be present and refuses any other date outside 2024.
 
 ## Claim shapes
 
-The seed holds 9 claims, claim *N* carrying *N* service lines. Output claim
-*N* copies seed block `((N-1) mod 9) + 1`. Every generated claim is therefore a
-verbatim copy of a real seed block.
+Output claim *N* copies seed block `((N-1) mod C) + 1`, where *C* is the seed's
+block count. Every generated claim is a verbatim copy of a real seed block.
+
+| type | seed | blocks | service lines per block |
+|---|---|---|---|
+| 837I | `EDI1/Batch 1/fromUHCG-837I-WKN_9claims.x12` | 9 | 1-9, one more per block |
+| 837P | `EDI1/Sample 837P/ERCT_UHCG_P_20260212025521.x12` | 8 | 1, 2, 1, 2, 1, 6, 2, 2 |
 
 This means the skill **cannot** reproduce `EDI1/Batch 2`, whose claim 10 is
 claim 9 plus an appended line. That file stays a hand-built artifact.
+
+The 837P seed is a production file to receiver ERCT. Generated 837P files keep
+ERCT - the receiver id appears inside the payload, so changing it would break
+payload fidelity - but ISA15 is always written as `T`.
 
 ## Refusals
 
 | Condition | What the user does |
 |---|---|
-| `no seed is registered for transaction type 'P'` | Supply a real UHCG 837P file; register it in `seeds.py` |
+| `no seed is registered for transaction type 'X'` | Only I and P are registered. Supply a real UHCG file for the type and register it in `seeds.py` |
+| `the 8-digit UHAP ST02 band is full` | 837P claim numbers below 100000000 are exhausted. Widen the band deliberately, not silently |
 | `claim count must be between 1 and 999` | Pick a count in range; split larger batches into several files |
 | `no masterfile at .../EDI1/masterfile.json` | `python scripts/install.py --bootstrap --repo <repo>` |
 | `declares version N, this tool understands 1` | The masterfile is from a newer tool; update the skill |
@@ -102,17 +117,21 @@ One entry in `scripts/seeds.py`:
 
 ```python
 SeedProfile(
-    code="P", version="005010X222A1",
-    rel_path="EDI1/Batch 1/<the-file>.x12",
-    sha256="<sha256 of that file>",
+    code="X", version="...", rel_path="...", sha256="...",
     block_lens=[...],            # ST..SE segment count per claim
-    src_st02=[...], src_clm01=[...], src_clm02=[...],
+    src_st02=[...], src_clm=[...],   # whole CLM segments, one per block
     src_ref_f8=[...], src_ref_9a=[...],
     src_bht_date="...", src_bht_time="...",
-    src_statement="YYYYMMDD-YYYYMMDD",
-    src_dates=[...],             # one per statement day, in order
+    statement_qualifier="434" or None,
+    src_statement="YYYYMMDD-YYYYMMDD" or None,
+    service_date_shape="D8" or "RD8_same_day",
+    src_dates=[...],             # ascending; index i is window day i
+    line_id="SV2" or "SV1",
+    money_rule="split_85_15" or "allowed_plus_savings",
+    id_style="i_e2e" or "p_uhap",
     frozen=[...],                # segments that must never vary
-    isa06="UHCG", isa08="ECUSA",
+    isa06="UHCG", isa08="...", isa15="T",
+    dob_exceptions=[...],        # dates allowed outside 2024
 )
 ```
 
