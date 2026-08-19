@@ -2980,3 +2980,46 @@ to work from the file's own bytes.
 **Update the plan when the code disagrees with it.** These interfaces were
 written before the code existed. If a signature has to change, change it here
 too — a plan that has drifted from the tree is worse than no plan.
+
+---
+
+## Implementation notes — where the tree diverged from this plan
+
+All nine tasks are implemented. Five deviations, each forced by evidence:
+
+1. **`tests/__init__.py` (Task 1).** `unittest discover -s tests -t .` refuses
+   a start directory it cannot import. Empty package file added.
+
+2. **ST02 occurs three times in the seed, not twice (Task 2).** Each
+   transaction set echoes its control number into ST02, its own BHT03, and
+   SE02. `test_declared_identifiers_occur_exactly_once_each` asserts 3;
+   verified uniform across all nine sets. The other identifier groups do occur
+   exactly once each, as planned.
+
+3. **`masterfile.scan_disk_excluding` gained a fourth parameter (Tasks 3, 7).**
+   Signature is now `scan_disk_excluding(repo, abspath, basename,
+   skip_sha=None)`. Check 7 identified "this file" by output path, which a
+   pinned replay breaks — the replay is byte-identical but lands elsewhere, so
+   it collided with the run it was replaying, and check 14 (which pins into a
+   temp path) would have hit the same wall. Identity is the content hash, on
+   disk and in the run log alike.
+
+4. **The claim-count guard moved ahead of the masterfile load (Task 8).** An
+   out-of-range count is an argument error, but `allocate()` only sees it after
+   `M.load`, so a repo with no masterfile reported the missing masterfile
+   instead of the bad count. `allocate()` keeps its own check for non-CLI
+   callers.
+
+5. **Check 7 skips runs of type `imported` (Task 9).** The bootstrap run is a
+   snapshot of what was on disk, so it re-adds the very values the disk scan
+   excludes for the file under test, and unlike the scan it cannot be filtered
+   per file. Allocation still counts it through `used()`, so no identifier is
+   reissued.
+
+Task 8's Step 3 recount was not needed: all fourteen declared literal counts
+proved correct against the fixture.
+
+Acceptance state: 61 unit tests pass; the mutation suite catches all fourteen
+mutations by the check that owns each, plus five generator guards, leaving the
+fixture byte-identical; `EDI1/Batch 3/fromUHCG-837I-WKN_12claims.x12` passes
+all fifteen checks including producer-vs-artifact.
