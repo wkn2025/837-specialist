@@ -146,5 +146,150 @@ class TestUsed(unittest.TestCase):
         self.assertEqual(len(M.load(self.root)["runs"]), before + 1)
 
 
+class TestNextWindow(unittest.TestCase):
+    def setUp(self):
+        self.root = make_repo()
+        M.bootstrap(self.root)
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def test_first_window_is_the_first_week_of_2024(self):
+        self.assertEqual(M.next_window(M.load(self.root)),
+                         ("20240101", "20240107"))
+
+    def test_second_window_starts_seven_days_later(self):
+        M.append_run(self.root, _run(statement="20240101-20240107",
+                                     envelope_date="20240108"))
+        self.assertEqual(M.next_window(M.load(self.root)),
+                         ("20240108", "20240114"))
+
+    def test_falls_back_to_single_day_steps_once_the_grid_is_used(self):
+        mf = M.load(self.root)
+        d = M._date(2024, 1, 1)
+        for _ in range(52):
+            start = M._fmt(d)
+            M.append_run(self.root, _run(
+                statement="%s-%s" % (start, M._fmt(M._add(d, 6))),
+                envelope_date=M._fmt(M._add(d, 7))))
+            d = M._add(d, 7)
+        start, end = M.next_window(M.load(self.root))
+        self.assertEqual(start, "20240102")
+        self.assertEqual(end, "20240108")
+
+    def test_window_never_crosses_out_of_2024(self):
+        _, end = M.next_window(M.load(self.root))
+        self.assertTrue(end.startswith("2024"))
+
+
+class TestNextEnvelopeDate(unittest.TestCase):
+    def setUp(self):
+        self.root = make_repo()
+        M.bootstrap(self.root)
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def test_is_the_window_end_when_unused(self):
+        self.assertEqual(M.next_envelope_date(M.load(self.root), "20240107"),
+                         "20240107")
+
+    def test_skips_a_used_date(self):
+        M.append_run(self.root, _run(statement="20240101-20240107",
+                                     envelope_date="20240107"))
+        self.assertEqual(M.next_envelope_date(M.load(self.root), "20240107"),
+                         "20240108")
+
+    def test_raises_when_2024_has_nothing_left_after_the_window(self):
+        M.append_run(self.root, _run(statement="20241225-20241231",
+                                     envelope_date="20241231"))
+        with self.assertRaises(M.Exhausted):
+            M.next_envelope_date(M.load(self.root), "20241231")
+
+
+class TestAllocate(unittest.TestCase):
+    def setUp(self):
+        self.root = make_repo()
+        M.bootstrap(self.root)
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def test_rejects_a_claim_count_of_zero(self):
+        with self.assertRaises(M.MasterfileError):
+            M.allocate(M.load(self.root), self.root, "I", 0)
+
+    def test_rejects_a_claim_count_over_999(self):
+        with self.assertRaises(M.MasterfileError):
+            M.allocate(M.load(self.root), self.root, "I", 1000)
+
+    def test_allocates_a_contiguous_block_of_each_identifier(self):
+        a = M.allocate(M.load(self.root), self.root, "I", 3)
+        self.assertEqual(len(a.st02), 3)
+        self.assertEqual(len(a.bht03), 3)
+        self.assertEqual(len(a.clm01), 3)
+        self.assertEqual(len(a.ref_f8), 3)
+        self.assertEqual(len(a.ref_9a), 3)
+        self.assertEqual(a.st02, ["900000012", "900000013", "900000014"])
+        self.assertEqual(a.isa13, "900000002")
+        self.assertEqual(a.gs06, "78")
+
+    def test_bht03_is_exactly_ten_characters(self):
+        a = M.allocate(M.load(self.root), self.root, "I", 999)
+        for v in a.bht03:
+            self.assertEqual(len(v), 10, v)
+        self.assertEqual(a.bht03[0], a.envelope_date[2:] + "0001")
+        self.assertEqual(a.bht03[-1], a.envelope_date[2:] + "0999")
+
+    def test_identifier_shapes(self):
+        a = M.allocate(M.load(self.root), self.root, "I", 2)
+        yymmdd = a.envelope_date[2:]
+        self.assertEqual(a.clm01, ["TEST%s001" % yymmdd,
+                                   "TEST%s002" % yymmdd])
+        self.assertEqual(a.ref_9a, ["E2E%s12125001" % yymmdd,
+                                    "E2E%s12125002" % yymmdd])
+        for v in a.ref_9a:
+            self.assertEqual(len(v), 17, v)
+        for v in a.st02 + [a.isa13]:
+            self.assertEqual(len(v), 9, v)
+
+    def test_service_dates_are_the_window_days(self):
+        a = M.allocate(M.load(self.root), self.root, "I", 1)
+        self.assertEqual(a.service_dates,
+                         ["2024010%d" % d for d in range(1, 8)])
+        self.assertEqual(a.statement, "20240101-20240107")
+        self.assertEqual(a.envelope_time, "0930")
+
+    def test_nothing_allocated_collides_with_disk_or_the_run_log(self):
+        a = M.allocate(M.load(self.root), self.root, "I", 5)
+        u = M.used(M.load(self.root), self.root)
+        self.assertNotIn(a.isa13, u["isa13"])
+        self.assertNotIn(a.gs06, u["gs06"])
+        for k, vals in (("st02", a.st02), ("bht03", a.bht03),
+                        ("clm01", a.clm01), ("ref_f8", a.ref_f8),
+                        ("ref_9a", a.ref_9a)):
+            self.assertEqual(set(vals) & u[k], set(), k)
+
+    def test_two_allocations_in_a_row_never_overlap(self):
+        first = M.allocate(M.load(self.root), self.root, "I", 4)
+        M.append_run(self.root, first.as_record("I", 4, "a.x12", "0" * 64,
+                                                "seed.x12", "1" * 64))
+        second = M.allocate(M.load(self.root), self.root, "I", 4)
+        self.assertNotEqual(first.isa13, second.isa13)
+        self.assertNotEqual(first.envelope_date, second.envelope_date)
+        self.assertNotEqual(first.statement, second.statement)
+        self.assertEqual(set(first.st02) & set(second.st02), set())
+        self.assertEqual(set(first.bht03) & set(second.bht03), set())
+        self.assertEqual(set(first.clm01) & set(second.clm01), set())
+
+
+def _run(**kw):
+    base = {"type": "I", "claims": 1, "isa13": "", "gs06": "",
+            "st02": [], "bht03": [], "clm01": [], "ref_f8": [], "ref_9a": [],
+            "envelope_date": "", "statement": ""}
+    base.update(kw)
+    return base
+
+
 if __name__ == "__main__":
     unittest.main()
