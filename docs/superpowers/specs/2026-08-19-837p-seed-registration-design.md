@@ -45,8 +45,10 @@ seed profile before a second transaction type can exist.
 
 1. **Identifier conventions mirror the P seed.** `BHT03 = ST02`, and
    `REF*9A = str(int(ST02))` — the 8-digit UHAP claim number the EDI2
-   assessment rules expect. `CLM01` and `REF*F8` keep their existing
-   allocation.
+   assessment rules expect. To keep that 8 digits, `p_uhap` draws its ST02
+   from the **8-significant-digit band** (values below 100000000) rather than
+   from the global maximum; see "Allocation changes". `CLM01` and `REF*F8`
+   keep their existing allocation.
 2. **Dates stay in 2024, in the same window pool as I.** One invariant holds
    for the whole skill: every date in a generated file is in 2024 except the
    DOBs the profile declares. The P seed's 8 distinct service dates map onto
@@ -162,11 +164,29 @@ check 6 owns HL numbering, and pinning `LX*1` would say nothing about identity.
 
   | | `i_e2e` | `p_uhap` |
   |---|---|---|
-  | `st02` | `%09d` from max + 1 | same |
+  | `st02` | `%09d` from the global max + 1 | `%09d` from the max **below 100000000** + 1 |
   | `bht03` | `<yymmdd><seq4>` | `= st02` |
   | `ref_9a` | `E2E<yymmdd>12125<seq3>` | `str(int(st02))` |
   | `clm01` | `TEST<yymmdd><seq3>` | same |
   | `ref_f8` | max + 1, width at least 11 | same |
+
+### Why `p_uhap` needs its own ST02 band
+
+`REF*9A` is the ST02 with its leading zero stripped, so an 8-digit UHAP
+requires an ST02 below `100000000`. The committed test fixtures deliberately
+reserve a high range — the disk scan today returns `max(st02) = 990000015` —
+so a plain global `max + 1` would allocate `990000016` and emit a 9-digit
+`REF*9A`. `p_uhap` therefore takes `max + 1` over the used ST02 values that
+are below `100000000`, zero-padded to 9. On the current repo that is
+`015641249` (the P seed's highest ST02 plus one), whose `REF*9A` is
+`15641249` — 8 digits.
+
+If that band fills, allocation raises
+`MasterfileError("the 8-digit UHAP ST02 band is full")` rather than silently
+emitting a 9-digit claim number. `i_e2e` is unchanged: its `REF*9A` is a
+pattern, not a function of ST02, so it keeps drawing from the global maximum.
+Both styles are still checked against the same used-value set, so the two
+bands cannot collide.
 
 - The post-allocation guard `len(bht03) == 10` becomes `1 <= len(bht03) <= 10`.
   P's BHT03 is 9 characters, and 10 is the companion guide's maximum, not its
@@ -175,12 +195,14 @@ check 6 owns HL numbering, and pinning `LX*1` would say nothing about identity.
   allocated window for P even though no `DTP*434` is written, because check 8
   uses the window to bound line dates.
 
-### Consequence: the identifier counters jump
+### Consequence for the existing counters
 
 The sample sits under the repo, so the masterfile disk scan already counts its
-identifiers. The next allocated `ST02` becomes `015641249` and the next
-`REF*F8` becomes `26040349026` — for 837I files as well as P. The sequence
-stays monotonic and collision-free; only the range shifts.
+identifiers. It changes nothing for 837I allocation: the reserved fixture
+range already dominates every numeric counter (`isa13 990000002`,
+`st02 990000015`, `ref_f8 99012154015`), and the P seed's values are all
+smaller. The only new consumer of the seed's numbers is `p_uhap`'s ST02 band,
+described above.
 
 ## Validator changes
 
@@ -213,7 +235,15 @@ No new checks. The 15 stay, four become profile-driven.
 ## Fixtures and negative controls
 
 - New `tests/fixtures/canonical_3claims_P.x12` and its manifest, generated
-  deterministically and committed alongside the I pair.
+  deterministically from a hand-pinned manifest and committed alongside the I
+  pair — the same technique the I fixture uses, so building a fixture never
+  consumes a real window or appends a masterfile run. Its identifiers:
+  `isa13 990000101`, `gs06 992`, envelope `20240215 0930`, window
+  `20240201-20240208` (8 days, 8 service dates), `st02` `019900101`-`019900103`,
+  `bht03` equal to those, `ref_9a` `19900101`-`19900103` (8 digits),
+  `clm01` `TEST240215101`-`103`, `ref_f8` `99012155001`-`003`.
+  The ST02 values sit inside the 8-digit band and above the P seed's maximum,
+  so after the fixture is committed the next real P allocation is `019900104`.
 - `mutations.py` splits into `MUTATIONS_I` and `MUTATIONS_P`, each bound to
   its own fixture; the CLI runs both by default. A mutation whose literal no
   longer occurs the declared number of times remains a hard BROKEN, not a
