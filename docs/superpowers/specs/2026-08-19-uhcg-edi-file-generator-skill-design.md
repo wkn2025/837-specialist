@@ -62,7 +62,15 @@ window and the output path.
 
 ## Components
 
-`~/.claude/skills/generating-uhcg-edi-files/`
+`~/.claude/skills/` is not under version control, so the skill's **source of
+truth is the repo** — `837-specialist/skill/generating-uhcg-edi-files/` (the
+empty `skill/` directory already reserved for it). `scripts/install.py` copies
+the tree to `~/.claude/skills/generating-uhcg-edi-files/`, and refuses to
+overwrite an installed copy that differs from the last install without
+`--force`. The installed skill is still fully self-contained; it just is not
+where it is edited.
+
+Layout, identical in both places:
 
 | File | Purpose |
 |---|---|
@@ -73,6 +81,8 @@ window and the output path.
 | `scripts/generate.py` | `--type I --claims N --repo <root>` → the `.x12` plus a `.manifest.json` |
 | `scripts/validate.py` | Reads file + manifest + seed → the 15-check battery |
 | `scripts/mutations.py` | Standing negative-control suite against a committed fixture |
+| `scripts/install.py` | Copies the tree to `~/.claude/skills/`; refuses on a diverged installed copy without `--force` |
+| `tests/` | stdlib `unittest` suites for `seeds`, `masterfile`, `generate` |
 
 The repo keeps the data: `EDI1/masterfile.json`, the seed under
 `EDI1/Batch 1/`, and generated output under `EDI1/Batch <n>/`.
@@ -256,12 +266,21 @@ Every refusal writes its message to stderr and exits 1:
 
 ## Testing the skill
 
-`mutations.py` is the regression suite.
+`mutations.py` is the regression suite. Unit tests use stdlib `unittest`
+(`python -m unittest discover`) — pytest is not installed and the repo's
+existing tooling is plain scripts with exit codes.
 
-Bootstrap check: regenerate the `EDI1/Batch 2` inputs through the new generator
-and diff against the committed file. One difference is expected and intended —
-the statement window is 7 days here where the hand-built Batch 2 used 10
-(`20240311-20240317` vs `20240311-20240320`). Any other difference is a defect.
+**The skill cannot reproduce `EDI1/Batch 2`, by design.** Batch 2's claim 10 is
+claim 9's payload plus an appended tenth service line; under the cycle policy a
+tenth claim is a verbatim copy of seed block 1, carrying one line. The two
+policies disagree, and the cycle policy is the one that never computes an
+amount. Batch 2 stays a hand-built artifact.
+
+The bootstrap check is instead a payload round-trip against the seed:
+
+- generate 9 claims → each block, edits reversed, equals seed block 1…9
+- generate 11 claims → blocks 10 and 11 equal seed blocks 1 and 2
+- generate 1 claim → the block equals seed block 1
 
 ## SKILL.md
 
