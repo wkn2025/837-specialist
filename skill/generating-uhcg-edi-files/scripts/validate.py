@@ -18,6 +18,7 @@ import re
 import subprocess
 import sys
 import tempfile
+from decimal import Decimal as D
 
 import generate as G
 import masterfile as M
@@ -50,10 +51,33 @@ def claim_hcp(block):
     return hcp[0] if len(hcp) == 1 else None
 
 
+def _swap_clm01(seg, value):
+    """The CLM segment with element 1 replaced. Kept local to the validator:
+    check 9 must not share a code path with the generator it audits."""
+    e = seg.split(X.ELEM)
+    e[1] = value
+    return X.ELEM.join(e)
+
+
+def _service_date_pairs(profile, man):
+    """[(generated segment, seed segment), ...] for the declared date shape."""
+    out = []
+    for gen, src in zip(man["service_dates"], profile.src_dates):
+        if profile.service_date_shape == "D8":
+            out.append(("DTP*472*D8*%s" % gen, "DTP*472*D8*%s" % src))
+        elif profile.service_date_shape == "RD8_same_day":
+            out.append(("DTP*472*RD8*%s-%s" % (gen, gen),
+                        "DTP*472*RD8*%s-%s" % (src, src)))
+        else:
+            raise ValueError("unknown service_date_shape %r"
+                             % profile.service_date_shape)
+    return out
+
+
 def reverse_pairs(profile, man, n):
     """(derived literal, must_occur, source literal) for output claim n."""
-    src = G.source_index(n)
-    i = src - 1
+    i = G.source_index(n, profile) - 1
+    src_clm = profile.src_clm[i]
     out = [
         ("ST*837*%s*%s" % (man["st02"][n - 1], profile.version), 1,
          "ST*837*%s*%s" % (profile.src_st02[i], profile.version)),
@@ -63,20 +87,126 @@ def reverse_pairs(profile, man, n):
          "BHT*0019*00*%s*%s*%s*CH" % (profile.src_st02[i],
                                       profile.src_bht_date,
                                       profile.src_bht_time)),
-        ("CLM*%s*%s***13:A:1**A*Y*Y" % (man["clm01"][n - 1],
-                                        profile.src_clm02[i]), 1,
-         "CLM*%s*%s***13:A:1**A*Y*Y" % (profile.src_clm01[i],
-                                        profile.src_clm02[i])),
+        (_swap_clm01(src_clm, man["clm01"][n - 1]), 1, src_clm),
         ("REF*F8*%s" % man["ref_f8"][n - 1], 1,
          "REF*F8*%s" % profile.src_ref_f8[i]),
         ("REF*9A*%s" % man["ref_9a"][n - 1], 1,
          "REF*9A*%s" % profile.src_ref_9a[i]),
-        ("DTP*434*RD8*%s" % man["statement"], 1,
-         "DTP*434*RD8*%s" % profile.src_statement),
         ("SE*%d*%s" % (profile.block_lens[i], man["st02"][n - 1]), 1,
          "SE*%d*%s" % (profile.block_lens[i], profile.src_st02[i])),
     ]
+    if profile.statement_qualifier:
+        out.append(
+            ("DTP*%s*RD8*%s" % (profile.statement_qualifier,
+                                man["statement"]), 1,
+             "DTP*%s*RD8*%s" % (profile.statement_qualifier,
+                                profile.src_statement)))
     return out
+
+
+def _check_money_split(blocks, profile):
+    """CLM02 = sum of line charges, and every HCP is an 85/15 split."""
+    ok, detail = True, []
+    for i, b in enumerate(blocks):
+        total = round(float(X.elems(
+            [s for s in b if s.startswith("CLM*")][0])[2]), 2)
+        charges = round(sum(float(X.elems(s)[3]) for s in b
+                            if s.startswith(profile.line_id + "*")), 2)
+        if charges != total:
+            ok = False
+            detail.append("claim %d lines sum to %.2f but CLM02 is %.2f"
+                          % (i + 1, charges, total))
+        hcp = claim_hcp(b)
+        if hcp is None:
+            ok = False
+            detail.append("claim %d has no single claim-level HCP" % (i + 1))
+            continue
+        a = round(float(X.elems(hcp)[2]), 2)
+        s2 = round(float(X.elems(hcp)[3]), 2)
+        if (a, s2) != (round(total * 0.85, 2), round(total * 0.15, 2)):
+            ok = False
+            detail.append("claim %d HCP %.2f/%.2f is not 85/15 of %.2f"
+                          % (i + 1, a, s2, total))
+        for j, seg in enumerate(b):
+            if not seg.startswith(profile.line_id + "*"):
+                continue
+            charge = round(float(X.elems(seg)[3]), 2)
+            lh = next((x for x in b[j:] if x.startswith("HCP*")), None)
+            if lh is None:
+                ok = False
+                detail.append("claim %d: a service line has no HCP" % (i + 1))
+                continue
+            la = round(float(X.elems(lh)[2]), 2)
+            ls = round(float(X.elems(lh)[3]), 2)
+            if (la, ls) != (round(charge * 0.85, 2), round(charge * 0.15, 2)):
+                ok = False
+                detail.append("claim %d line %.2f: HCP %.2f/%.2f not 85/15"
+                              % (i + 1, charge, la, ls))
+    return ok, detail
+
+
+def _check_money_allowed(blocks, profile):
+    """Allowed + savings = billed, at the line and at the claim, and the
+    claim HCP is the sum of its lines. Decimal, because these are money."""
+    ok, detail = True, []
+    for i, b in enumerate(blocks):
+        total = D(X.elems([s for s in b if s.startswith("CLM*")][0])[2])
+        lines = []
+        for j, seg in enumerate(b):
+            if not seg.startswith(profile.line_id + "*"):
+                continue
+            charge = D(X.elems(seg)[2])
+            lh = next((x for x in b[j:] if x.startswith("HCP*")), None)
+            if lh is None:
+                ok = False
+                detail.append("claim %d: a service line has no HCP" % (i + 1))
+                continue
+            e = X.elems(lh)
+            lines.append((charge, D(e[2]), D(e[3])))
+        if not lines:
+            ok = False
+            detail.append("claim %d has no %s line" % (i + 1, profile.line_id))
+            continue
+        charges = sum(c for c, _, _ in lines)
+        if charges != total:
+            ok = False
+            detail.append("claim %d lines sum to %s but CLM02 is %s"
+                          % (i + 1, charges, total))
+        for c, a, s in lines:
+            if a + s != c:
+                ok = False
+                detail.append("claim %d line %s: allowed %s + savings %s"
+                              % (i + 1, c, a, s))
+        hcp = claim_hcp(b)
+        if hcp is None:
+            ok = False
+            detail.append("claim %d has no single claim-level HCP" % (i + 1))
+            continue
+        e = X.elems(hcp)
+        ca, cs = D(e[2]), D(e[3])
+        if ca + cs != total:
+            ok = False
+            detail.append("claim %d HCP %s + %s is not CLM02 %s"
+                          % (i + 1, ca, cs, total))
+        if ca != sum(a for _, a, _ in lines):
+            ok = False
+            detail.append("claim %d claim allowed %s is not the line sum %s"
+                          % (i + 1, ca, sum(a for _, a, _ in lines)))
+        if cs != sum(s for _, _, s in lines):
+            ok = False
+            detail.append("claim %d claim savings %s is not the line sum %s"
+                          % (i + 1, cs, sum(s for _, _, s in lines)))
+    return ok, detail
+
+
+MONEY_RULES = {
+    "split_85_15": (_check_money_split,
+                    "CLM02 equals the sum of its service lines and every HCP "
+                    "is an 85%/15% split"),
+    "allowed_plus_savings": (_check_money_allowed,
+                             "CLM02 equals the sum of its service lines and "
+                             "every allowed + savings equals its charge"),
+}
 
 
 def main():
@@ -130,7 +260,7 @@ def main():
             "ISA13 matches the manifest": ie[13] == man["isa13"],
             "IEA02 = ISA13": ia[2] == ie[13],
             "IEA01 = 1": ia[1] == "1",
-            "ISA15 = T": ie[15] == "T",
+            "ISA15 = %s" % profile.isa15: ie[15] == profile.isa15,
             "ISA06 = %s" % profile.isa06: ie[6].strip() == profile.isa06,
             "ISA08 = %s" % profile.isa08: ie[8].strip() == profile.isa08,
             "GS02/GS03 = %s/%s" % (profile.isa06, profile.isa08):
@@ -261,32 +391,47 @@ def main():
 
     # 8 - dates
     ok, detail = True, []
+    year = str(M.YEAR)
     all_dates = sorted({m.group(0) for m in re.finditer(
         r"(?<![0-9])(?:19|20)[0-9]{6}(?![0-9])", raw)})
-    dob = "19941217"
+    dobs = list(profile.dob_exceptions)
     outside = [d for d in all_dates
-               if not d.startswith("2024") and d != dob]
+               if not d.startswith(year) and d not in dobs]
     if outside:
         ok = False
-        detail.append("dates outside 2024: %s" % outside)
-    if dob not in all_dates:
-        ok = False
-        detail.append("frozen DOB %s missing" % dob)
+        detail.append("dates outside %s: %s" % (year, outside))
+    # No "every declared DOB is present" rule: a 3-claim P file carries only
+    # 3 of the seed's 8 DOBs. Payload fidelity is check 9's job, and for 837I
+    # the DOB is in `frozen` so check 12 pins it as well.
     lo, hi = man["statement"].split("-")
     for i, b in enumerate(blocks):
-        rd8 = [X.elems(s)[3] for s in b if s.startswith("DTP*434*RD8*")]
-        if rd8 != [man["statement"]]:
-            ok = False
-            detail.append("claim %d DTP*434 %s" % (i + 1, rd8))
+        if profile.statement_qualifier:
+            rd8 = [X.elems(s)[3] for s in b
+                   if s.startswith("DTP*%s*RD8*" % profile.statement_qualifier)]
+            if rd8 != [man["statement"]]:
+                ok = False
+                detail.append("claim %d DTP*%s %s"
+                              % (i + 1, profile.statement_qualifier, rd8))
         for s in b:
-            if s.startswith("DTP*472*D8*"):
-                d = X.elems(s)[3]
+            if not s.startswith("DTP*472*"):
+                continue
+            body = X.elems(s)[3]
+            if profile.service_date_shape == "D8":
+                days = [body]
+            else:
+                days = body.split("-")
+                if len(days) != 2 or days[0] != days[1]:
+                    ok = False
+                    detail.append("claim %d line range %s is not one day"
+                                  % (i + 1, body))
+                    continue
+            for d in days:
                 if not lo <= d <= hi:
                     ok = False
                     detail.append("claim %d line date %s outside %s"
                                   % (i + 1, d, man["statement"]))
-    check(8, "every date is inside 2024 (DOB %s excepted), DTP*434 = %s, "
-             "line dates inside it" % (dob, man["statement"]),
+    check(8, "every date is inside %s (%d declared DOB(s) excepted), line "
+             "dates inside %s" % (year, len(dobs), man["statement"]),
           ok, "; ".join(detail) or "ok")
 
     # 9 - payload byte-identity against the SEED
@@ -303,21 +448,19 @@ def main():
                 continue
             for j in hits:
                 restored[j] = original
-        for k, gen_date in enumerate(man["service_dates"]):
-            src_date = profile.src_dates[k]
-            restored = [profile_date_swap(s, gen_date, src_date)
-                        for s in restored]
-        expected = seed_blocks[G.source_index(n) - 1]
+        for gen_seg, src_seg in _service_date_pairs(profile, man):
+            restored = [src_seg if s == gen_seg else s for s in restored]
+        expected = seed_blocks[G.source_index(n, profile) - 1]
         if restored != expected:
             ok = False
             diff = [(a, c) for a, c in zip(restored, expected) if a != c]
             detail.append("claim %d differs from seed block %d: %s"
-                          % (n, G.source_index(n), diff[:2]))
+                          % (n, G.source_index(n, profile), diff[:2]))
     check(9, "every payload segment is byte-identical to its seed block once "
              "the declared edits are reversed", ok, "; ".join(detail) or "ok")
 
     # 10 - coverage
-    expected_lens = [profile.block_lens[G.source_index(n) - 1]
+    expected_lens = [profile.block_lens[G.source_index(n, profile) - 1]
                      for n in range(1, claims + 1)]
     check(10, "%d payload units whose shapes cycle the seed blocks" % claims,
           [len(b) for b in blocks] == expected_lens,
@@ -325,43 +468,9 @@ def main():
                                   expected_lens[:12]))
 
     # 11 - money
-    ok, detail = True, []
-    for i, b in enumerate(blocks):
-        total = round(float(X.elems(
-            [s for s in b if s.startswith("CLM*")][0])[2]), 2)
-        charges = round(sum(float(X.elems(s)[3]) for s in b
-                            if s.startswith("SV2*")), 2)
-        if charges != total:
-            ok = False
-            detail.append("claim %d lines sum to %.2f but CLM02 is %.2f"
-                          % (i + 1, charges, total))
-        hcp = claim_hcp(b)
-        if hcp is None:
-            ok = False
-            detail.append("claim %d has no single claim-level HCP" % (i + 1))
-            continue
-        a, s2 = round(float(X.elems(hcp)[2]), 2), round(float(X.elems(hcp)[3]), 2)
-        if (a, s2) != (round(total * 0.85, 2), round(total * 0.15, 2)):
-            ok = False
-            detail.append("claim %d HCP %.2f/%.2f is not 85/15 of %.2f"
-                          % (i + 1, a, s2, total))
-        for j, seg in enumerate(b):
-            if not seg.startswith("SV2*"):
-                continue
-            charge = round(float(X.elems(seg)[3]), 2)
-            lh = next((x for x in b[j:] if x.startswith("HCP*")), None)
-            if lh is None:
-                ok = False
-                detail.append("claim %d: a service line has no HCP" % (i + 1))
-                continue
-            la = round(float(X.elems(lh)[2]), 2)
-            ls = round(float(X.elems(lh)[3]), 2)
-            if (la, ls) != (round(charge * 0.85, 2), round(charge * 0.15, 2)):
-                ok = False
-                detail.append("claim %d line %.2f: HCP %.2f/%.2f not 85/15"
-                              % (i + 1, charge, la, ls))
-    check(11, "CLM02 equals the sum of its service lines and every HCP is an "
-              "85%/15% split", ok, "; ".join(detail[:4]) or "ok")
+    fn, label = MONEY_RULES[profile.money_rule]
+    ok, detail = fn(blocks, profile)
+    check(11, label, ok, "; ".join(detail[:4]) or "ok")
 
     # 12 - frozen identity
     ok, missing = True, []
@@ -417,12 +526,6 @@ def main():
         return 1
     print("all checks passed")
     return 0
-
-
-def profile_date_swap(seg, gen_date, src_date):
-    if seg == "DTP*472*D8*%s" % gen_date:
-        return "DTP*472*D8*%s" % src_date
-    return seg
 
 
 if __name__ == "__main__":
