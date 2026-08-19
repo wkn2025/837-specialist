@@ -1,0 +1,417 @@
+"""Validate a generated UHCG 837 file against its manifest and its seed.
+
+Check 9 reads the seed directly rather than the manifest: the payload-fidelity
+proof must not share a source of truth with the generator. Check 14 is what
+catches a manifest that lies about what was generated.
+
+Usage:
+    python validate.py --file PATH --manifest PATH --repo ROOT
+                       [--skip-producer]
+"""
+from __future__ import annotations
+import argparse
+import hashlib
+import io
+import json
+import os
+import re
+import subprocess
+import sys
+import tempfile
+
+import generate as G
+import masterfile as M
+import seeds
+import x12_parse as X
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+FAILED = []
+
+
+def check(num, name, ok, detail=""):
+    print("%-5s %2d  %s" % ("PASS" if ok else "FAIL", num, name))
+    if detail and not ok:
+        print("        %s" % detail)
+    if not ok:
+        FAILED.append(num)
+
+
+def blocks_of(segs):
+    return [segs[st:se + 1] for st, se in X.transaction_sets(segs)]
+
+
+def claim_hcp(block):
+    """The claim-level HCP is the one before the first LX loop."""
+    first_lx = next((j for j, s in enumerate(block)
+                     if s.startswith("LX*")), None)
+    if first_lx is None:
+        return None
+    hcp = [s for s in block[:first_lx] if s.startswith("HCP*")]
+    return hcp[0] if len(hcp) == 1 else None
+
+
+def reverse_pairs(profile, man, n):
+    """(derived literal, must_occur, source literal) for output claim n."""
+    src = G.source_index(n)
+    i = src - 1
+    out = [
+        ("ST*837*%s*%s" % (man["st02"][n - 1], profile.version), 1,
+         "ST*837*%s*%s" % (profile.src_st02[i], profile.version)),
+        ("BHT*0019*00*%s*%s*%s*CH" % (man["bht03"][n - 1],
+                                      man["envelope_date"],
+                                      man["envelope_time"]), 1,
+         "BHT*0019*00*%s*%s*%s*CH" % (profile.src_st02[i],
+                                      profile.src_bht_date,
+                                      profile.src_bht_time)),
+        ("CLM*%s*%s***13:A:1**A*Y*Y" % (man["clm01"][n - 1],
+                                        profile.src_clm02[i]), 1,
+         "CLM*%s*%s***13:A:1**A*Y*Y" % (profile.src_clm01[i],
+                                        profile.src_clm02[i])),
+        ("REF*F8*%s" % man["ref_f8"][n - 1], 1,
+         "REF*F8*%s" % profile.src_ref_f8[i]),
+        ("REF*9A*%s" % man["ref_9a"][n - 1], 1,
+         "REF*9A*%s" % profile.src_ref_9a[i]),
+        ("DTP*434*RD8*%s" % man["statement"], 1,
+         "DTP*434*RD8*%s" % profile.src_statement),
+        ("SE*%d*%s" % (profile.block_lens[i], man["st02"][n - 1]), 1,
+         "SE*%d*%s" % (profile.block_lens[i], profile.src_st02[i])),
+    ]
+    return out
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--file", required=True)
+    ap.add_argument("--manifest", required=True)
+    ap.add_argument("--repo", required=True)
+    ap.add_argument("--skip-producer", action="store_true")
+    args = ap.parse_args()
+
+    with io.open(args.manifest, encoding="utf-8") as fh:
+        man = json.loads(fh.read())
+    profile = seeds.get(man["type"])
+    with open(seeds.seed_path(profile, args.repo), "rb") as fh:
+        seed_hash_before = hashlib.sha256(fh.read()).hexdigest()
+    seed_segs = seeds.load_seed(profile, args.repo)
+    seed_blocks = seeds.blocks(seed_segs)
+
+    with open(args.file, "rb") as fh:
+        data = fh.read()
+    raw, segs = X.read_segments(args.file)
+    blocks = blocks_of(segs)
+    claims = man["claims"]
+
+    print("file     : %s" % os.path.abspath(args.file))
+    print("manifest : %s" % os.path.abspath(args.manifest))
+    print("seed     : %s" % seeds.seed_path(profile, args.repo))
+    print("sha256   : %s" % hashlib.sha256(data).hexdigest())
+    print("")
+
+    # 1 - claim count and CLM01 order
+    clm01 = [X.elems(s)[1] for b in blocks for s in b if s.startswith("CLM*")]
+    check(1, "%d ST..SE sets, CLM01 matches the manifest in order" % claims,
+          len(blocks) == claims and clm01 == man["clm01"],
+          "%d sets, CLM01 %s" % (len(blocks), clm01[:4]))
+
+    # 2 - envelope geometry and direction
+    isa = [s for s in segs if s.startswith("ISA*")]
+    gs = [s for s in segs if s.startswith("GS*")]
+    ge = [s for s in segs if s.startswith("GE*")]
+    iea = [s for s in segs if s.startswith("IEA*")]
+    ok = len(isa) == len(gs) == len(ge) == len(iea) == 1
+    detail = "ISA %d GS %d GE %d IEA %d" % (len(isa), len(gs), len(ge),
+                                            len(iea))
+    if ok:
+        ie, gse, gee, ia = (X.elems(isa[0]), X.elems(gs[0]), X.elems(ge[0]),
+                            X.elems(iea[0]))
+        parts = {
+            "ISA is 106 characters": len(isa[0]) + 1 == 106,
+            "ISA13 is 9 characters": len(ie[13]) == 9,
+            "ISA13 matches the manifest": ie[13] == man["isa13"],
+            "IEA02 = ISA13": ia[2] == ie[13],
+            "IEA01 = 1": ia[1] == "1",
+            "ISA15 = T": ie[15] == "T",
+            "ISA06 = %s" % profile.isa06: ie[6].strip() == profile.isa06,
+            "ISA08 = %s" % profile.isa08: ie[8].strip() == profile.isa08,
+            "GS02/GS03 = %s/%s" % (profile.isa06, profile.isa08):
+                gse[2] == profile.isa06 and gse[3] == profile.isa08,
+            "GE01 = ST count": gee[1] == str(len(blocks)),
+            "GE02 = GS06": gee[2] == gse[6],
+            "GS06 matches the manifest": gse[6] == man["gs06"],
+            "ISA09/ISA10 match the manifest":
+                ie[9] == man["envelope_date"][2:]
+                and ie[10] == man["envelope_time"],
+            "GS04/GS05 match the manifest":
+                gse[4] == man["envelope_date"]
+                and gse[5] == man["envelope_time"],
+        }
+        ok = all(parts.values())
+        detail = "; ".join(k for k, v in parts.items() if not v) or "ok"
+    check(2, "one ISA/GS/GE/IEA, %s -> %s, geometry and control numbers "
+             "consistent" % (profile.isa06, profile.isa08), ok, detail)
+
+    # 3 - guide identifier
+    vers = ([X.elems(gs[0])[8]] if gs else []) + [X.elems(b[0])[3]
+                                                  for b in blocks]
+    check(3, "GS08 and every ST03 are %s" % profile.version,
+          bool(vers) and all(v == profile.version for v in vers),
+          "found %s" % sorted(set(vers)))
+
+    # 4 - SE01 / SE02 / ST02
+    ok, detail = True, []
+    for b in blocks:
+        st02 = X.elems(b[0])[2]
+        e = X.elems(b[-1])
+        if e[1] != str(len(b)):
+            ok = False
+            detail.append("ST02 %s: SE01 %s but %d segments"
+                          % (st02, e[1], len(b)))
+        if e[2] != st02:
+            ok = False
+            detail.append("SE02 %s != ST02 %s" % (e[2], st02))
+    st02s = [X.elems(b[0])[2] for b in blocks]
+    if st02s != man["st02"]:
+        ok = False
+        detail.append("ST02 list does not match the manifest")
+    check(4, "SE01 = segment count, SE02 = ST02, ST02 matches the manifest",
+          ok, "; ".join(detail) or "ok")
+
+    # 5 - BHT03
+    bht = [[s for s in b if s.startswith("BHT*")][0] for b in blocks]
+    bht03 = [X.elems(s)[3] for s in bht]
+    check(5, "BHT03 is <= 10 characters, unique, and matches the manifest; "
+             "BHT04/BHT05 match the envelope stamp",
+          all(len(v) <= 10 for v in bht03)
+          and len(set(bht03)) == len(bht03)
+          and bht03 == man["bht03"]
+          and all(X.elems(s)[4] == man["envelope_date"]
+                  and X.elems(s)[5] == man["envelope_time"] for s in bht),
+          "lengths %s" % sorted({len(v) for v in bht03}))
+
+    # 6 - HL numbering
+    ok, detail = True, []
+    for b in blocks:
+        ids, parents = [], {}
+        for s in b:
+            if s.startswith("HL*"):
+                e = X.elems(s)
+                ids.append(e[1])
+                parents[e[1]] = e[2]
+        if ids != [str(i) for i in range(1, len(ids) + 1)]:
+            ok = False
+            detail.append("HL ids %s" % ids)
+        for hl, par in parents.items():
+            if par and (par not in parents or par == hl):
+                ok = False
+                detail.append("HL %s parent %s" % (hl, par))
+    check(6, "HL starts at 1, increments, parents resolve, no self-parent",
+          ok, "; ".join(detail) or "ok")
+
+    # 7 - uniqueness against disk and the run log.
+    #
+    # "mine" is read from the FILE, not the manifest: a check whose subject is
+    # the manifest cannot be turned red by mutating the file, and then it has
+    # no negative control. Checks 1/4/5 already prove file == manifest.
+    mine = {
+        "isa13": {X.elems(segs[0])[13]},
+        "gs06": {X.elems(gs[0])[6]},
+        "st02": set(st02s),
+        "bht03": set(bht03),
+        "clm01": set(clm01),
+        "ref_f8": {X.elems(s)[2] for b in blocks for s in b
+                   if s.startswith("REF*F8*")},
+        "ref_9a": {X.elems(s)[2] for b in blocks for s in b
+                   if s.startswith("REF*9A*")},
+    }
+    # Exclude the file under test by path AND by basename - when --file points
+    # at a temp copy the committed original is still on disk, and without the
+    # basename exclusion every identifier "collides" with itself.
+    target = os.path.abspath(args.file)
+    base = os.path.basename(target)
+    others = M.scan_disk_excluding(args.repo, target, base)
+    try:
+        mf = M.load(args.repo)
+    except M.MasterfileError:
+        mf = {"version": M.VERSION, "runs": []}
+    for run in mf["runs"]:
+        if run.get("output") == man.get("output"):
+            continue                      # this file's own recorded run
+        for k in ("st02", "bht03", "clm01", "ref_f8", "ref_9a"):
+            others[k] |= set(run.get(k) or [])
+        for scalar, plural in (("isa13", "isa13_all"), ("gs06", "gs06_all")):
+            if run.get(scalar):
+                others[scalar].add(run[scalar])
+            others[scalar] |= set(run.get(plural) or [])
+    clashes = {k: sorted(mine[k] & others[k]) for k in M.KEYS
+               if mine[k] & others[k]}
+    check(7, "no identifier collides with another .x12 on disk or a prior "
+             "masterfile run", not clashes, "collisions %s" % clashes)
+
+    # 8 - dates
+    ok, detail = True, []
+    all_dates = sorted({m.group(0) for m in re.finditer(
+        r"(?<![0-9])(?:19|20)[0-9]{6}(?![0-9])", raw)})
+    dob = "19941217"
+    outside = [d for d in all_dates
+               if not d.startswith("2024") and d != dob]
+    if outside:
+        ok = False
+        detail.append("dates outside 2024: %s" % outside)
+    if dob not in all_dates:
+        ok = False
+        detail.append("frozen DOB %s missing" % dob)
+    lo, hi = man["statement"].split("-")
+    for i, b in enumerate(blocks):
+        rd8 = [X.elems(s)[3] for s in b if s.startswith("DTP*434*RD8*")]
+        if rd8 != [man["statement"]]:
+            ok = False
+            detail.append("claim %d DTP*434 %s" % (i + 1, rd8))
+        for s in b:
+            if s.startswith("DTP*472*D8*"):
+                d = X.elems(s)[3]
+                if not lo <= d <= hi:
+                    ok = False
+                    detail.append("claim %d line date %s outside %s"
+                                  % (i + 1, d, man["statement"]))
+    check(8, "every date is inside 2024 (DOB %s excepted), DTP*434 = %s, "
+             "line dates inside it" % (dob, man["statement"]),
+          ok, "; ".join(detail) or "ok")
+
+    # 9 - payload byte-identity against the SEED
+    ok, detail = True, []
+    for i, b in enumerate(blocks):
+        n = i + 1
+        restored = list(b)
+        for lit, must_occur, original in reverse_pairs(profile, man, n):
+            hits = [j for j, s in enumerate(restored) if s == lit]
+            if len(hits) != must_occur:
+                ok = False
+                detail.append("claim %d: %r occurs %d times, expected %d"
+                              % (n, lit, len(hits), must_occur))
+                continue
+            for j in hits:
+                restored[j] = original
+        for k, gen_date in enumerate(man["service_dates"]):
+            src_date = profile.src_dates[k]
+            restored = [profile_date_swap(s, gen_date, src_date)
+                        for s in restored]
+        expected = seed_blocks[G.source_index(n) - 1]
+        if restored != expected:
+            ok = False
+            diff = [(a, c) for a, c in zip(restored, expected) if a != c]
+            detail.append("claim %d differs from seed block %d: %s"
+                          % (n, G.source_index(n), diff[:2]))
+    check(9, "every payload segment is byte-identical to its seed block once "
+             "the declared edits are reversed", ok, "; ".join(detail) or "ok")
+
+    # 10 - coverage
+    expected_lens = [profile.block_lens[G.source_index(n) - 1]
+                     for n in range(1, claims + 1)]
+    check(10, "%d payload units whose shapes cycle the seed blocks" % claims,
+          [len(b) for b in blocks] == expected_lens,
+          "got %s expected %s" % ([len(b) for b in blocks][:12],
+                                  expected_lens[:12]))
+
+    # 11 - money
+    ok, detail = True, []
+    for i, b in enumerate(blocks):
+        total = round(float(X.elems(
+            [s for s in b if s.startswith("CLM*")][0])[2]), 2)
+        charges = round(sum(float(X.elems(s)[3]) for s in b
+                            if s.startswith("SV2*")), 2)
+        if charges != total:
+            ok = False
+            detail.append("claim %d lines sum to %.2f but CLM02 is %.2f"
+                          % (i + 1, charges, total))
+        hcp = claim_hcp(b)
+        if hcp is None:
+            ok = False
+            detail.append("claim %d has no single claim-level HCP" % (i + 1))
+            continue
+        a, s2 = round(float(X.elems(hcp)[2]), 2), round(float(X.elems(hcp)[3]), 2)
+        if (a, s2) != (round(total * 0.85, 2), round(total * 0.15, 2)):
+            ok = False
+            detail.append("claim %d HCP %.2f/%.2f is not 85/15 of %.2f"
+                          % (i + 1, a, s2, total))
+        for j, seg in enumerate(b):
+            if not seg.startswith("SV2*"):
+                continue
+            charge = round(float(X.elems(seg)[3]), 2)
+            lh = next((x for x in b[j:] if x.startswith("HCP*")), None)
+            if lh is None:
+                ok = False
+                detail.append("claim %d: a service line has no HCP" % (i + 1))
+                continue
+            la = round(float(X.elems(lh)[2]), 2)
+            ls = round(float(X.elems(lh)[3]), 2)
+            if (la, ls) != (round(charge * 0.85, 2), round(charge * 0.15, 2)):
+                ok = False
+                detail.append("claim %d line %.2f: HCP %.2f/%.2f not 85/15"
+                              % (i + 1, charge, la, ls))
+    check(11, "CLM02 equals the sum of its service lines and every HCP is an "
+              "85%/15% split", ok, "; ".join(detail[:4]) or "ok")
+
+    # 12 - frozen identity
+    ok, missing = True, []
+    for i, b in enumerate(blocks):
+        for seg in profile.frozen:
+            if seg not in b:
+                ok = False
+                missing.append("claim %d missing %r" % (i + 1, seg))
+    check(12, "the %d frozen identity segments appear, exact bytes, in every "
+              "claim" % len(profile.frozen), ok, "; ".join(missing[:4]) or "ok")
+
+    # 13 - file shape
+    shape = {
+        "no BOM": not data.startswith(b"\xef\xbb\xbf"),
+        "ASCII only": all(byte < 128 for byte in bytearray(data)),
+        "no CR": b"\r" not in data,
+        "ends with ~\\n": data.endswith(b"~\n"),
+        "one segment per line":
+            data.count(b"\n") == data.count(b"~") == len(segs),
+    }
+    check(13, "ASCII, no BOM, LF only, one segment per line, trailing newline",
+          all(shape.values()),
+          "; ".join(k for k, v in shape.items() if not v) or "ok")
+
+    # 14 - producer vs artifact
+    if args.skip_producer:
+        print("SKIP  14  producer-vs-artifact (--skip-producer)")
+    else:
+        tmp = tempfile.mkdtemp(prefix="edi_producer_")
+        out = os.path.join(tmp, os.path.basename(args.file))
+        proc = subprocess.run(
+            [sys.executable, os.path.join(HERE, "generate.py"),
+             "--repo", args.repo, "--pin", args.manifest, "--output", out],
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        if proc.returncode == 0 and os.path.exists(out):
+            with open(out, "rb") as fh:
+                same = fh.read() == data
+        else:
+            same = False
+        check(14, "regenerating from the manifest reproduces the file byte "
+                  "for byte", same,
+              proc.stdout.decode("utf-8", "replace").strip()[:300])
+
+    # 15 - seed untouched
+    with open(seeds.seed_path(profile, args.repo), "rb") as fh:
+        after = hashlib.sha256(fh.read()).hexdigest()
+    check(15, "seed hash unchanged by this run", seed_hash_before == after,
+          "%s -> %s" % (seed_hash_before, after))
+
+    print("")
+    if FAILED:
+        print("FAILED checks: %s" % sorted(set(FAILED)))
+        return 1
+    print("all checks passed")
+    return 0
+
+
+def profile_date_swap(seg, gen_date, src_date):
+    if seg == "DTP*472*D8*%s" % gen_date:
+        return "DTP*472*D8*%s" % src_date
+    return seg
+
+
+if __name__ == "__main__":
+    sys.exit(main())
