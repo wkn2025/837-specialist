@@ -6,7 +6,22 @@
 
 **Architecture:** The generator's current safety model is *"every claim byte comes from the seed"* — enforced by exact-count literal substitution (`apply_edits`), a `frozen` identity-segment list, and mutation test #12 which asserts that altering a frozen segment is caught. Editable claim content cannot coexist with that model as written. This plan replaces it with a **declared-override model**: seed bytes are still frozen *unless* the override is declared in the manifest, and the validator checks output against the manifest's declaration. Undeclared drift stays a hard failure. The UI is a React app that submits an override document; `generate.py` gains a `--data` flag that consumes it.
 
-**Tech Stack:** Python 3 (existing generator, stdlib only), React 18 + TypeScript + Vite, Express (subprocess bridge).
+**Tech Stack:** Python 3.11 (existing generator; stdlib plus `python-docx`), React 18 + TypeScript + Vite, Express (subprocess bridge).
+
+## Working environment (read before running anything)
+
+- **Run tests with the worktree venv, never bare `python`:**
+  `./.venv/Scripts/python.exe -m pytest skill/generating-uhcg-edi-files/tests/ -q`
+  It carries `pytest` and `python-docx`; the system Python has neither.
+- **Export `EDI_REPO` before running the suite.** `tests/test_generate.py` defaults it to
+  `C:\Users\wkn\837-specialist` — the *parent* checkout. Unset, tests read the wrong seeds and
+  generation mutates the parent's `EDI1/masterfile.json`:
+  `export EDI_REPO="C:\Users\wkn\837-specialist\.claude\worktrees\837-generator-ui"`
+- **Pass `--repo` explicitly** on every `generate.py` / `validate.py` / `mutations.py`
+  invocation, pointing at this worktree.
+- **Existing tests are `unittest.TestCase`; pytest is the runner** (per CLAUDE.md) and runs both.
+  New tests may use pytest idioms — `pytest.raises`, `tmp_path`, `capsys` — alongside them.
+- **Baseline before any change:** 110 tests pass, every mutation caught. Never leave it lower.
 
 **Spec:** `837-edi1-generator-ui/design_handoff_837_edi_generator/README.md`; prototype `837-edi1-generator-ui/837-edi-generator.dc.html`.
 
@@ -247,11 +262,19 @@ def test_identifier_segments_may_not_be_overridden():
     with pytest.raises(overrides.OverrideError, match="identifier"):
         overrides.parse({"identity": {"clm01": "X"}}, I, claims=1)
 
-def test_institutional_rejects_a_supplied_savings():
+def test_institutional_rejects_a_contradicting_savings():
     doc = {"claims": [{"n": 1, "lines":
            [{"date": "20241121", "billed": "420.00", "savings": "1.00"}]}]}
     with pytest.raises(overrides.OverrideError, match="85/15"):
         overrides.parse(doc, I, claims=1)
+
+def test_institutional_accepts_a_savings_that_restates_the_split():
+    # seed_introspect emits savings on every line, so the seed's own defaults
+    # must round-trip through parse unchanged.
+    doc = {"claims": [{"n": 1, "lines":
+           [{"date": "20241121", "billed": "420.00", "savings": "63.00"}]}]}
+    o = overrides.parse(doc, I, claims=1)
+    assert o.claim(1)["lines"][0]["savings"] == Decimal("63.00")
 
 def test_professional_requires_a_savings():
     doc = {"claims": [{"n": 1, "lines": [{"date": "20260101",
@@ -353,13 +376,15 @@ def parse(doc, profile, claims):
         for line in entry.get("lines") or []:
             billed = _money(line.get("billed"), "billed", n)
             if profile.money_rule == "split_85_15":
-                if "savings" in line:
-                    # UHCG_Validation_Rules_Institutional.csv: the HCP split is
-                    # fixed, so a supplied savings could only contradict it.
+                # UHCG_Validation_Rules_Institutional.csv: the HCP split is
+                # fixed. A supplied savings may restate it but never contradict
+                # it — that keeps the seed's own defaults round-trippable.
+                savings = (billed * Decimal("0.15")).quantize(Decimal("0.01"))
+                if ("savings" in line
+                        and _money(line["savings"], "savings", n) != savings):
                     raise OverrideError(
                         "claim %d: 837I savings is the 85/15 split of billed "
-                        "and may not be supplied" % n)
-                savings = (billed * Decimal("0.15")).quantize(Decimal("0.01"))
+                        "(%s), not %s" % (n, savings, line["savings"]))
             else:
                 if "savings" not in line:
                     raise OverrideError(
@@ -502,8 +527,10 @@ def identity_edits(profile, ov, payload):
     def swap(prefix, fields, values):
         src = next((s for s in payload if s.startswith(prefix)), None)
         if src is None:
-            raise BuildError("override names %s but the seed has no %s segment"
-                             % (prefix, prefix))
+            # Not an error here: validate.expected_identity calls this with a
+            # single frozen literal at a time, so most groups will not match.
+            # build() checks that every declared group has a target segment.
+            return
         addrs = profile.override_addrs[prefix]
         out = src
         for name in fields:
@@ -522,6 +549,23 @@ def identity_edits(profile, ov, payload):
     if "dob" in sub:
         swap("DMG*D8*", ("dob",), {"dob": sub["dob"]})
     return ed
+
+
+def check_identity_targets(profile, ov, payload, n):
+    """Every declared identity group must have a segment in this block.
+
+    swap() is deliberately silent about a missing segment so that
+    validate.expected_identity can evaluate one literal at a time; this is
+    where a group naming a segment the seed lacks becomes a hard failure.
+    """
+    if not ov or not ov.identity:
+        return
+    for key, (prefix, _fields) in _IDENTITY_SEGMENTS.items():
+        if key in ov.identity and not any(s.startswith(prefix)
+                                          for s in payload):
+            raise BuildError(
+                "claim %d: override names %s but the seed block has no %s "
+                "segment" % (n, key, prefix))
 
 
 def diagnosis_edits(profile, ov, payload, n):
@@ -551,12 +595,19 @@ def build(seed_segs, profile, alloc, claims, ov=None):
     for n in range(1, claims + 1):
         payload = src_blocks[source_index(n, profile) - 1]
         ...
+        check_identity_targets(profile, ov, payload, n)
         edits = (edits_for(profile, alloc, n)
                  + _date_edits(payload, profile, alloc)
                  + identity_edits(profile, ov, payload)
                  + diagnosis_edits(profile, ov, payload, n))
         body.extend(renumber_se(apply_edits(payload, edits, str(n)), str(n)))
 ```
+
+**One segment, one edit.** `apply_edits` matches the *original* literal, so two
+edits naming the same segment can never both land — the second finds zero hits
+and raises. `edits_for` already owns the whole `CLM` segment (it rewrites
+CLM01). Task 4 adds CLM02 to that same segment, so `edits_for` must remain the
+only producer of a CLM edit; see Task 4 for how the two element swaps compose.
 
 - [ ] **Step 6: Run the tests to verify they pass**
 
@@ -670,19 +721,46 @@ def money_edits(profile, ov, payload, n):
         ed.append((hcp, 1, 1, new))
 
     claim_hcp = next(s for s in payload[:lx_at[0]] if s.startswith("HCP*"))
-    ct = total - sum(l["savings"] for l in c["lines"])
+    saved = sum(l["savings"] for l in c["lines"])
     ed.append((claim_hcp, 1, 1,
-               set_elem(set_elem(claim_hcp, 2, _fmt(ct)), 3,
-                        _fmt(sum(l["savings"] for l in c["lines"])))))
+               set_elem(set_elem(claim_hcp, 2, _fmt(total - saved)), 3,
+                        _fmt(saved))))
 
-    clm = next(s for s in payload if s.startswith("CLM*"))
-    ed.append((clm, 1, 1, set_elem(clm, 2, _fmt(total))))
+    # No CLM edit here — edits_for owns that segment. See claim_total below.
     return ed
+
+
+def claim_total(ov, n):
+    """The CLM02 an override implies, or None to keep the seed's amount."""
+    c = ov.claim(n) if ov else None
+    if not c or not c["lines"]:
+        return None
+    return sum(l["billed"] for l in c["lines"])
 ```
 
-Add `+ money_edits(profile, ov, payload, n)` to the edit list in `build`.
+**One segment, one edit (ruling).** `apply_edits` matches the *original*
+literal, so two edits naming the same `CLM` segment can never both land — the
+second finds zero hits and raises `BuildError`. `edits_for` already rewrites
+CLM01 on the whole `CLM` literal, so it must stay the sole producer of a CLM
+edit. Extend it to apply both swaps in one tuple:
 
-**Note on edit ordering:** `apply_edits` matches on the *original* literal, and `edits_for` already rewrites `CLM01` on the whole `CLM` segment. Two edits naming the same `CLM` literal will make the second fail its count check. Merge them: have `money_edits` return the CLM edit only when `edits_for` has not already claimed it, or compose both element swaps into a single tuple. The test `test_clm02_follows_the_line_total` covers this.
+```python
+def edits_for(profile, alloc, n, ov=None):
+    ...
+    total = claim_total(ov, n)
+    new_clm = set_elem(src_clm, 1, alloc.clm01[n - 1])
+    if total is not None:
+        new_clm = set_elem(new_clm, 2, "%.2f" % total)
+    ed = [
+        ...
+        (src_clm, 1, 1, new_clm),
+        ...
+    ]
+```
+
+and call it as `edits_for(profile, alloc, n, ov)` in `build`. Add
+`+ money_edits(profile, ov, payload, n)` to the same edit list.
+`test_clm02_follows_the_line_total` covers this.
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
@@ -1013,6 +1091,30 @@ Expected: FAIL — `unrecognized arguments: --data`
     ap.add_argument("--data", help="override document (JSON file, or - for stdin)")
     ap.add_argument("--print-defaults", action="store_true",
                     help="emit the seed's values as an override document")
+    ap.add_argument("--json", action="store_true",
+                    help="emit the output paths and batch id as JSON")
+```
+
+`--json` prints exactly one JSON object on stdout and nothing else, so the
+Express bridge in Task 10 can `JSON.parse` it directly:
+
+```python
+    if args.json:
+        json.dump({"x12FilePath": outp, "docxFilePath": docx_path,
+                   "manifestPath": man_path, "batchId": batch_id},
+                  sys.stdout)
+```
+
+Every human-readable progress line must go to stderr when `--json` is set,
+or the parse on the Node side breaks. Cover it:
+
+```python
+def test_json_emits_one_parseable_object_on_stdout(repo, tmp_path, capsys):
+    out = tmp_path / "o.x12"
+    generate.main(["--repo", str(repo), "--type", "I", "--claims", "1",
+                   "--output", str(out), "--json"])
+    payload = json.loads(capsys.readouterr().out)   # must not raise
+    assert payload["x12FilePath"] and payload["batchId"]
 ```
 
 and, after the profile is resolved:
@@ -1209,7 +1311,7 @@ app.post('/api/generate', async (req, res) => {
 });
 ```
 
-**Note:** this needs `generate.py` to grow a `--json` flag emitting the output paths and batch id. Add it in this task alongside the bridge, with a test in `tests/test_cli_data.py`.
+**Note:** `--json` is delivered and tested by Task 8 — this task only consumes it.
 
 - [ ] **Step 3: Run the tests to verify they pass**
 
