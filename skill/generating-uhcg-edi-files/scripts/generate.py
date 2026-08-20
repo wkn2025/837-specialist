@@ -119,9 +119,12 @@ def identity_edits(profile, ov, payload):
     def swap(prefix, fields, values):
         src = next((s for s in payload if s.startswith(prefix)), None)
         if src is None:
-            # Not an error here: validate.expected_identity calls this with a
-            # single frozen literal at a time, so most groups will not match.
-            # build() checks that every declared group has a target segment.
+            # Not an error here: a future validate.py check (Task 6, not
+            # written yet) is expected to evaluate one frozen literal at a
+            # time against the declared override, so most groups will not
+            # match any single literal there. check_identity_targets below
+            # is what turns a group naming a segment the seed lacks into a
+            # hard failure today.
             return
         addrs = profile.override_addrs[prefix]
         out = src
@@ -144,20 +147,46 @@ def identity_edits(profile, ov, payload):
 
 
 def check_identity_targets(profile, ov, payload, n):
-    """Every declared identity group must have a segment in this block.
+    """Every declared identity group must be well-formed for this block.
 
-    swap() is deliberately silent about a missing segment so that
-    validate.expected_identity can evaluate one literal at a time; this is
-    where a group naming a segment the seed lacks becomes a hard failure.
+    Two independent hard failures, both against the same declared group:
+
+    1. swap() is deliberately silent about a missing target segment so that
+       a future validate.py check (Task 6, not written yet) can evaluate one
+       frozen literal at a time against the declared override; this is
+       where a group naming a segment the seed lacks becomes a hard failure
+       today.
+    2. swap()'s inner loop only ever reads field names it recognizes
+       (`if name in values`), so a values dict with a misspelled or made-up
+       field name - e.g. "lastName" instead of "last" - would otherwise
+       silently emit no edit at all while the caller believes it applied.
+       That is a different hole from #1: #1 is group-level (the group has
+       nowhere to land), this is field-level (the group landed, but the
+       field name inside it is not one identity_edits understands). subscriber
+       is a special case: "dob" is a valid field even though it is not in
+       _IDENTITY_SEGMENTS["subscriber"]'s fields tuple, because it addresses
+       the DMG*D8* segment instead of NM1*IL*.
     """
     if not ov or not ov.identity:
         return
-    for key, (prefix, _fields) in _IDENTITY_SEGMENTS.items():
-        if key in ov.identity and not any(s.startswith(prefix)
-                                          for s in payload):
+    for key, (prefix, fields) in _IDENTITY_SEGMENTS.items():
+        if key not in ov.identity:
+            continue
+        if not any(s.startswith(prefix) for s in payload):
             raise BuildError(
                 "claim %d: override names %s but the seed block has no %s "
                 "segment" % (n, key, prefix))
+        v = ov.identity[key]
+        if isinstance(v, dict):
+            valid = set(fields)
+            if key == "subscriber":
+                valid.add("dob")
+            unknown = sorted(set(v) - valid)
+            if unknown:
+                raise BuildError(
+                    "claim %d: %s override names unknown field(s) %s "
+                    "(valid: %s)"
+                    % (n, key, ", ".join(unknown), ", ".join(sorted(valid))))
 
 
 def check_frozen_segments(profile, payload, n):

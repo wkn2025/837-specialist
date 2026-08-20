@@ -77,3 +77,25 @@ def test_negative_billed_is_rejected():
            [{"date": "20241121", "billed": "-1.00"}]}]}
     with pytest.raises(overrides.OverrideError, match="billed"):
         overrides.parse(doc, I, claims=1)
+
+def test_a_delimiter_in_a_nested_identity_field_is_rejected():
+    # T3-f: "*" in a name would silently shift every later NM1*IL* element.
+    with pytest.raises(overrides.OverrideError, match="delimiter"):
+        overrides.parse({"identity": {"subscriber": {"last": "DOE*X"}}},
+                        I, claims=1)
+
+def test_a_delimiter_in_a_bare_identity_value_is_rejected():
+    with pytest.raises(overrides.OverrideError, match="delimiter"):
+        overrides.parse({"identity": {"taxId": "12345~678"}}, I, claims=1)
+
+def test_a_delimiter_in_principal_diagnosis_is_rejected():
+    # T3-f: ":" in principalDiagnosis would push the POA indicator a
+    # subelement right instead of raising.
+    doc = {"claims": [{"n": 1, "principalDiagnosis": "E119:X"}]}
+    with pytest.raises(overrides.OverrideError, match="delimiter"):
+        overrides.parse(doc, I, claims=1)
+
+def test_a_segment_terminator_in_a_name_is_rejected():
+    with pytest.raises(overrides.OverrideError, match="delimiter"):
+        overrides.parse({"identity": {"billingProvider": {
+            "name": "RIVERBEND~MEDICAL", "npi": "1740283920"}}}, I, claims=1)

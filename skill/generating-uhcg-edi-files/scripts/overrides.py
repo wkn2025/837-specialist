@@ -21,6 +21,28 @@ class OverrideError(Exception):
     """The override document is not something the generator can honour."""
 
 
+# T3-f: *, :, ~ and ^ are x12_parse.py's ELEM/COMP/SEG/REP separators. None
+# of them legitimately appears in a name, NPI, tax ID, member ID or ICD-10
+# code, and letting one through unsanitized would silently reframe every
+# element after it once generate.py splices the value into a segment (a "*"
+# shifts every later element over by one, a "~" breaks segment framing
+# outright). overrides.py is the declared validation gate for this document,
+# so this check belongs here, not in generate.py - duplicating it there
+# would leave the gate itself permissive.
+_X12_DELIMS = "*:~^"
+
+
+def _check_no_delimiters(value, field, n=None):
+    if not isinstance(value, str):
+        return
+    bad = [c for c in _X12_DELIMS if c in value]
+    if bad:
+        where = "claim %d: %s" % (n, field) if n is not None else field
+        raise OverrideError(
+            "%s contains reserved X12 delimiter %r and may not be used in "
+            "an override value: %r" % (where, bad[0], value))
+
+
 def _money(raw, field, n):
     try:
         v = Decimal(str(raw))
@@ -59,6 +81,12 @@ def parse(doc, profile, claims):
                 % key)
         if key not in _IDENTITY_KEYS:
             raise OverrideError("unknown identity key %r" % key)
+        v = identity[key]
+        if isinstance(v, dict):
+            for fname, fval in v.items():
+                _check_no_delimiters(fval, "%s.%s" % (key, fname))
+        else:
+            _check_no_delimiters(v, key)
 
     out = {}
     for entry in doc.get("claims") or []:
@@ -109,7 +137,8 @@ def parse(doc, profile, claims):
                     "claim %d: date %r is not CCYYMMDD" % (n, date))
             lines.append({"date": date, "billed": billed, "savings": savings})
 
-        out[n] = {"principalDiagnosis": entry.get("principalDiagnosis"),
-                  "lines": lines}
+        pdx = entry.get("principalDiagnosis")
+        _check_no_delimiters(pdx, "principalDiagnosis", n)
+        out[n] = {"principalDiagnosis": pdx, "lines": lines}
 
     return Overrides(identity, out)
