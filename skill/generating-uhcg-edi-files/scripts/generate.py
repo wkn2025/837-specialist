@@ -105,6 +105,26 @@ _IDENTITY_SEGMENTS = {
     "taxId": ("REF*EI*", ("taxId",)),
 }
 
+# T3-k: each identity group has exactly one legal JSON shape - three take an
+# object, taxId takes a bare string. This lives next to _IDENTITY_SEGMENTS
+# (not in overrides.py) so generate.py stays the one place that knows what
+# each group accepts; check_identity_targets enforces it. A bare string for
+# an object-shaped group used to silently map to {key: value}, whose key
+# never matches that group's fields tuple, so the "edit" was accepted and
+# then quietly dropped - taxId only ever looked correct because its single
+# field name happens to equal its own group key.
+_IDENTITY_SHAPE = {
+    "subscriber": dict,
+    "billingProvider": dict,
+    "attendingProvider": dict,
+    "taxId": str,
+}
+
+
+def _json_shape_name(t):
+    return {dict: "object", str: "string", list: "array",
+            type(None): "null"}.get(t, t.__name__)
+
 
 def identity_edits(profile, ov, payload):
     """Element swaps for the identity segments this override declares.
@@ -149,23 +169,31 @@ def identity_edits(profile, ov, payload):
 def check_identity_targets(profile, ov, payload, n):
     """Every declared identity group must be well-formed for this block.
 
-    Two independent hard failures, both against the same declared group:
+    Three independent hard failures, all against the same declared group:
 
     1. swap() is deliberately silent about a missing target segment so that
        a future validate.py check (Task 6, not written yet) can evaluate one
        frozen literal at a time against the declared override; this is
        where a group naming a segment the seed lacks becomes a hard failure
        today.
-    2. swap()'s inner loop only ever reads field names it recognizes
-       (`if name in values`), so a values dict with a misspelled or made-up
+    2. T3-k: a group's value must be the one JSON shape _IDENTITY_SHAPE
+       declares for it (an object for subscriber/billingProvider/
+       attendingProvider, a bare string for taxId). A bare string for an
+       object-shaped group maps, via swap()'s `{key: value}` fallback, to a
+       values dict whose only key is the group's own name - which never
+       matches that group's fields tuple, so nothing raises and nothing
+       gets edited. This must be caught before the field-name check below,
+       since that check assumes a dict.
+    3. swap()'s inner loop only ever reads field names it recognizes
+       (`if name in values`), so an object with a misspelled or made-up
        field name - e.g. "lastName" instead of "last" - would otherwise
        silently emit no edit at all while the caller believes it applied.
-       That is a different hole from #1: #1 is group-level (the group has
-       nowhere to land), this is field-level (the group landed, but the
-       field name inside it is not one identity_edits understands). subscriber
-       is a special case: "dob" is a valid field even though it is not in
-       _IDENTITY_SEGMENTS["subscriber"]'s fields tuple, because it addresses
-       the DMG*D8* segment instead of NM1*IL*.
+       That is a different hole from #2: #2 is shape-level (the whole value
+       is the wrong JSON type), this is field-level (the value is the right
+       type, but a key inside it is not one identity_edits understands).
+       subscriber is a special case: "dob" is a valid field even though it
+       is not in _IDENTITY_SEGMENTS["subscriber"]'s fields tuple, because it
+       addresses the DMG*D8* segment instead of NM1*IL*.
     """
     if not ov or not ov.identity:
         return
@@ -177,6 +205,12 @@ def check_identity_targets(profile, ov, payload, n):
                 "claim %d: override names %s but the seed block has no %s "
                 "segment" % (n, key, prefix))
         v = ov.identity[key]
+        expected = _IDENTITY_SHAPE[key]
+        if not isinstance(v, expected):
+            raise BuildError(
+                "claim %d: %s override must be a JSON %s, got %s"
+                % (n, key, _json_shape_name(expected),
+                   _json_shape_name(type(v))))
         if isinstance(v, dict):
             valid = set(fields)
             if key == "subscriber":

@@ -211,21 +211,63 @@ def test_an_unknown_field_name_in_a_declared_group_is_rejected(repo):
     raise AssertionError("an unrecognized field name was silently accepted")
 
 
-def test_tax_id_with_an_unknown_dict_field_name_is_rejected(repo):
-    profile = seeds.get("I")
-    ov = overrides.parse({"identity": {"taxId": {"value": "123456789"}}},
-                         profile, claims=1)
-    segs = seeds.load_seed(profile, repo)
-    try:
-        generate.build(segs, profile, _fake_alloc(1), 1, ov)
-    except generate.BuildError as exc:
-        assert "unknown field" in str(exc)
-        return
-    raise AssertionError("an unrecognized field name was silently accepted")
-
-
 def test_subscriber_dob_is_accepted_even_though_it_is_not_an_nm1_il_field(repo):
     # dob addresses DMG*D8*, not NM1*IL*, so it must not be rejected as an
     # "unknown field" of the subscriber group.
     out = _build(repo, {"identity": {"subscriber": {"dob": "19850412"}}})
     assert "DMG*D8*19850412*F" in out
+
+
+# T3-k (fix round 2): each identity group has exactly one legal JSON shape -
+# an object for subscriber/billingProvider/attendingProvider, a bare string
+# for taxId. A bare string for an object-shaped group used to slip past
+# check_identity_targets entirely: swap() maps it to {key: value}, whose only
+# key ("subscriber", "billingProvider", "attendingProvider") never matches
+# that group's fields tuple, so identity_edits emitted no edit and nothing
+# raised - the user's declared edit silently shipped as a no-op. taxId only
+# ever looked correct by accident, since its single field name equals its
+# own group key.
+
+def _assert_shape_rejected(repo, doc):
+    profile = seeds.get("I")
+    ov = overrides.parse(doc, profile, claims=1)
+    segs = seeds.load_seed(profile, repo)
+    try:
+        generate.build(segs, profile, _fake_alloc(1), 1, ov)
+    except generate.BuildError as exc:
+        assert "must be a JSON" in str(exc)
+        return
+    raise AssertionError("a wrong-shape identity value was silently accepted")
+
+
+def test_subscriber_as_a_bare_string_is_rejected(repo):
+    _assert_shape_rejected(repo, {"identity": {"subscriber": "DOE"}})
+
+
+def test_billing_provider_as_a_bare_string_is_rejected(repo):
+    _assert_shape_rejected(
+        repo, {"identity": {"billingProvider": "RIVERBEND MEDICAL GROUP"}})
+
+
+def test_attending_provider_as_a_bare_string_is_rejected(repo):
+    _assert_shape_rejected(repo, {"identity": {"attendingProvider": "SMITH"}})
+
+
+def test_tax_id_as_a_dict_is_rejected(repo):
+    _assert_shape_rejected(repo, {"identity": {"taxId": {"taxId": "998877665"}}})
+
+
+def test_tax_id_as_a_string_still_works(repo):
+    # The one shape that must keep functioning - assert the whole resulting
+    # segment, not a substring, same as the other address tests.
+    out = _build(repo, {"identity": {"taxId": "998877665"}}, claims=1)
+    assert "REF*EI*998877665" in out
+
+
+def test_a_null_identity_group_is_rejected(repo):
+    _assert_shape_rejected(repo, {"identity": {"subscriber": None}})
+
+
+def test_a_list_identity_group_is_rejected(repo):
+    _assert_shape_rejected(repo, {"identity": {"billingProvider": ["x"]}})
+    _assert_shape_rejected(repo, {"identity": {"taxId": ["998877665"]}})
