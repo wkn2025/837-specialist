@@ -7,7 +7,7 @@ writing payload by hand.
 from __future__ import annotations
 import hashlib
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import List, Optional
 
 import x12_parse as X
@@ -46,6 +46,16 @@ class SeedProfile:
     isa08: str
     isa15: str                           # what a GENERATED file carries
     dob_exceptions: List[str]            # dates allowed outside the year
+    # Element index of each overridable field, by segment prefix. Addresses
+    # live here rather than in generate.py so a guide change is a one-line
+    # edit in the registry.
+    override_addrs: dict = field(default_factory=lambda: {
+        "NM1*IL*": {"last": 3, "first": 4, "memberId": 9},
+        "NM1*85*": {"name": 3, "npi": 9},
+        "NM1*71*": {"last": 3, "first": 4, "npi": 9},
+        "DMG*D8*": {"dob": 2},
+        "REF*EI*": {"taxId": 2},
+    })
 
     @property
     def src_clm01(self):

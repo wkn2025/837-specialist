@@ -98,6 +98,107 @@ def _date_edits(payload, profile, alloc):
     return ed
 
 
+_IDENTITY_SEGMENTS = {
+    "subscriber": ("NM1*IL*", ("last", "first", "memberId")),
+    "billingProvider": ("NM1*85*", ("name", "npi")),
+    "attendingProvider": ("NM1*71*", ("last", "first", "npi")),
+    "taxId": ("REF*EI*", ("taxId",)),
+}
+
+
+def identity_edits(profile, ov, payload):
+    """Element swaps for the identity segments this override declares.
+
+    The whole seed segment is the literal, so a segment that has drifted from
+    the profile still fails the exact-count check in apply_edits.
+    """
+    ed = []
+    if not ov or not ov.identity:
+        return ed
+
+    def swap(prefix, fields, values):
+        src = next((s for s in payload if s.startswith(prefix)), None)
+        if src is None:
+            # Not an error here: validate.expected_identity calls this with a
+            # single frozen literal at a time, so most groups will not match.
+            # build() checks that every declared group has a target segment.
+            return
+        addrs = profile.override_addrs[prefix]
+        out = src
+        for name in fields:
+            if name in values:
+                out = set_elem(out, addrs[name], values[name])
+        if out != src:
+            ed.append((src, 1, 1, out))
+
+    for key, (prefix, fields) in _IDENTITY_SEGMENTS.items():
+        if key not in ov.identity:
+            continue
+        v = ov.identity[key]
+        swap(prefix, fields, v if isinstance(v, dict) else {key: v})
+
+    sub = ov.identity.get("subscriber") or {}
+    if "dob" in sub:
+        swap("DMG*D8*", ("dob",), {"dob": sub["dob"]})
+    return ed
+
+
+def check_identity_targets(profile, ov, payload, n):
+    """Every declared identity group must have a segment in this block.
+
+    swap() is deliberately silent about a missing segment so that
+    validate.expected_identity can evaluate one literal at a time; this is
+    where a group naming a segment the seed lacks becomes a hard failure.
+    """
+    if not ov or not ov.identity:
+        return
+    for key, (prefix, _fields) in _IDENTITY_SEGMENTS.items():
+        if key in ov.identity and not any(s.startswith(prefix)
+                                          for s in payload):
+            raise BuildError(
+                "claim %d: override names %s but the seed block has no %s "
+                "segment" % (n, key, prefix))
+
+
+def check_frozen_segments(profile, ov, payload, n):
+    """A frozen segment not named by a legitimate identity edit must survive.
+
+    In normal use seeds.load_seed()'s sha256 gate already guarantees the
+    whole seed file - including every frozen segment - matches the profile
+    before build() ever sees a block, so this only fires if a caller hands
+    build() a payload that was altered after that gate ran. It exists so
+    build() does not rely on that gate alone: a frozen literal an override
+    did not declare editable must still be a hard failure here, never a
+    silent no-op, matching this module's stated safety model. Segments an
+    override DID legitimately swap (via identity_edits) are excluded.
+    """
+    swapped = {literal for literal, _, _, _ in identity_edits(profile, ov,
+                                                              payload)}
+    missing = [f for f in profile.frozen
+              if f not in payload and f not in swapped]
+    if missing:
+        raise BuildError(
+            "claim %d: frozen segment(s) missing or drifted: %s"
+            % (n, "; ".join(missing[:4])))
+
+
+def diagnosis_edits(profile, ov, payload, n):
+    """Replace the ABK principal-diagnosis composite, leaving ABF alone."""
+    c = ov.claim(n) if ov else None
+    if not c or not c.get("principalDiagnosis"):
+        return []
+    for s in payload:
+        if not s.startswith("HI*"):
+            continue
+        e = X.elems(s)
+        if not e[1].startswith("ABK:"):
+            continue
+        parts = e[1].split(":")
+        parts[1] = c["principalDiagnosis"]
+        return [(s, 1, 1, set_elem(s, 1, ":".join(parts)))]
+    raise BuildError("claim %d: seed has no ABK principal diagnosis" % n)
+
+
 def apply_edits(payload, edits, key):
     segs = list(payload)
     for literal, must_occur, replace_n, replacement in edits:
@@ -122,7 +223,7 @@ def renumber_se(segs, key):
     return segs[:-1] + ["SE*%d*%s" % (len(segs), st02)]
 
 
-def build(seed_segs, profile, alloc, claims):
+def build(seed_segs, profile, alloc, claims, ov=None):
     if not seed_segs or not seed_segs[0].startswith("ISA*"):
         raise BuildError("first seed segment is not ISA")
     if len(seed_segs) < 2 or not seed_segs[1].startswith("GS*"):
@@ -157,8 +258,12 @@ def build(seed_segs, profile, alloc, claims):
                 "claim %d: seed block is %d segments, profile declares %d"
                 % (n, len(payload),
                    profile.block_lens[source_index(n, profile) - 1]))
-        edits = edits_for(profile, alloc, n) + _date_edits(payload, profile,
-                                                           alloc)
+        check_identity_targets(profile, ov, payload, n)
+        check_frozen_segments(profile, ov, payload, n)
+        edits = (edits_for(profile, alloc, n)
+                 + _date_edits(payload, profile, alloc)
+                 + identity_edits(profile, ov, payload)
+                 + diagnosis_edits(profile, ov, payload, n))
         body.extend(renumber_se(apply_edits(payload, edits, str(n)), str(n)))
 
     return ([isa, gs] + body
