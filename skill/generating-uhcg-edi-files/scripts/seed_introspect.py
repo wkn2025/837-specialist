@@ -51,7 +51,9 @@ def _lines(block, profile):
         sv = _find(block[j:], profile.line_id + "*")
         dtp = _find(block[j:], "DTP*472*")
         hcp = _find(block[j:], "HCP*")
-        billed = X.elems(sv)[3]
+        # SV2 (837I) carries charge at index 3; SV1 (837P) at index 2 --
+        # index 3 there is the unit-of-measure ("UN"). See claim_summary.py.
+        billed = X.elems(sv)[3 if profile.line_id == "SV2" else 2]
         date = X.elems(dtp)[3].split("-")[0]
         savings = X.elems(hcp)[3]
         out.append({"date": date, "billed": billed, "savings": savings})
