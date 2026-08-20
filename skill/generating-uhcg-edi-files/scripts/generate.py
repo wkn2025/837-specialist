@@ -6,6 +6,8 @@ times - a literal that has drifted is a hard failure, never a silent no-op.
 """
 from __future__ import annotations
 
+from decimal import Decimal
+
 import claim_summary
 import seeds
 import x12_parse as X
@@ -28,10 +30,23 @@ def set_elem(seg, idx, val):
     return X.ELEM.join(e)
 
 
-def edits_for(profile, alloc, n):
+def edits_for(profile, alloc, n, ov=None):
     """[(literal, must_occur, replace_n, replacement), ...] for claim n."""
     i = source_index(n, profile) - 1
     src_clm = profile.src_clm[i]
+    # The whole CLM segment is the literal; elements 1 and (when an override
+    # supplies a claim total) 2 move together. That keeps every
+    # facility/frequency code the seed carried without the generator ever
+    # spelling one out. Ruling C3: the CLM segment has exactly one owner -
+    # this is it. apply_edits matches the seed's *original* literal, so a
+    # second edit tuple naming this same CLM segment could never land (the
+    # first replacement already consumed the only match); money_edits does
+    # not emit a CLM edit of its own for exactly this reason - it only
+    # reports the total via claim_total() below.
+    new_clm = set_elem(src_clm, 1, alloc.clm01[n - 1])
+    total = claim_total(ov, n)
+    if total is not None:
+        new_clm = set_elem(new_clm, 2, "%.2f" % total)
     ed = [
         ("ST*837*%s*%s" % (profile.src_st02[i], profile.version), 1, 1,
          "ST*837*%s*%s" % (alloc.st02[n - 1], profile.version)),
@@ -41,10 +56,7 @@ def edits_for(profile, alloc, n):
          "BHT*0019*00*%s*%s*%s*CH" % (alloc.bht03[n - 1],
                                       alloc.envelope_date,
                                       alloc.envelope_time)),
-        # The whole CLM segment is the literal; only element 1 moves. That
-        # keeps every facility/frequency code the seed carried without the
-        # generator ever spelling one out.
-        (src_clm, 1, 1, set_elem(src_clm, 1, alloc.clm01[n - 1])),
+        (src_clm, 1, 1, new_clm),
         ("REF*F8*%s" % profile.src_ref_f8[i], 1, 1,
          "REF*F8*%s" % alloc.ref_f8[n - 1]),
         ("REF*9A*%s" % profile.src_ref_9a[i], 1, 1,
@@ -260,6 +272,82 @@ def diagnosis_edits(profile, ov, payload, n):
     raise BuildError("claim %d: seed has no ABK principal diagnosis" % n)
 
 
+def _money_fmt(v):
+    return "%.2f" % v
+
+
+# The service-line charge sits at a different element index per profile:
+# SV2*0430*HC:97530*420.00*UN*2 carries it at index 3, SV1*HC:99222*293.00*
+# UN*1*21**1:2:3**N carries it at index 2. claim_summary.py:71-79 is the
+# prior art for both indices. Hardcoding one index for both line_ids would
+# silently write the amount into the wrong element for whichever profile
+# does not use that index - that bug has already shipped once in this plan.
+_LINE_AMOUNT_IDX = {"SV2": 3, "SV1": 2}
+
+
+def money_edits(profile, ov, payload, n):
+    """Rewrite SV2/SV1 charges, both HCP levels, as one unit.
+
+    validate.py enforces CLM02 == sum(lines) and the profile's money rule, so
+    the line charge, the line HCP, the claim HCP and CLM02 can never be
+    edited independently. CLM02 itself is not edited here - edits_for owns
+    the CLM segment (ruling C3); this function only returns the line/HCP
+    edits and leaves the claim total to be read via claim_total() below.
+
+    The claim-level HCP is a different segment from any line-level HCP: it
+    sits before the first LX loop, while each line's HCP sits inside that
+    line's own LX loop (decision 5 - Task 1 shipped a bug that conflated
+    the two).
+    """
+    c = ov.claim(n) if ov else None
+    if not c or not c["lines"]:
+        return []
+
+    lx_at = [j for j, s in enumerate(payload) if s.startswith("LX*")]
+    if len(lx_at) != len(c["lines"]):
+        raise BuildError(
+            "claim %d: override has %d lines but the seed block has %d"
+            % (n, len(c["lines"]), len(lx_at)))
+
+    amt_idx = _LINE_AMOUNT_IDX[profile.line_id]
+
+    ed = []
+    total = Decimal("0.00")
+    for j, line in zip(lx_at, c["lines"]):
+        billed, savings = line["billed"], line["savings"]
+        # UHCG_Overview_Reference.md:218 - "Repriced Saving Amount is
+        # calculated as Billed Amount - Allowed Amount", i.e. allowed =
+        # billed - savings. overrides.parse has already derived or validated
+        # `savings` under the profile's money rule, so this one formula
+        # covers both 837I (split_85_15) and 837P (allowed_plus_savings).
+        allowed = billed - savings
+        total += billed
+
+        sv = next(s for s in payload[j:] if s.startswith(profile.line_id + "*"))
+        ed.append((sv, 1, 1, set_elem(sv, amt_idx, _money_fmt(billed))))
+
+        hcp = next(s for s in payload[j:] if s.startswith("HCP*"))
+        new_hcp = set_elem(set_elem(hcp, 2, _money_fmt(allowed)), 3,
+                           _money_fmt(savings))
+        ed.append((hcp, 1, 1, new_hcp))
+
+    claim_hcp = next(s for s in payload[:lx_at[0]] if s.startswith("HCP*"))
+    saved = sum(l["savings"] for l in c["lines"])
+    ed.append((claim_hcp, 1, 1,
+               set_elem(set_elem(claim_hcp, 2, _money_fmt(total - saved)), 3,
+                        _money_fmt(saved))))
+
+    return ed
+
+
+def claim_total(ov, n):
+    """The CLM02 an override implies, or None to keep the seed's amount."""
+    c = ov.claim(n) if ov else None
+    if not c or not c["lines"]:
+        return None
+    return sum(l["billed"] for l in c["lines"])
+
+
 def apply_edits(payload, edits, key):
     segs = list(payload)
     for literal, must_occur, replace_n, replacement in edits:
@@ -321,10 +409,11 @@ def build(seed_segs, profile, alloc, claims, ov=None):
                    profile.block_lens[source_index(n, profile) - 1]))
         check_identity_targets(profile, ov, payload, n)
         check_frozen_segments(profile, payload, n)
-        edits = (edits_for(profile, alloc, n)
+        edits = (edits_for(profile, alloc, n, ov)
                  + _date_edits(payload, profile, alloc)
                  + identity_edits(profile, ov, payload)
-                 + diagnosis_edits(profile, ov, payload, n))
+                 + diagnosis_edits(profile, ov, payload, n)
+                 + money_edits(profile, ov, payload, n))
         body.extend(renumber_se(apply_edits(payload, edits, str(n)), str(n)))
 
     return ([isa, gs] + body
