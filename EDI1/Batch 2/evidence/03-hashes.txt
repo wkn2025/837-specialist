@@ -1,0 +1,5 @@
+6076704874332f15f1b1f2495e0cb4be8343c55d151614ffef9f007c30192298     13570  EDI1/Batch 1/fromUHCG-837I-WKN_9claims.x12
+d9e67af34e5271bab45340bd3693c6abe4a19a9656332180477772a86bb0eeff     15587  EDI1/Batch 2/fromUHCG-837I-WKN_10claims.x12
+d4749342b70efabe7b4b05e8359b010ce0320d9c8d1c33ae458b542a8ea0154e     13019  tests/generate_edi1_batch2_file.py
+63f93a13ac63f1c2dc3c3d28e6778c788e42544a9d04546f94ab62d92eed4f75     22498  tests/validate_edi1_batch2_file.py
+6b1e9a474c1b3eea24fd2488c159f005b803f5cff7f020a7d263a37e2857b972      7941  tests/edi1_batch2_mutations.py

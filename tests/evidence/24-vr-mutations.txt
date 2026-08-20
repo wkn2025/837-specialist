@@ -1,0 +1,20 @@
+baseline: clean copy passes every check
+
+mutation                             expect  caught      failing checks
+second_claim_dropped                 1       YES         [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]
+iea02_out_of_step                    2       YES         [2, 14]
+isa13_reuses_parent_icn              3       YES         [2, 3, 14]
+st03_version_wrong                   4       YES         [4, 12, 14]
+se01_decremented                     5       YES         [5, 12, 14]
+bht03_back_to_17_chars               6       YES         [6, 12, 14]
+hl_self_parent                       7       YES         [7, 12, 14]
+vr_frequency_back_to_original        8       YES         [8, 12, 14]
+vr_ref9f_points_at_itself            8       YES         [8, 12, 14]
+inv10_allowed_below_billed           9       YES         [9, 12, 14]
+inv10_negative_repriced_saving       10      YES         [9, 10, 12, 14]
+space_padded_segment                 11      YES         [11, 12, 14]
+payload_amount_drifted_from_source   12      YES         [12, 14]
+member_id_altered                    13      YES         [12, 13, 14]
+artifact_edited_without_the_generator 14      YES         [12, 14]
+
+15 mutations, 0 uncaught, 0 broken

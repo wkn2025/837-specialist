@@ -1,0 +1,114 @@
+{
+  "meta": {
+    "file": "C:/Users/wkn/837-specialist/edi2/batch2/UHCG_ECUSA_I_20260819153410.x12",
+    "filename": "UHCG_ECUSA_I_20260819153410.x12",
+    "version": "005010X223A2",
+    "claims": 3,
+    "source_file": "C:/Users/wkn/837-specialist/EDI1/Batch 2/fromUHCG-837I-WKN_10claims.x12",
+    "matrix_file": "",
+    "scenarios_file": "C:/Users/wkn/AppData/Local/Temp/claude/C--Users-wkn/17715f92-03e7-4db8-a5af-ec9d0a69169a/scratchpad/scenarios_batch2.json",
+    "guides": "C:\\Users\\wkn\\837-specialist\\docs\\reference\\umr-uhcg-837",
+    "mode": "cited",
+    "generated": "2026-08-19T10:41:32"
+  },
+  "findings": [
+    {
+      "rule_id": "FMT-BHT03-LEN",
+      "severity": "blocker",
+      "message": "BHT03 'E2E24120212125701' is 17 characters, limit is 10; the UHAP claim ID belongs in REF*9A, which carries it already",
+      "citation": "UHCG_837I_Companion_Guide_FULL.csv, BHT03: batch control number, limited to 10 characters",
+      "claim": "E2E24120212125701",
+      "lx": null,
+      "segment_index": 3,
+      "fix": {
+        "segment_index": 3,
+        "old_text": "BHT*0019*00*E2E24120212125701*20260819*1534*CH",
+        "new_text": "BHT*0019*00*2608190001*20260819*1534*CH",
+        "kind": "replace",
+        "uncertain": false,
+        "reason": ""
+      }
+    },
+    {
+      "rule_id": "FMT-BHT03-LEN",
+      "severity": "blocker",
+      "message": "BHT03 'E2E24120212125702' is 17 characters, limit is 10; the UHAP claim ID belongs in REF*9A, which carries it already",
+      "citation": "UHCG_837I_Companion_Guide_FULL.csv, BHT03: batch control number, limited to 10 characters",
+      "claim": "E2E24120212125702",
+      "lx": null,
+      "segment_index": 50,
+      "fix": {
+        "segment_index": 50,
+        "old_text": "BHT*0019*00*E2E24120212125702*20260819*1534*CH",
+        "new_text": "BHT*0019*00*2608190002*20260819*1534*CH",
+        "kind": "replace",
+        "uncertain": false,
+        "reason": ""
+      }
+    },
+    {
+      "rule_id": "FMT-BHT03-LEN",
+      "severity": "blocker",
+      "message": "BHT03 'E2E24120212125703' is 17 characters, limit is 10; the UHAP claim ID belongs in REF*9A, which carries it already",
+      "citation": "UHCG_837I_Companion_Guide_FULL.csv, BHT03: batch control number, limited to 10 characters",
+      "claim": "E2E24120212125703",
+      "lx": null,
+      "segment_index": 106,
+      "fix": {
+        "segment_index": 106,
+        "old_text": "BHT*0019*00*E2E24120212125703*20260819*1534*CH",
+        "new_text": "BHT*0019*00*2608190003*20260819*1534*CH",
+        "kind": "replace",
+        "uncertain": false,
+        "reason": ""
+      }
+    },
+    {
+      "rule_id": "MATH-CLAIM-SUMS-LINES",
+      "severity": "blocker",
+      "message": "claim not covered is 384.00 but the lines sum to 326.40",
+      "citation": "UHCG_Validation_Rules_Institutional.csv: claim-level amounts equal the sum of their line values",
+      "claim": "E2E24120212125702",
+      "lx": null,
+      "segment_index": 49,
+      "fix": null
+    },
+    {
+      "rule_id": "MATH-CLAIM-RECONCILES",
+      "severity": "blocker",
+      "message": "net paid 535.50 plus patient responsibility 384.00 is 919.50, but the allowed amount is 861.90",
+      "citation": "UHCG_Validation_Rules_Institutional.csv: net paid plus patient responsibility equals the allowed amount",
+      "claim": "E2E24120212125702",
+      "lx": null,
+      "segment_index": 49,
+      "fix": null
+    },
+    {
+      "rule_id": "NTE-CLAIM-REMARK-REQUIRED",
+      "severity": "blocker",
+      "message": "claim is fully denied but carries no claim-level NTE*ADD remark code",
+      "citation": "UHCG_Special_Instructions_NTE_Guide.md: a full claim denial carries the remark at Line & Claim level",
+      "claim": "E2E24120212125703",
+      "lx": null,
+      "segment_index": 133,
+      "fix": {
+        "segment_index": 133,
+        "old_text": "HI*ABK:I48:::::::U",
+        "new_text": "NTE*ADD*716",
+        "kind": "insert_before",
+        "uncertain": false,
+        "reason": ""
+      }
+    },
+    {
+      "rule_id": "ADV-ISA14",
+      "severity": "advisory",
+      "message": "ISA14 is 0, so no TA1 interchange acknowledgment is requested",
+      "citation": "UHCG_837I_Companion_Guide_FULL.csv, ISA14: 0 requests no TA1 interchange acknowledgment, 1 requests one; both are valid",
+      "claim": "",
+      "lx": null,
+      "segment_index": 0,
+      "fix": null
+    }
+  ]
+}

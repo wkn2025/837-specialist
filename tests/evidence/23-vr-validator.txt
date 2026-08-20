@@ -1,0 +1,16 @@
+[PASS]  1. exactly 2 ST-SE sets carrying TEST260812001, TEST260812010 in order           
+[PASS]  2. one ISA/GS/GE/IEA, control numbers and ISA geometry consistent                
+[PASS]  3. ISA13 780100240 unique against every other x12 file                           
+[PASS]  4. GS08 and every ST03 are 005010X223A2                                          
+[PASS]  5. SE01 = real segment count, SE02 = ST02, ST02 unique and as expected           
+[PASS]  6. BHT03 is <=10 characters and matches ST02                                     
+[PASS]  7. HL starts at 1, increments, parents resolve, no self-parent                   
+[PASS]  8. V&R claim carries frequency 7, REF*9F to the original and a new CCN           
+[PASS]  9. invoice #10 prices allowed above billed with HCP01 = 01                       
+[PASS] 10. no negative or '+' signed monetary values                                     
+[PASS] 11. no empty, truncated or space-padded segments; delimiters intact               
+[PASS] 12. every segment is byte-identical to source claim 1 or an approved pinned change
+[PASS] 13. member, subscriber and provider identity identical to batch 1 in both claims  
+[PASS] 14. regenerating from the source reproduces this file byte for byte               
+
+14 checks, 14 passed, 0 failed

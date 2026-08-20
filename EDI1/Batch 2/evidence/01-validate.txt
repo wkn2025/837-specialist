@@ -1,0 +1,21 @@
+file   : C:\Users\wkn\837-specialist\EDI1\Batch 2\fromUHCG-837I-WKN_10claims.x12
+source : C:\Users\wkn\837-specialist\EDI1\Batch 1\fromUHCG-837I-WKN_9claims.x12
+sha256 : d9e67af34e5271bab45340bd3693c6abe4a19a9656332180477772a86bb0eeff
+source sha256 (before): 6076704874332f15f1b1f2495e0cb4be8343c55d151614ffef9f007c30192298
+
+PASS   1  ten ST..SE sets, CLM01 TEST241202001..TEST241202010 in order
+PASS   2  one ISA/GS/GE/IEA, UHCG->ECUSA, control numbers and ISA geometry consistent
+PASS   3  GS08 and every ST03 are 005010X223A2
+PASS   4  SE01 = segment count, SE02 = ST02, ST02 010650001..010650010
+PASS   5  BHT03 is <= 10 characters, unique within the file, and as expected; BHT04/BHT05 = 20241202/0930
+PASS   6  HL starts at 1, increments, parents resolve, no self-parent
+PASS   7  ISA13/ST02/BHT03/CLM01/REF*F8/REF*9A are the expected values and collide with no other .x12 file
+PASS   8  every date is inside 2024 (DOB 19941217 excepted), DTP*434 = 20240311-20240320, line dates as expected and inside the statement period
+PASS   9  every payload segment is byte-identical to the source once the declared edits (and claim 10's added line) are reversed
+PASS  10  ten payload units in source order with the source segment counts [35, 39, 43, 47, 51, 55, 59, 63, 67, 71]
+PASS  11  CLM02 equals the sum of its service lines and every HCP is an 85%/15% split of the charge
+PASS  12  ASCII, no BOM, LF only, one segment per line, trailing newline
+PASS  13  re-running the generator reproduces the committed file byte for byte
+PASS  14  source hash unchanged by this run
+
+all checks passed

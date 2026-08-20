@@ -1,0 +1,39 @@
+baseline: all checks pass
+
+caught  check  1  CLM01 reuses a source claim number
+        checks that went red: [1, 7, 9, 13]
+caught  check  2  GE01 no longer counts the ST sets
+        checks that went red: [2, 13]
+caught  check  3  ST03 is the professional guide identifier
+        checks that went red: [3, 9, 13]
+caught  check  4  SE01 does not match the segment count
+        checks that went red: [4, 9, 13]
+caught  check  5  BHT03 is 11 characters
+        checks that went red: [5, 7, 9, 13]
+caught  check  6  HL parent points at a non-existent level
+        checks that went red: [6, 9, 13]
+caught  check  7  REF*F8 reuses a source claim control number
+        checks that went red: [7, 9, 13]
+caught  check  8  a service line date leaves 2024
+        checks that went red: [8, 9, 13]
+caught  check  9  a payload address drifts from the source
+        checks that went red: [9, 13]
+caught  check 10  a payload segment is dropped
+        checks that went red: [4, 9, 10, 13]
+caught  check 11  CLM02 no longer equals the sum of the service lines
+        checks that went red: [9, 11, 13]
+caught  check 12  the file gains a CR line ending
+        checks that went red: [12, 13]
+caught  check 13  the committed file no longer matches its generator
+        checks that went red: [9, 13]
+
+generator guards (check 14: the source is never written to)
+
+caught           refuses to write over its own input
+caught           refuses to overwrite an existing output without --force
+caught           refuses a source with the wrong claim count
+caught           refuses a source whose claim literal has drifted
+caught           refuses a source claim whose segment count has drifted
+caught           the source file is byte-identical after all refused runs
+
+every mutation was caught by the check that owns it
