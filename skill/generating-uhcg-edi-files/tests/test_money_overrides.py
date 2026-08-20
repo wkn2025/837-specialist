@@ -238,34 +238,67 @@ def test_ov_none_still_leaves_money_untouched(repo):
 # test, the next()-lookups in money_edits raise a bare StopIteration instead
 # of a labeled BuildError, and _money_fmt formats through float.
 
-def test_money_override_with_too_many_lines_raises_build_error(repo):
-    # Seed block 1 (claim 1, claims=1) has exactly one LX loop. Overriding it
-    # with two lines must raise BuildError naming both counts (generate.py's
-    # money_edits, line-count check).
+# Task 5 note: the two tests below used to be named
+# test_money_override_with_too_{many,few}_lines_raises_build_error and
+# asserted that a line-count mismatch through _build_I()/generate.build()
+# raised BuildError from money_edits' line-count check. Task 5 added
+# generate.splice_lines, which runs before money_edits and grows/shrinks the
+# seed block's LX loops to match the override's line count - reconciling
+# exactly the mismatch these tests used to force. That is the intended,
+# documented behavior of Task 5 (add/remove service lines), not a
+# regression, so by the time money_edits runs through build() the counts can
+# never disagree - the two tests' original premise is obsolete. Renamed to
+# assert the new integration behavior (the block splices instead of
+# erroring); the line-count guard inside money_edits itself is still real
+# and still reachable when money_edits is called directly without going
+# through splice_lines first (see
+# test_money_edits_raises_build_error_on_line_count_mismatch_when_called_
+# directly below, and skill/generating-uhcg-edi-files/tests/
+# test_line_splice.py for splice_lines' own coverage).
+
+def test_money_override_with_more_lines_than_the_seed_now_splices(repo):
     doc = {"claims": [{"n": 1, "lines": [
            {"date": "20241121", "billed": "100.00"},
            {"date": "20241122", "billed": "200.00"}]}]}
+    out = _build_I(repo, doc, claims=1)
+    claim1 = _blocks(out)[0]
+    assert [s for s in claim1 if s.startswith("LX*")] == ["LX*1", "LX*2"]
+    assert [s.split("*")[3] for s in claim1 if s.startswith("SV2*")] == \
+        ["100.00", "200.00"]
+
+
+def test_money_override_with_fewer_lines_than_the_seed_now_splices(repo):
+    doc = {"claims": [{"n": 2, "lines": [
+           {"date": "20241121", "billed": "100.00"}]}]}
+    out = _build_I(repo, doc, claims=2)
+    claim2 = _blocks(out)[1]
+    assert [s for s in claim2 if s.startswith("LX*")] == ["LX*1"]
+    assert [s.split("*")[3] for s in claim2 if s.startswith("SV2*")] == \
+        ["100.00"]
+
+
+def test_money_edits_raises_build_error_on_line_count_mismatch_when_called_directly(repo):
+    # money_edits' own line-count guard - unreachable through build() as of
+    # Task 5, since splice_lines reconciles the count first - still protects
+    # any caller that invokes money_edits directly against a payload whose
+    # LX-loop count was never spliced (as several tests in this file already
+    # do for other guards, e.g. test_money_edits_raises_build_error_when_
+    # line_segment_is_missing above).
     profile = seeds.get("I")
+    ov = overrides.Overrides({}, {1: {"principalDiagnosis": None, "lines": [
+        {"date": "20241121", "billed": Decimal("100.00"),
+         "savings": Decimal("15.00")},
+        {"date": "20241122", "billed": Decimal("200.00"),
+         "savings": Decimal("30.00")},
+    ]}})
+    segs = seeds.load_seed(profile, repo)
+    seed_block = seeds.blocks(segs)[0]        # exactly one LX loop, unspliced
     with pytest.raises(generate.BuildError) as exc:
-        _build_I(repo, doc, claims=1)
+        generate.money_edits(profile, ov, seed_block, 1)
     msg = str(exc.value)
     assert "claim 1" in msg
     assert "2 lines" in msg
     assert "seed block has 1" in msg
-
-
-def test_money_override_with_too_few_lines_raises_build_error(repo):
-    # Seed block 2 (claim 2, claims=2) has exactly two LX loops. Overriding
-    # it with only one line must raise BuildError naming both counts, the
-    # other direction from the test above.
-    doc = {"claims": [{"n": 2, "lines": [
-           {"date": "20241121", "billed": "100.00"}]}]}
-    with pytest.raises(generate.BuildError) as exc:
-        _build_I(repo, doc, claims=2)
-    msg = str(exc.value)
-    assert "claim 2" in msg
-    assert "1 lines" in msg
-    assert "seed block has 2" in msg
 
 
 def test_professional_multi_line_claim_overrides_every_line_distinctly(repo):

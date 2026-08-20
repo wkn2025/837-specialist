@@ -276,6 +276,70 @@ def diagnosis_edits(profile, ov, payload, n):
     raise BuildError("claim %d: seed has no ABK principal diagnosis" % n)
 
 
+def _loop_bounds(payload):
+    """[(start, end)] for each LX loop in payload; end is exclusive.
+
+    A loop runs from its LX segment up to (but not including) the next LX
+    segment, or - for the last loop - up to the SE segment if the payload
+    ends in one. Loop length is NOT assumed uniform: the P seed's block 6
+    carries a trailing NTE*TPO* in its sixth loop only (confirmed by
+    reading the seed directly), so bounds are derived purely from LX
+    position, never from a fixed per-loop segment count.
+    """
+    starts = [j for j, s in enumerate(payload) if s.startswith("LX*")]
+    if not starts:
+        return []
+    ends = starts[1:] + [len(payload)]
+    ends[-1] = len(payload) - 1 if payload[-1].startswith("SE*") \
+        else len(payload)
+    return list(zip(starts, ends))
+
+
+def splice_lines(profile, ov, payload, n):
+    """Grow or shrink a claim's LX loops to match its override's line count.
+
+    This is the only edit in the plan that changes segment counts, so it
+    runs before the edit list is assembled (renumber_se fixes SE01
+    afterward; LX01 is renumbered here). New loops are copies of the
+    block's LAST loop, so every qualifier, revenue code, and any trailing
+    segment the seed carried (e.g. the P seed's NTE) survives untouched;
+    only LX01 is renumbered here, and money_edits (which runs after this,
+    addressing segments by position rather than content - Ruling T5-a) sets
+    the amounts. A claim with no line override, or one whose line count
+    already matches the seed block, is untouched - this keeps splice_lines
+    inert for every claim task 1-4's tests exercise.
+    """
+    c = ov.claim(n) if ov else None
+    if not c or not c["lines"]:
+        return payload
+    bounds = _loop_bounds(payload)
+    want = len(c["lines"])
+    if want == len(bounds) or not bounds:
+        return payload
+    if want < 1:
+        # Unreachable through overrides.parse() today - an empty "lines"
+        # list is caught by the guard above and treated as no override, so
+        # `want` is always >= 1 here. Defense in depth against a future
+        # caller that builds an Overrides object by hand (as several tests
+        # in this plan already do) with a non-empty-but-zero-length claim.
+        raise BuildError("claim %d: a claim needs at least one service "
+                         "line" % n)
+
+    head = payload[:bounds[0][0]]
+    tail = payload[bounds[-1][1]:]
+    loops = [payload[s:e] for s, e in bounds]
+    while len(loops) < want:
+        loops.append(list(loops[-1]))
+    loops = loops[:want]
+
+    out = list(head)
+    for i, loop in enumerate(loops, 1):
+        loop = list(loop)
+        loop[0] = "LX*%d" % i
+        out.extend(loop)
+    return out + tail
+
+
 _CENTS = Decimal("0.01")
 
 
@@ -317,6 +381,21 @@ def money_edits(profile, ov, payload, n):
     sits before the first LX loop, while each line's HCP sits inside that
     line's own LX loop (decision 5 - Task 1 shipped a bug that conflated
     the two).
+
+    Ruling T5-a: `payload` may now be a spliced block (splice_lines runs
+    before this in build()), where a grown claim copies its last LX loop -
+    so two loops can share the exact same SV/HCP literal going in, and each
+    one needs a DIFFERENT amount coming out. A literal-addressed edit tuple
+    cannot express that: apply_edits' `must_occur`/`replace_n` contract
+    writes the SAME replacement into every matching hit, so `must_occur=2`
+    would force both loops to the same amount and `must_occur=1` would raise
+    "occurs 2 times, expected exactly 1" (this is the brief's own Step 4
+    test). So every edit this function emits is index-addressed - a
+    (index, expected_literal, replacement) 3-tuple that apply_edits matches
+    by position, not by searching for the literal. It still verifies the
+    literal at that position before overwriting it, so a payload that has
+    drifted from what this function expected still fails hard, the same
+    property the literal form guarantees.
     """
     c = ov.claim(n) if ov else None
     if not c or not c["lines"]:
@@ -348,26 +427,35 @@ def money_edits(profile, ov, payload, n):
         # so it would surface as an unhandled crash instead of the module's
         # "hard failure with claim context" pattern diagnosis_edits already
         # follows. Give both lookups the same explicit, labeled failure.
-        sv = next((s for s in payload[j:]
-                  if s.startswith(profile.line_id + "*")), None)
-        if sv is None:
+        # These searches are still scoped forward from this loop's own LX
+        # (index j), so a duplicate loop elsewhere in the payload can never
+        # be mistaken for this one's SV/HCP - only the index found matters.
+        sv_idx = next((k for k in range(j, len(payload))
+                       if payload[k].startswith(profile.line_id + "*")),
+                      None)
+        if sv_idx is None:
             raise BuildError(
                 "claim %d: line %d has no %s segment in the seed block"
                 % (n, line_no, profile.line_id))
-        ed.append((sv, 1, 1, set_elem(sv, amt_idx, _money_fmt(billed))))
+        sv = payload[sv_idx]
+        ed.append((sv_idx, sv, set_elem(sv, amt_idx, _money_fmt(billed))))
 
-        hcp = next((s for s in payload[j:] if s.startswith("HCP*")), None)
-        if hcp is None:
+        hcp_idx = next((k for k in range(j, len(payload))
+                        if payload[k].startswith("HCP*")), None)
+        if hcp_idx is None:
             raise BuildError(
                 "claim %d: line %d has no HCP segment in the seed block"
                 % (n, line_no))
+        hcp = payload[hcp_idx]
         new_hcp = set_elem(set_elem(hcp, 2, _money_fmt(allowed)), 3,
                            _money_fmt(savings))
-        ed.append((hcp, 1, 1, new_hcp))
+        ed.append((hcp_idx, hcp, new_hcp))
 
-    claim_hcp = next(s for s in payload[:lx_at[0]] if s.startswith("HCP*"))
+    claim_hcp_idx = next(k for k in range(lx_at[0])
+                         if payload[k].startswith("HCP*"))
+    claim_hcp = payload[claim_hcp_idx]
     saved = sum(l["savings"] for l in c["lines"])
-    ed.append((claim_hcp, 1, 1,
+    ed.append((claim_hcp_idx, claim_hcp,
                set_elem(set_elem(claim_hcp, 2, _money_fmt(total - saved)), 3,
                         _money_fmt(saved))))
 
@@ -383,19 +471,61 @@ def claim_total(ov, n):
 
 
 def apply_edits(payload, edits, key):
+    """Apply a mixed list of literal-addressed and index-addressed edits.
+
+    Two tuple shapes, unambiguously distinguished by length (Ruling T5-a):
+
+      * 4-tuple (literal, must_occur, replace_n, replacement) - the
+        original form. Finds every occurrence of `literal` in the payload,
+        requires there be exactly `must_occur` of them, and writes the SAME
+        `replacement` into the first `replace_n` of them. Used whenever a
+        segment - or a fixed number of byte-identical copies of one - is
+        addressed by its own content, e.g. edits_for's CLM/ST/BHT/REF edits
+        and _date_edits' one-date-many-occurrences rewrite.
+
+      * 3-tuple (index, expected_literal, replacement) - the new form. Used
+        when two segments in the payload can be byte-identical to each
+        other going in but must diverge coming out (money_edits, after a
+        splice has copied an LX loop). Addressed by position rather than by
+        searching for the literal, so two identical segments can each take
+        a different replacement - something the 4-tuple form cannot express
+        (must_occur/replace_n write the same replacement into every hit).
+        It still verifies `segs[index] == expected_literal` before writing,
+        so a payload that drifted from what the caller expected is still a
+        hard failure, not a silent overwrite - the same guarantee the
+        4-tuple form's must_occur check gives.
+    """
     segs = list(payload)
-    for literal, must_occur, replace_n, replacement in edits:
-        hits = [j for j, s in enumerate(segs) if s == literal]
-        if len(hits) != must_occur:
+    for edit in edits:
+        if len(edit) == 4:
+            literal, must_occur, replace_n, replacement = edit
+            hits = [j for j, s in enumerate(segs) if s == literal]
+            if len(hits) != must_occur:
+                raise BuildError(
+                    "claim %s: literal %r occurs %d times, expected "
+                    "exactly %d" % (key, literal, len(hits), must_occur))
+            if replace_n != must_occur:
+                raise BuildError(
+                    "claim %s: replace_n %d does not equal must_occur %d "
+                    "for %r" % (key, replace_n, must_occur, literal))
+            for j in hits[:replace_n]:
+                segs[j] = replacement
+        elif len(edit) == 3:
+            index, expected, replacement = edit
+            if not 0 <= index < len(segs):
+                raise BuildError(
+                    "claim %s: index %d is out of range for %d segments"
+                    % (key, index, len(segs)))
+            if segs[index] != expected:
+                raise BuildError(
+                    "claim %s: segment at index %d is %r, expected %r "
+                    "(drifted from what the edit expected)"
+                    % (key, index, segs[index], expected))
+            segs[index] = replacement
+        else:
             raise BuildError(
-                "claim %s: literal %r occurs %d times, expected exactly %d"
-                % (key, literal, len(hits), must_occur))
-        if replace_n != must_occur:
-            raise BuildError(
-                "claim %s: replace_n %d does not equal must_occur %d for %r"
-                % (key, replace_n, must_occur, literal))
-        for j in hits[:replace_n]:
-            segs[j] = replacement
+                "claim %s: malformed edit tuple (expected 3 or 4 elements, "
+                "got %d): %r" % (key, len(edit), edit))
     return segs
 
 
@@ -441,6 +571,10 @@ def build(seed_segs, profile, alloc, claims, ov=None):
                 "claim %d: seed block is %d segments, profile declares %d"
                 % (n, len(payload),
                    profile.block_lens[source_index(n, profile) - 1]))
+        # The block_lens assertion above runs against the SEED block; the
+        # splice then produces the output block every check after this
+        # point (identity/frozen/edits) operates on. Order matters.
+        payload = splice_lines(profile, ov, payload, n)
         check_identity_targets(profile, ov, payload, n)
         check_frozen_segments(profile, payload, n)
         edits = (edits_for(profile, alloc, n, ov)
