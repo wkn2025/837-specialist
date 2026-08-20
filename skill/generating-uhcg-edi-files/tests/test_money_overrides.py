@@ -7,6 +7,9 @@ pattern already established in test_identity_overrides.py.
 """
 import os
 import sys
+from decimal import Decimal
+
+import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                 "..", "scripts"))
@@ -106,6 +109,28 @@ def test_the_generated_file_passes_the_money_validator(repo):
     # function check 11 in validate.py's main() dispatches to), which is a
     # frozen public building block of validate.py and does not require
     # editing that file or running its full 15-check pipeline.
+    #
+    # Review finding 1: the MONEY_RULES check above only proves internal
+    # self-consistency of whatever numbers happen to be in the output - it
+    # never compares against the override's declared value, so this test
+    # used to pass even with money_edits/claim_total monkeypatched to
+    # no-ops (confirmed during the review, and re-confirmed while fixing
+    # this finding: see task-4-fix-1-report.md). Pin the actual override
+    # value landing in all four places money_edits/claim_total touch,
+    # each as a whole-segment assertion, so removing the feature fails
+    # this test for the right reason.
+    #
+    # 1234.56 is not an arbitrary round number: the generator derives
+    # savings with Decimal ROUND_HALF_UP (overrides.py's `_money()` +
+    # T2-b), while validate.py's own _check_money_split/_check_money_allowed
+    # re-derive the same 85/15 ratio in float (`round(x * 0.15, 2)`). The
+    # two disagree on some fraction of amounts - e.g. 0.50, 0.90, 1.10 make
+    # a generated 837I file fail its own validator today - and aligning
+    # validate.py to Decimal is Task 6's job, not this one's. 1234.56 ->
+    # savings 185.18 is one of the amounts where Decimal ROUND_HALF_UP and
+    # float rounding agree, so this test can assert both that the override
+    # landed AND that MONEY_RULES accepts the result, without tripping over
+    # the already-triaged validate.py float defect.
     doc = {"claims": [{"n": 1, "lines":
            [{"date": "20241121", "billed": "1234.56"}]}]}
     out = _build_I(repo, doc, claims=1)
@@ -114,12 +139,33 @@ def test_the_generated_file_passes_the_money_validator(repo):
     ok, detail = fn(_blocks(out), profile)
     assert ok, detail
 
+    claim = _blocks(out)[0]
+    assert "SV2*0430*HC:97530*1234.56*UN*2" in claim
+    lx_at = [j for j, s in enumerate(claim) if s.startswith("LX*")]
+    claim_hcp = [s for s in claim[:lx_at[0]] if s.startswith("HCP*")]
+    line_hcp = [s for s in claim[lx_at[0]:] if s.startswith("HCP*")]
+    assert claim_hcp == ["HCP*10*1049.38*185.18*9327*******UN*1"]
+    assert line_hcp == ["HCP*10*1049.38*185.18*9327*0.00**0.00****UN*2"]
+    clm = next(s for s in claim if s.startswith("CLM*"))
+    assert clm == "CLM*TEST240115001*1234.56***13:A:1**A*Y*Y"
+
 
 def test_professional_savings_is_honoured_verbatim(repo):
+    # Review finding 4: the original assertion was a bare substring match
+    # on "*376.55*123.45*", which cannot tell the claim-level HCP from the
+    # line-level HCP on a single-line claim - both compute to the same
+    # allowed/savings pair here (376.55 / 123.45), so a substring match
+    # could not rule out corruption of a segment's trailing elements. Anchor
+    # on the whole segment instead. The two HCPs are still distinguishable
+    # even though the numbers match: the claim-level HCP (before LX*1) has
+    # no trailing padding element in this seed, the line-level HCP (inside
+    # LX*1) keeps the seed's trailing "*0.00".
     doc = {"claims": [{"n": 1, "lines":
            [{"date": "20260212", "billed": "500.00", "savings": "123.45"}]}]}
     out = _build_P(repo, doc, claims=1)
-    assert [s for s in out if "*376.55*123.45*" in s]
+    claim = _blocks(out)[0]
+    assert "HCP*10*376.55*123.45*9327" in claim          # claim-level
+    assert "HCP*10*376.55*123.45*9327*0.00" in claim     # line-level (LX*1)
 
 
 # The four tests above are the brief's Step 1 verbatim. The tests below fill
@@ -185,3 +231,139 @@ def test_ov_none_still_leaves_money_untouched(repo):
     assert clm.split("*")[2] == "420.00"
     assert generate.money_edits(profile, None, seed_block, 1) == []
     assert generate.claim_total(None, 1) is None
+
+
+# Review findings 2, 3, 5, 6: the gaps the review found in the tests above -
+# the line-count BuildError is untested, there is no 837P multi-line money
+# test, the next()-lookups in money_edits raise a bare StopIteration instead
+# of a labeled BuildError, and _money_fmt formats through float.
+
+def test_money_override_with_too_many_lines_raises_build_error(repo):
+    # Seed block 1 (claim 1, claims=1) has exactly one LX loop. Overriding it
+    # with two lines must raise BuildError naming both counts (generate.py's
+    # money_edits, line-count check).
+    doc = {"claims": [{"n": 1, "lines": [
+           {"date": "20241121", "billed": "100.00"},
+           {"date": "20241122", "billed": "200.00"}]}]}
+    profile = seeds.get("I")
+    with pytest.raises(generate.BuildError) as exc:
+        _build_I(repo, doc, claims=1)
+    msg = str(exc.value)
+    assert "claim 1" in msg
+    assert "2 lines" in msg
+    assert "seed block has 1" in msg
+
+
+def test_money_override_with_too_few_lines_raises_build_error(repo):
+    # Seed block 2 (claim 2, claims=2) has exactly two LX loops. Overriding
+    # it with only one line must raise BuildError naming both counts, the
+    # other direction from the test above.
+    doc = {"claims": [{"n": 2, "lines": [
+           {"date": "20241121", "billed": "100.00"}]}]}
+    with pytest.raises(generate.BuildError) as exc:
+        _build_I(repo, doc, claims=2)
+    msg = str(exc.value)
+    assert "claim 2" in msg
+    assert "1 lines" in msg
+    assert "seed block has 2" in msg
+
+
+def test_professional_multi_line_claim_overrides_every_line_distinctly(repo):
+    # Review finding 3: no 837P multi-line money-override test existed. The
+    # P seed's per-block LX-loop counts are [1, 2, 1, 2, 1, 6, 2, 2] (block 6
+    # - claim 6 under claims=6 - has six lines; confirmed by reading the
+    # seed directly, not assumed). Override every one of those six lines
+    # with a DIFFERENT billed and savings value and assert whole segments:
+    # each SV1 charge at index 2, each line-level HCP, and the claim-level
+    # HCP as the sum, none of which any existing test exercised on the P
+    # profile with more than one line.
+    #
+    #   line  billed   savings  allowed
+    #   1     100.00   10.00    90.00
+    #   2     200.00   25.00    175.00
+    #   3     150.00   15.00    135.00
+    #   4     80.00    8.00     72.00
+    #   5     220.00   22.50    197.50
+    #   6     50.00    5.00     45.00
+    #   claim total 800.00, claim savings 85.50, claim allowed 714.50
+    doc = {"claims": [{"n": 6, "lines": [
+           {"date": "20260205", "billed": "100.00", "savings": "10.00"},
+           {"date": "20260205", "billed": "200.00", "savings": "25.00"},
+           {"date": "20260205", "billed": "150.00", "savings": "15.00"},
+           {"date": "20260205", "billed": "80.00", "savings": "8.00"},
+           {"date": "20260205", "billed": "220.00", "savings": "22.50"},
+           {"date": "20260205", "billed": "50.00", "savings": "5.00"},
+    ]}]}
+    out = _build_P(repo, doc, claims=6)
+    claim = _blocks(out)[5]
+
+    assert "SV1*HC:80053*100.00*UN*1*81**1**N" in claim
+    assert "SV1*HC:80061*200.00*UN*1*81**1**N" in claim
+    assert "SV1*HC:83695*150.00*UN*1*81**1**N" in claim
+    assert "SV1*HC:86141*80.00*UN*1*81**1**N" in claim
+    assert "SV1*HC:83090*220.00*UN*1*81**1**N" in claim
+    assert "SV1*HC:82172*50.00*UN*1*81**1**N" in claim
+
+    assert "HCP*10*90.00*10.00*9327*0.00" in claim
+    assert "HCP*10*175.00*25.00*9327*0.00" in claim
+    assert "HCP*10*135.00*15.00*9327*0.00" in claim
+    assert "HCP*10*72.00*8.00*9327*0.00" in claim
+    assert "HCP*10*197.50*22.50*9327*0.00" in claim
+    assert "HCP*10*45.00*5.00*9327*0.00" in claim
+
+    # Claim-level HCP (before LX*1) carries the aggregate, not any line's own
+    # figures, and has no trailing "*0.00" (matching this seed block's shape,
+    # confirmed by reading it - not assumed uniform with the I profile).
+    assert "HCP*10*714.50*85.50*9327" in claim
+
+    clm = next(s for s in claim if s.startswith("CLM*"))
+    assert clm == "CLM*TEST240215006*800.00***81:B:1*N*C*Y*Y*P"
+
+
+def test_money_edits_raises_build_error_when_line_segment_is_missing(repo):
+    # Review finding 5: money_edits' next(...) lookups for the SV segment and
+    # the HCP segment used to raise a bare, uncaught StopIteration when a
+    # block lacked one - not in the (SeedMismatch, MasterfileError,
+    # BuildError) tuple main() catches, so it would have surfaced as an
+    # unhandled crash. This calls money_edits directly (bypassing the seed
+    # hash gate that guarantees real seed shape today) with a synthetic
+    # payload missing the SV segment after LX*1, and confirms the guard now
+    # raises a labeled BuildError naming the claim and what is missing.
+    profile = seeds.get("I")
+    ov = overrides.Overrides({}, {1: {"principalDiagnosis": None, "lines": [
+        {"date": "20241121", "billed": Decimal("100.00"),
+         "savings": Decimal("15.00")}]}})
+    payload = ["LX*1"]  # no SV2 segment follows
+    with pytest.raises(generate.BuildError) as exc:
+        generate.money_edits(profile, ov, payload, 1)
+    msg = str(exc.value)
+    assert "claim 1" in msg
+    assert "line 1" in msg
+    assert "SV2" in msg
+
+
+def test_money_edits_raises_build_error_when_hcp_segment_is_missing(repo):
+    # Same as above, but the SV2 segment is present and the HCP is missing.
+    profile = seeds.get("I")
+    ov = overrides.Overrides({}, {1: {"principalDiagnosis": None, "lines": [
+        {"date": "20241121", "billed": Decimal("100.00"),
+         "savings": Decimal("15.00")}]}})
+    payload = ["LX*1", "SV2*0430*HC:97530*100.00*UN*2"]  # no HCP follows
+    with pytest.raises(generate.BuildError) as exc:
+        generate.money_edits(profile, ov, payload, 1)
+    msg = str(exc.value)
+    assert "claim 1" in msg
+    assert "line 1" in msg
+    assert "HCP" in msg
+
+
+def test_money_fmt_is_pure_decimal_never_float(repo):
+    # Review finding 6: _money_fmt used to be "%.2f" % v, which converts the
+    # Decimal to a float before formatting - a literal violation of
+    # CLAUDE.md's "Money is Decimal... never float" on the money path. The
+    # replacement quantizes with ROUND_HALF_UP and calls str() - no float in
+    # the path at all. Exercise a value already at two places, one with more
+    # precision than two places, and zero.
+    assert generate._money_fmt(Decimal("123.45")) == "123.45"
+    assert generate._money_fmt(Decimal("1234.567")) == "1234.57"
+    assert generate._money_fmt(Decimal("0")) == "0.00"

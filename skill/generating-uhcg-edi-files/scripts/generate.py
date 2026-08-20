@@ -6,7 +6,7 @@ times - a literal that has drifted is a hard failure, never a silent no-op.
 """
 from __future__ import annotations
 
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 
 import claim_summary
 import seeds
@@ -46,7 +46,11 @@ def edits_for(profile, alloc, n, ov=None):
     new_clm = set_elem(src_clm, 1, alloc.clm01[n - 1])
     total = claim_total(ov, n)
     if total is not None:
-        new_clm = set_elem(new_clm, 2, "%.2f" % total)
+        # Same float-mediated-formatting defect as _money_fmt below (review
+        # finding 6) - CLM02 is money on the same path, so it gets the same
+        # pure-Decimal formatter rather than a second, differently-behaved
+        # one.
+        new_clm = set_elem(new_clm, 2, _money_fmt(total))
     ed = [
         ("ST*837*%s*%s" % (profile.src_st02[i], profile.version), 1, 1,
          "ST*837*%s*%s" % (alloc.st02[n - 1], profile.version)),
@@ -272,8 +276,23 @@ def diagnosis_edits(profile, ov, payload, n):
     raise BuildError("claim %d: seed has no ABK principal diagnosis" % n)
 
 
+_CENTS = Decimal("0.01")
+
+
 def _money_fmt(v):
-    return "%.2f" % v
+    """Stringify a money Decimal at two places, never through float.
+
+    Every value this sees (billed/savings/allowed, all derived from
+    overrides.py's `_money()` or Decimal arithmetic on those) is already at
+    cent precision, so the quantize below is a formatting step, not a
+    rounding one - but it still uses the project's standard ROUND_HALF_UP
+    (never the Decimal context default) so a value that somehow arrives with
+    more than two places is handled the same way the rest of the codebase
+    handles money, per CLAUDE.md's "Money is Decimal... never float."
+    `"%.2f" % v` used to do this by converting the Decimal to a float first -
+    a literal violation of that rule on the money path (review finding 6).
+    """
+    return str(Decimal(v).quantize(_CENTS, rounding=ROUND_HALF_UP))
 
 
 # The service-line charge sits at a different element index per profile:
@@ -313,7 +332,7 @@ def money_edits(profile, ov, payload, n):
 
     ed = []
     total = Decimal("0.00")
-    for j, line in zip(lx_at, c["lines"]):
+    for line_no, (j, line) in enumerate(zip(lx_at, c["lines"]), start=1):
         billed, savings = line["billed"], line["savings"]
         # UHCG_Overview_Reference.md:218 - "Repriced Saving Amount is
         # calculated as Billed Amount - Allowed Amount", i.e. allowed =
@@ -323,10 +342,25 @@ def money_edits(profile, ov, payload, n):
         allowed = billed - savings
         total += billed
 
-        sv = next(s for s in payload[j:] if s.startswith(profile.line_id + "*"))
+        # Review finding 5: a bare next(...) here raised an uncaught
+        # StopIteration on a block missing its SV/HCP segment - not in the
+        # (SeedMismatch, MasterfileError, BuildError) tuple main() catches,
+        # so it would surface as an unhandled crash instead of the module's
+        # "hard failure with claim context" pattern diagnosis_edits already
+        # follows. Give both lookups the same explicit, labeled failure.
+        sv = next((s for s in payload[j:]
+                  if s.startswith(profile.line_id + "*")), None)
+        if sv is None:
+            raise BuildError(
+                "claim %d: line %d has no %s segment in the seed block"
+                % (n, line_no, profile.line_id))
         ed.append((sv, 1, 1, set_elem(sv, amt_idx, _money_fmt(billed))))
 
-        hcp = next(s for s in payload[j:] if s.startswith("HCP*"))
+        hcp = next((s for s in payload[j:] if s.startswith("HCP*")), None)
+        if hcp is None:
+            raise BuildError(
+                "claim %d: line %d has no HCP segment in the seed block"
+                % (n, line_no))
         new_hcp = set_elem(set_elem(hcp, 2, _money_fmt(allowed)), 3,
                            _money_fmt(savings))
         ed.append((hcp, 1, 1, new_hcp))
