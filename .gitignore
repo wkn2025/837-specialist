@@ -2,3 +2,9 @@ __pycache__/
 *.py[cod]
 .venv/
 venv/
+
+# Isolated workspaces and SDD scratch
+.claude/worktrees/
+.superpowers/sdd/
+node_modules/
+dist/
