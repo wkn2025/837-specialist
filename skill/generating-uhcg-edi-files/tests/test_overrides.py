@@ -42,6 +42,26 @@ def test_derived_savings_rounds_half_up():
     with pytest.raises(overrides.OverrideError, match="85/15"):
         overrides.parse(bad, I, claims=1)
 
+def test_a_valid_identity_key_is_accepted():
+    o = overrides.parse({"identity": {"taxId": "123456789"}}, I, claims=1)
+    assert o.identity == {"taxId": "123456789"}
+
+def test_an_unknown_identity_key_is_rejected():
+    with pytest.raises(overrides.OverrideError, match="unknown identity key"):
+        overrides.parse({"identity": {"favoriteColor": "blue"}}, I, claims=1)
+
+def test_professional_rejects_savings_that_exceeds_billed():
+    doc = {"claims": [{"n": 1, "lines":
+           [{"date": "20260101", "billed": "100.00", "savings": "150.00"}]}]}
+    with pytest.raises(overrides.OverrideError, match="savings exceeds billed"):
+        overrides.parse(doc, seeds.get("P"), claims=1)
+
+def test_sub_cent_billed_is_rejected():
+    doc = {"claims": [{"n": 1, "lines":
+           [{"date": "20241121", "billed": "420.001"}]}]}
+    with pytest.raises(overrides.OverrideError, match="sub-cent precision"):
+        overrides.parse(doc, I, claims=1)
+
 def test_professional_requires_a_savings():
     doc = {"claims": [{"n": 1, "lines": [{"date": "20260101",
                                           "billed": "100.00"}]}]}

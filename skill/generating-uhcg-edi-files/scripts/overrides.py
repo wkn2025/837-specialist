@@ -73,9 +73,16 @@ def parse(doc, profile, claims):
         for line in entry.get("lines") or []:
             billed = _money(line.get("billed"), "billed", n)
             if profile.money_rule == "split_85_15":
-                # UHCG_Validation_Rules_Institutional.csv: the HCP split is
-                # fixed. A supplied savings may restate it but never contradict
-                # it — that keeps the seed's own defaults round-trippable.
+                # UHCG_Overview_Reference.md:218 — UHCG's only requirement is
+                # "Repriced Saving Amount is calculated as Billed Amount -
+                # Allowed Amount" (HCP03, Loop 2300 & 2400). The 85/15 ratio
+                # itself is not a UHCG mandate; it is the repricing ratio the
+                # 837I seed file uses, frozen here as a seed-fidelity
+                # invariant so sliced claim payload stays internally
+                # consistent with the seed it came from (validate.py:108
+                # enforces the same ratio independently). A supplied savings
+                # may restate that ratio but never contradict it — that
+                # keeps the seed's own defaults round-trippable.
                 # T2-b: money rounding standardizes on Decimal quantize with
                 # ROUND_HALF_UP — never the context default (ROUND_HALF_EVEN)
                 # and never float — so this agrees with the file validator.
