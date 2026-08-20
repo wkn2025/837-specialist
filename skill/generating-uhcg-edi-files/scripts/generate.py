@@ -160,22 +160,20 @@ def check_identity_targets(profile, ov, payload, n):
                 "segment" % (n, key, prefix))
 
 
-def check_frozen_segments(profile, ov, payload, n):
-    """A frozen segment not named by a legitimate identity edit must survive.
+def check_frozen_segments(profile, payload, n):
+    """Every frozen segment must be present in this block, verbatim.
 
     In normal use seeds.load_seed()'s sha256 gate already guarantees the
     whole seed file - including every frozen segment - matches the profile
     before build() ever sees a block, so this only fires if a caller hands
     build() a payload that was altered after that gate ran. It exists so
-    build() does not rely on that gate alone: a frozen literal an override
-    did not declare editable must still be a hard failure here, never a
-    silent no-op, matching this module's stated safety model. Segments an
-    override DID legitimately swap (via identity_edits) are excluded.
+    build() does not rely on that gate alone: a frozen literal must still be
+    a hard failure here, never a silent no-op, matching this module's stated
+    safety model. This runs on the pre-edit payload, so a frozen segment an
+    override is about to legitimately swap is still present here unchanged -
+    the check does not need to know about identity_edits at all.
     """
-    swapped = {literal for literal, _, _, _ in identity_edits(profile, ov,
-                                                              payload)}
-    missing = [f for f in profile.frozen
-              if f not in payload and f not in swapped]
+    missing = [f for f in profile.frozen if f not in payload]
     if missing:
         raise BuildError(
             "claim %d: frozen segment(s) missing or drifted: %s"
@@ -259,7 +257,7 @@ def build(seed_segs, profile, alloc, claims, ov=None):
                 % (n, len(payload),
                    profile.block_lens[source_index(n, profile) - 1]))
         check_identity_targets(profile, ov, payload, n)
-        check_frozen_segments(profile, ov, payload, n)
+        check_frozen_segments(profile, payload, n)
         edits = (edits_for(profile, alloc, n)
                  + _date_edits(payload, profile, alloc)
                  + identity_edits(profile, ov, payload)
