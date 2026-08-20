@@ -7,7 +7,7 @@ byte for byte.
 """
 from __future__ import annotations
 
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
 # Segments carrying allocated identifiers. Overriding one would collide with
 # the masterfile, so naming any of these is a hard error.
@@ -76,7 +76,11 @@ def parse(doc, profile, claims):
                 # UHCG_Validation_Rules_Institutional.csv: the HCP split is
                 # fixed. A supplied savings may restate it but never contradict
                 # it — that keeps the seed's own defaults round-trippable.
-                savings = (billed * Decimal("0.15")).quantize(Decimal("0.01"))
+                # T2-b: money rounding standardizes on Decimal quantize with
+                # ROUND_HALF_UP — never the context default (ROUND_HALF_EVEN)
+                # and never float — so this agrees with the file validator.
+                savings = (billed * Decimal("0.15")).quantize(
+                    Decimal("0.01"), rounding=ROUND_HALF_UP)
                 if ("savings" in line
                         and _money(line["savings"], "savings", n) != savings):
                     raise OverrideError(

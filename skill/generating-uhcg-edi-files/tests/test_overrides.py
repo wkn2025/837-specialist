@@ -27,6 +27,21 @@ def test_institutional_accepts_a_savings_that_restates_the_split():
     o = overrides.parse(doc, I, claims=1)
     assert o.claim(1)["lines"][0]["savings"] == Decimal("63.00")
 
+def test_derived_savings_rounds_half_up():
+    # billed 1.10 * 0.15 = 0.165, which ROUND_HALF_EVEN (Decimal's context
+    # default) rounds to 0.16 but ROUND_HALF_UP rounds to 0.17. T2-b
+    # standardizes this generator's money rounding on ROUND_HALF_UP so that
+    # overrides.parse agrees with validate.py's round(float(x) * 0.15, 2).
+    doc = {"claims": [{"n": 1, "lines":
+           [{"date": "20241121", "billed": "1.10", "savings": "0.17"}]}]}
+    o = overrides.parse(doc, I, claims=1)
+    assert o.claim(1)["lines"][0]["savings"] == Decimal("0.17")
+
+    bad = {"claims": [{"n": 1, "lines":
+           [{"date": "20241121", "billed": "1.10", "savings": "0.16"}]}]}
+    with pytest.raises(overrides.OverrideError, match="85/15"):
+        overrides.parse(bad, I, claims=1)
+
 def test_professional_requires_a_savings():
     doc = {"claims": [{"n": 1, "lines": [{"date": "20260101",
                                           "billed": "100.00"}]}]}
