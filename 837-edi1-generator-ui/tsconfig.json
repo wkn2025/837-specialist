@@ -11,6 +11,9 @@
     "noFallthroughCasesInSwitch": true,
     "resolveJsonModule": true,
     "isolatedModules": true,
+    // node --experimental-strip-types resolves the real file, so the .ts
+    // extension in server/index.ts is required at runtime.
+    "allowImportingTsExtensions": true,
     "verbatimModuleSyntax": true,
     "skipLibCheck": true,
     "noEmit": true,

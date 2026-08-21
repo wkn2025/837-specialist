@@ -172,6 +172,46 @@ def test_print_defaults_needs_no_claim_count(repo, capsys):
 
 
 # --------------------------------------------------------------------------
+# --print-allocation
+# --------------------------------------------------------------------------
+
+def test_print_allocation_matches_what_a_real_run_takes(scratch, work, capsys):
+    rc = generate.main(["--repo", scratch, "--type", "I", "--claims", "2",
+                        "--print-allocation"])
+    assert rc == 0
+    peek = json.loads(capsys.readouterr().out)
+    out = os.path.join(work, "o.x12")
+    assert generate.main(["--repo", scratch, "--type", "I", "--claims", "2",
+                          "--output", out]) == 0
+    capsys.readouterr()
+    run = M.load(scratch)["runs"][-1]
+    # The point of the flag: the tiles show the allocator's own answer, not a
+    # second implementation of the allocation rules in the browser.
+    for key in ("isa13", "gs06", "envelope_date", "statement", "st02",
+                "bht03", "clm01", "ref_f8", "ref_9a", "service_dates"):
+        assert peek[key] == run[key], key
+    assert peek["nextBatch"] == 2
+
+
+def test_print_allocation_allocates_nothing(scratch, capsys):
+    before = json.dumps(M.load(scratch), sort_keys=True)
+    for _ in range(2):
+        assert generate.main(["--repo", scratch, "--type", "P", "--claims",
+                              "3", "--print-allocation"]) == 0
+    first, second = capsys.readouterr().out.strip().splitlines()
+    # Twice in a row, same answer: peeking must not move the masterfile.
+    assert first == second
+    assert json.dumps(M.load(scratch), sort_keys=True) == before
+
+
+def test_print_allocation_needs_a_claim_count(scratch, capsys):
+    rc = generate.main(["--repo", scratch, "--type", "I",
+                        "--print-allocation"])
+    assert rc != 0
+    assert "--type and --claims are required" in capsys.readouterr().err
+
+
+# --------------------------------------------------------------------------
 # --json
 # --------------------------------------------------------------------------
 

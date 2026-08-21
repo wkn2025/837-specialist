@@ -653,6 +653,7 @@ def render(segs):
 # CLI
 # --------------------------------------------------------------------------
 import argparse
+import dataclasses
 import hashlib
 import io
 import json
@@ -750,6 +751,8 @@ def main(argv=None):
                     help="override document (JSON file, or - for stdin)")
     ap.add_argument("--print-defaults", action="store_true",
                     help="emit the seed's values as an override document")
+    ap.add_argument("--print-allocation", action="store_true",
+                    help="emit the identifiers a run would take, taking none")
     ap.add_argument("--json", action="store_true",
                     help="emit the output paths and batch id as JSON")
     ap.add_argument("--fail-after-validate", action="store_true",
@@ -816,6 +819,22 @@ def main(argv=None):
         sys.stderr.write("claim count must be between 1 and %d, got %r\n"
                          % (M.MAX_CLAIMS, claims))
         return 1
+
+    # The identifiers a run WOULD take. M.allocate only reads - the masterfile
+    # moves in append_run, further down - so this consumes nothing. It exists
+    # so the UI's identifier tiles come from the allocator itself rather than
+    # from a second implementation of the allocation rules in the browser.
+    if args.print_allocation:
+        try:
+            alloc = M.allocate(M.load(repo), repo, profile, claims)
+        except M.MasterfileError as exc:
+            sys.stderr.write("%s\n" % exc)
+            return 1
+        peek = dataclasses.asdict(alloc)
+        peek["nextBatch"] = len(M.load(repo)["runs"]) + 1
+        json.dump(peek, sys.stdout)
+        sys.stdout.write("\n")
+        return 0
 
     # Read the document before anything is allocated, so a malformed file
     # costs nothing from the masterfile.
