@@ -668,6 +668,38 @@ import overrides
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 
+def manifest_record(alloc, profile, claims, out_rel, sha, seed_sha,
+                    raw_doc=None):
+    """The manifest for one run, including the declaration that produced it.
+
+    The `overrides` key is added HERE rather than inside
+    masterfile.Allocation.as_record: masterfile.py allocates never-reused
+    identifiers and has no business knowing what an override document is.
+    This is the seam - production main() and the tests both go through this
+    one function, so the non-empty path is exercised code, not dead code.
+
+    Readers must tolerate the key's ABSENCE: every manifest committed under
+    EDI1/ predates it. Always `man.get("overrides") or {}`, never
+    `man["overrides"]`.
+    """
+    record = alloc.as_record(profile.code, claims, out_rel, sha,
+                             profile.rel_path, seed_sha)
+    record["overrides"] = raw_doc or {}
+    return record
+
+
+def _ov_from_manifest(man, profile):
+    """The declaration a manifest records, re-validated through the gate.
+
+    --pin has to replay the declaration as well as the allocation, or
+    validate.py check 14 ("regenerating from the manifest reproduces the file
+    byte for byte") fails on every file built from an override document. The
+    document goes back through overrides.parse rather than being trusted
+    as-is, so a hand-edited manifest is refused by the same gate the CLI uses.
+    """
+    return overrides.parse(man.get("overrides") or {}, profile, man["claims"])
+
+
 def _alloc_from_manifest(man):
     return M.Allocation(
         isa13=man["isa13"], gs06=man["gs06"],
@@ -746,10 +778,19 @@ def main():
         seed_segs = seeds.load_seed(profile, repo)
         if pinned:
             alloc = _alloc_from_manifest(pinned)
+            # A pinned replay must reproduce the DECLARATION as well as the
+            # allocation, or check 14 fails on every overridden file.
+            ov = _ov_from_manifest(pinned, profile)
+            raw_doc = pinned.get("overrides") or {}
         else:
             mf = M.load(repo)
             alloc = M.allocate(mf, repo, profile, claims)
-        text = render(build(seed_segs, profile, alloc, claims))
+            # No CLI path submits a document yet - task 8 owns --data. Until
+            # then an unpinned run declares nothing, and manifest_record
+            # writes an empty declaration.
+            raw_doc = {}
+            ov = overrides.parse(raw_doc, profile, claims)
+        text = render(build(seed_segs, profile, alloc, claims, ov))
     except (seeds.SeedMismatch, M.MasterfileError, BuildError,
             overrides.OverrideError) as exc:
         sys.stderr.write("%s\n" % exc)
@@ -758,10 +799,10 @@ def main():
     with open(seeds.seed_path(profile, repo), "rb") as fh:
         seed_sha = hashlib.sha256(fh.read()).hexdigest()
     sha = hashlib.sha256(text.encode("ascii")).hexdigest()
-    record = alloc.as_record(
-        profile.code, claims,
+    record = manifest_record(
+        alloc, profile, claims,
         os.path.relpath(outp, repo).replace("\\", "/"),
-        sha, profile.rel_path, seed_sha)
+        sha, seed_sha, raw_doc)
     if pinned:
         record["timestamp"] = pinned.get("timestamp", record["timestamp"])
 
