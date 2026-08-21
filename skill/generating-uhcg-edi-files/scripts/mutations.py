@@ -55,8 +55,23 @@ MUTATIONS_I = [
      "N3*80 JAMES STREET*4TH FLOOR~\n", 3, 1, ""),
     ("CLM02 no longer equals the sum of the service lines", 11,
      "CLM*TEST240115001*420.00", 1, 1, "CLM*TEST240115001*430.00"),
-    ("a frozen identity segment is altered", 12,
+    # Both committed manifests declare no overrides, so every edit below is
+    # by definition UNDECLARED - which is the class check 12 and check 9 must
+    # keep catching now that declared edits are legal. The complementary case
+    # (a declaration is present and a DIFFERENT element is tampered with) is
+    # covered by tests/test_declared_identity.py; it cannot be a mutation here
+    # until --data (task 8) can regenerate an overridden fixture for check 14.
+    ("an identity segment is altered with nothing declared", 12,
      "N4*SALT LAKE CITY*UT*84136~", 3, 1, "N4*SALT LAKE CITY*UT*84137~"),
+    ("an undeclared member id is altered", 12,
+     "NM1*IL*1*NISHIMURA*WILLIAM****MI*909001333969", 3, 1,
+     "NM1*IL*1*NISHIMURA*WILLIAM****MI*000000000000"),
+    ("an undeclared principal diagnosis is altered", 9,
+     "ABK:I48", 3, 1, "ABK:E119"),
+    ("an undeclared line charge no longer matches its HCP split", 11,
+     "SV2*0430*HC:97530*420.00", 3, 1, "SV2*0430*HC:97530*421.00"),
+    ("a service line keeps a duplicate LX number", 9,
+     "LX*2", 2, 1, "LX*1"),
     ("the file gains a CR line ending", 13,
      "IEA*1*990000001~\n", 1, 1, "IEA*1*990000001~\r\n"),
     ("the committed fixture no longer matches its generator", 14,
@@ -102,8 +117,17 @@ MUTATIONS_P = [
      "HCP*10*278.29*15.71*9327*0.00~"),
     ("the claim HCP is not the sum of its lines", 11,
      "HCP*10*222.21*83.79*9327~", 1, 1, "HCP*10*221.21*84.79*9327~"),
-    ("a frozen identity segment is altered", 12,
+    ("an identity segment is altered with nothing declared", 12,
      "NM1*PR*2*ERCT*****PI*ERCT~", 3, 1, "NM1*PR*2*ERCX*****PI*ERCT~"),
+    ("an undeclared member id is altered", 9,
+     "NM1*IL*1*LEPISTO*KRISTIINA****MI*909001299798", 1, 1,
+     "NM1*IL*1*LEPISTO*KRISTIINA****MI*909001000000"),
+    ("an undeclared principal diagnosis is altered", 9,
+     "HI*ABK:R10A0*ABF:R300", 1, 1, "HI*ABK:E119*ABF:R300"),
+    ("an undeclared line charge no longer matches its HCP", 11,
+     "SV1*HC:81002:QW*11.00", 1, 1, "SV1*HC:81002:QW*12.00"),
+    ("a service line keeps a duplicate LX number", 9,
+     "LX*2", 1, 1, "LX*1"),
     ("the file gains a CR line ending", 13,
      "IEA*1*990000101~\n", 1, 1, "IEA*1*990000101~\r\n"),
     ("the committed fixture no longer matches its generator", 14,
