@@ -1,0 +1,79 @@
+{
+  "bht03": [
+    "2403150001",
+    "2403150002",
+    "2403150003"
+  ],
+  "claims": 3,
+  "clm01": [
+    "TEST240315001",
+    "TEST240315002",
+    "TEST240315003"
+  ],
+  "envelope_date": "20240315",
+  "envelope_time": "0930",
+  "gs06": "995",
+  "isa13": "990000201",
+  "output": "skill/generating-uhcg-edi-files/tests/fixtures/declared_3claims.x12",
+  "overrides": {
+    "claims": [
+      {
+        "n": 1,
+        "principalDiagnosis": "E1165"
+      },
+      {
+        "lines": [
+          {
+            "billed": "500.00",
+            "date": "20240203"
+          },
+          {
+            "billed": "250.00",
+            "date": "20240204"
+          }
+        ],
+        "n": 2
+      }
+    ],
+    "identity": {
+      "attendingProvider": {
+        "npi": "1487654321"
+      },
+      "subscriber": {
+        "first": "ADAEZE",
+        "last": "OKONKWO",
+        "memberId": "909001777001"
+      }
+    }
+  },
+  "ref_9a": [
+    "E2E24031512125001",
+    "E2E24031512125002",
+    "E2E24031512125003"
+  ],
+  "ref_f8": [
+    "99012156001",
+    "99012156002",
+    "99012156003"
+  ],
+  "seed": "EDI1/Batch 1/fromUHCG-837I-WKN_9claims.x12",
+  "seed_sha256": "6076704874332f15f1b1f2495e0cb4be8343c55d151614ffef9f007c30192298",
+  "service_dates": [
+    "20240301",
+    "20240302",
+    "20240303",
+    "20240304",
+    "20240305",
+    "20240306",
+    "20240307"
+  ],
+  "sha256": "516db9e9d86b6228a56c4fb2220aa1b5e892131d1d02d83254ffa7857405ff7a",
+  "st02": [
+    "990000201",
+    "990000202",
+    "990000203"
+  ],
+  "statement": "20240301-20240307",
+  "timestamp": "2026-08-21T00:00:00",
+  "type": "I"
+}

@@ -27,6 +27,10 @@ FIXTURE_P = os.path.join(SKILL, "tests", "fixtures",
                          "canonical_3claims_P.x12")
 MANIFEST_P = os.path.join(SKILL, "tests", "fixtures",
                           "canonical_3claims_P.manifest.json")
+FIXTURE_D = os.path.join(SKILL, "tests", "fixtures",
+                         "declared_3claims.x12")
+MANIFEST_D = os.path.join(SKILL, "tests", "fixtures",
+                          "declared_3claims.manifest.json")
 VALIDATOR = os.path.join(HERE, "validate.py")
 GENERATOR = os.path.join(HERE, "generate.py")
 
@@ -55,12 +59,10 @@ MUTATIONS_I = [
      "N3*80 JAMES STREET*4TH FLOOR~\n", 3, 1, ""),
     ("CLM02 no longer equals the sum of the service lines", 11,
      "CLM*TEST240115001*420.00", 1, 1, "CLM*TEST240115001*430.00"),
-    # Both committed manifests declare no overrides, so every edit below is
-    # by definition UNDECLARED - which is the class check 12 and check 9 must
-    # keep catching now that declared edits are legal. The complementary case
-    # (a declaration is present and a DIFFERENT element is tampered with) is
-    # covered by tests/test_declared_identity.py; it cannot be a mutation here
-    # until --data (task 8) can regenerate an overridden fixture for check 14.
+    # Both canonical manifests declare no overrides, so every edit below is by
+    # definition UNDECLARED - the class check 12 and check 9 must keep catching
+    # now that declared edits are legal. The complementary half, where a
+    # declaration IS present, is MUTATIONS_D on the declared fixture.
     ("an identity segment is altered with nothing declared", 12,
      "N4*SALT LAKE CITY*UT*84136~", 3, 1, "N4*SALT LAKE CITY*UT*84137~"),
     ("an undeclared member id is altered", 12,
@@ -135,9 +137,34 @@ MUTATIONS_P = [
      "PER*IC*MacroHealth*EM*support@macrohealth.com*TE*9059064674~"),
 ]
 
+# The declared fixture is the other half of the model the canonical two cannot
+# reach: its manifest DECLARES a member id, a subscriber name, an attending
+# NPI, claim 1's principal diagnosis and claim 2's line charges. Checks 9 and
+# 12 measure the file against that declaration, so here the seed value is the
+# WRONG value - reverting to it must go red exactly as inventing a new one
+# does. Rebuild it with scripts/build_declared_fixture.py; it draws no
+# identifiers from the masterfile.
+MUTATIONS_D = [
+    ("a declared member id is reverted to its seed value", 12,
+     "NM1*IL*1*OKONKWO*ADAEZE****MI*909001777001", 3, 1,
+     "NM1*IL*1*NISHIMURA*WILLIAM****MI*909001333969"),
+    ("an identity segment the declaration never named is altered", 12,
+     "NM1*85*2*JFK JOHNSON REHAB INSTITUTE*****XX*1114932548", 3, 1,
+     "NM1*85*2*JFK JOHNSON REHAB INSTITUTE*****XX*1114932549"),
+    ("a declared principal diagnosis is reverted to its seed value", 9,
+     "HI*ABK:E1165", 1, 1, "HI*ABK:I48"),
+    ("a declared line charge is altered", 11,
+     "SV2*0430*HC:97530*500.00*UN*3", 1, 1,
+     "SV2*0430*HC:97530*501.00*UN*3"),
+    ("the committed fixture no longer matches its generator", 14,
+     "PER*IC*Sanyam Sood*EM*sanyam_sood@optum.com*TE*9999998888~", 3, 1,
+     "PER*IC*Sanyam Sood*EM*sanyam_sood@optum.com*TE*9999998887~"),
+]
+
 FIXTURES = [
     ("837I", FIXTURE, MANIFEST, MUTATIONS_I),
     ("837P", FIXTURE_P, MANIFEST_P, MUTATIONS_P),
+    ("decl", FIXTURE_D, MANIFEST_D, MUTATIONS_D),
 ]
 
 
