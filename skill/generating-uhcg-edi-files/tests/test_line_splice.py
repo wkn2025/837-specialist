@@ -7,7 +7,8 @@ make that dangerous:
   1. block_lens/SE01/LX numbering all have to stay self-consistent after a
      claim's loop count changes from what the seed declares.
   2. A copied LX loop duplicates every segment inside it - SV2/SV1, DTP,
-     HCP, and (per the P seed's block 6) even a trailing NTE. Any edit
+     HCP, and (per the P seed's block 6) even an NTE sitting between the
+     DTP and the HCP, fourth of that loop's five segments. Any edit
      builder that still addresses a segment by whole-segment literal breaks
      the moment two loops share that literal. money_edits is the one this
      task must fix (Ruling T5-a); _date_edits is not, and a couple of the
@@ -241,7 +242,8 @@ def test_professional_line_splice_grows_from_a_single_loop(repo):
 
 def test_professional_line_splice_shrinks_dropping_the_nte_bearing_loop(repo):
     # P seed block 6 (claim 6, claims=6) has six LX loops and ONLY the last
-    # one carries a trailing NTE*TPO* segment (confirmed by reading the seed
+    # one carries an NTE*TPO* segment, and it sits between that loop's DTP
+    # and its HCP - fourth of five - not after them (confirmed by reading the seed
     # directly - not assumed uniform with the other five loops). Shrinking to
     # three lines keeps loops 1-3 (no NTE) and must drop the NTE-bearing loop
     # 6 cleanly along with loops 4-5.
@@ -309,9 +311,11 @@ def test_fabricated_loop_drops_copied_nte_but_seed_originals_keep_theirs(repo):
     # Ruling T5-e. P seed block 7 (claim 7, claims=7) has TWO loops and BOTH
     # carry their own NTE*TPO* (unlike block 6, where only the last loop
     # does) - the case where the fabricated loop's SOURCE loop itself has an
-    # NTE, so a naive "copy including NTE" would land a line-level remark
-    # asserting a fact (a repricing reduction) about a line that never
-    # existed and was never repriced independently.
+    # NTE, so a naive "copy including NTE" would land one line's free-text
+    # remark onto a different line (Ruling X-24). Here that remark reads
+    # "Allowed Amount equal to Billed Charges" while every line in this
+    # override takes a savings, so the copied prose would be flatly false
+    # about the line carrying it.
     doc = {"claims": [{"n": 7, "lines": [
         {"date": "20251022", "billed": "50.00", "savings": "5.00"},
         {"date": "20251022", "billed": "60.00", "savings": "6.00"},
@@ -329,6 +333,21 @@ def test_fabricated_loop_drops_copied_nte_but_seed_originals_keep_theirs(repo):
     lx_at = [j for j, s in enumerate(claim7) if s.startswith("LX*")]
     loop3 = claim7[lx_at[2]:]
     assert not [s for s in loop3 if s.startswith("NTE*")]
+    # Finding X-18: every assertion above still passes if T5-f alone is
+    # reverted, because BOTH source loops carry an NTE - so "no NTE on loop
+    # 3" cannot distinguish a copy of loop 1 from a copy of loop 2. The
+    # procedure code can: the seed's loop 1 is HC:83655 and its loop 2 is
+    # HC:85018, so a round-robin copy makes loop 3 HC:83655 while the old
+    # copy-the-last-loop behaviour would make it HC:85018. Whole-element
+    # comparison, not a substring.
+    codes = [s.split("*")[1] for s in claim7 if s.startswith("SV1*")]
+    assert codes == ["HC:83655", "HC:85018", "HC:83655"]
+    # Finding X-19: pin SE01 on the NTE-stripping growth path specifically.
+    # Stripping a segment from a fabricated loop reduces the block's segment
+    # count, so a strip that ran without renumber_se seeing it would leave
+    # SE01 one too high and the file would fail its own trailer check.
+    se = [s for s in claim7 if s.startswith("SE*")][0]
+    assert int(se.split("*")[1]) == len(claim7)
     profile = seeds.get("P")
     fn, _label = validate.MONEY_RULES[profile.money_rule]
     ok, detail = fn(_blocks(out), profile)

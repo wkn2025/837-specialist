@@ -321,11 +321,18 @@ def splice_lines(profile, ov, payload, n):
     identical duplicate service lines (a single-loop block necessarily still
     repeats its only loop; that is unavoidable). Every qualifier, revenue
     code, and DTP a copied loop carried survives untouched, EXCEPT a copied
-    NTE* segment, which a FABRICATED loop drops (Ruling T5-e:
-    UHCG_Special_Instructions_NTE_Guide.md:50 - UHCG passes a line-level NTE
-    to CLIENT only when there is line-level reduction information for THAT
-    line; a fabricated line was never independently repriced, so a copied
-    remark would misdescribe it). Loops the seed itself carries - kept as-is
+    NTE* segment, which a FABRICATED loop drops (Rulings T5-e and X-24).
+    The reason is NOT that a fabricated line lacks reduction information -
+    money_edits writes a per-line HCP reduction onto it, so it has some.
+    It is that a line-level NTE is free-text prose written about a
+    DIFFERENT line, and this generator has no basis on which to assert that
+    prose holds for a line it fabricated. The P seed's own remark makes the
+    point: "Allowed Amount equal to Billed Charges" is false the moment a
+    fabricated line takes a savings. UHCG_Special_Instructions_NTE_Guide.md
+    :50 (Outbound) permits a line-level NTE where line-level reduction
+    information exists; it does not license copying one line's wording onto
+    another. Emitting no remark is always safe under the guide; emitting a
+    possibly-false one about money is not. Loops the seed itself carries - kept as-is
     when shrinking, or copied FROM when growing - are never altered; only a
     fabricated loop's own NTE is stripped. Only LX01 is renumbered here, and
     money_edits (which runs after this, addressing segments by position
@@ -355,12 +362,13 @@ def splice_lines(profile, ov, payload, n):
     loops = [payload[s:e] for s, e in bounds]
     if want > len(loops):
         originals = list(loops)
-        i = 0
         while len(loops) < want:
-            fabricated = [s for s in originals[i % len(originals)]
-                          if not s.startswith("NTE*")]
-            loops.append(fabricated)
-            i += 1
+            # The cycle index is how many loops we have already fabricated,
+            # which is exactly len(loops) - len(originals). Deriving it from
+            # the list rather than tracking a second counter keeps the two
+            # from ever disagreeing.
+            src = originals[(len(loops) - len(originals)) % len(originals)]
+            loops.append([s for s in src if not s.startswith("NTE*")])
     else:
         loops = loops[:want]
 
@@ -415,9 +423,16 @@ def money_edits(profile, ov, payload, n):
     the two).
 
     Ruling T5-a: `payload` may now be a spliced block (splice_lines runs
-    before this in build()), where a grown claim copies its last LX loop -
-    so two loops can share the exact same SV/HCP literal going in, and each
-    one needs a DIFFERENT amount coming out. A literal-addressed edit tuple
+    before this in build()), where a grown claim fabricates loops by copying
+    its existing ones round-robin (Ruling T5-f) - so two loops can share the
+    exact same SV/HCP literal going in, and each one needs a DIFFERENT
+    amount coming out. Round-robin copying REDUCES how often that happens
+    but does not eliminate it: a single-loop block still repeats its only
+    loop, growing past the original loop count repeats the cycle, and the
+    837I seed's own blocks 2-9 already carry 2..9 SV2 segments drawn from
+    only two distinct values, so byte-identical repeats exist in the seed
+    before any splice. Index addressing is therefore still REQUIRED, not a
+    leftover from the old copy-the-last-loop behaviour. A literal-addressed edit tuple
     cannot express that: apply_edits' `must_occur`/`replace_n` contract
     writes the SAME replacement into every matching hit, so `must_occur=2`
     would force both loops to the same amount and `must_occur=1` would raise
