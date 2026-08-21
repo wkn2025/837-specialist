@@ -300,14 +300,25 @@ def splice_lines(profile, ov, payload, n):
 
     This is the only edit in the plan that changes segment counts, so it
     runs before the edit list is assembled (renumber_se fixes SE01
-    afterward; LX01 is renumbered here). New loops are copies of the
-    block's LAST loop, so every qualifier, revenue code, and any trailing
-    segment the seed carried (e.g. the P seed's NTE) survives untouched;
-    only LX01 is renumbered here, and money_edits (which runs after this,
-    addressing segments by position rather than content - Ruling T5-a) sets
-    the amounts. A claim with no line override, or one whose line count
-    already matches the seed block, is untouched - this keeps splice_lines
-    inert for every claim task 1-4's tests exercise.
+    afterward; LX01 is renumbered here). Growing a block copies its
+    EXISTING loops round-robin (Ruling T5-f) - growing a 2-loop block, line
+    3 copies loop 1, line 4 copies loop 2, and so on - rather than always
+    the last loop, so a grown claim does not become a run of otherwise-
+    identical duplicate service lines (a single-loop block necessarily still
+    repeats its only loop; that is unavoidable). Every qualifier, revenue
+    code, and DTP a copied loop carried survives untouched, EXCEPT a copied
+    NTE* segment, which a FABRICATED loop drops (Ruling T5-e:
+    UHCG_Special_Instructions_NTE_Guide.md:50 - UHCG passes a line-level NTE
+    to CLIENT only when there is line-level reduction information for THAT
+    line; a fabricated line was never independently repriced, so a copied
+    remark would misdescribe it). Loops the seed itself carries - kept as-is
+    when shrinking, or copied FROM when growing - are never altered; only a
+    fabricated loop's own NTE is stripped. Only LX01 is renumbered here, and
+    money_edits (which runs after this, addressing segments by position
+    rather than content - Ruling T5-a) sets the amounts. A claim with no
+    line override, or one whose line count already matches the seed block,
+    is untouched - this keeps splice_lines inert for every claim task 1-4's
+    tests exercise.
     """
     c = ov.claim(n) if ov else None
     if not c or not c["lines"]:
@@ -328,9 +339,16 @@ def splice_lines(profile, ov, payload, n):
     head = payload[:bounds[0][0]]
     tail = payload[bounds[-1][1]:]
     loops = [payload[s:e] for s, e in bounds]
-    while len(loops) < want:
-        loops.append(list(loops[-1]))
-    loops = loops[:want]
+    if want > len(loops):
+        originals = list(loops)
+        i = 0
+        while len(loops) < want:
+            fabricated = [s for s in originals[i % len(originals)]
+                          if not s.startswith("NTE*")]
+            loops.append(fabricated)
+            i += 1
+    else:
+        loops = loops[:want]
 
     out = list(head)
     for i, loop in enumerate(loops, 1):

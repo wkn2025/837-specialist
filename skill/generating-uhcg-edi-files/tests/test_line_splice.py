@@ -189,6 +189,34 @@ def test_duplicate_dtp_literal_after_a_splice_still_gets_rewritten(repo):
     assert dtps == ["DTP*472*D8*20240101", "DTP*472*D8*20240101"]
 
 
+def test_institutional_line_splice_grows_round_robin_not_always_the_last(repo):
+    # Ruling T5-f. I seed block 2 (claim 2, claims=2) has two DISTINCT loops
+    # - rev 0430/HC:97530 and rev 0440/HC:92507 (no NTE anywhere in the I
+    # seed, so this pins round-robin sourcing in isolation from item 1's
+    # NTE-dropping behavior). Growing to 5 lines must cycle 1, 2, 1, 2, 1 -
+    # not repeat loop 2 (the old "always last" behavior) four times, which
+    # would make every fabricated line an identical HC:92507/UN*1
+    # duplicate-service-line pattern.
+    doc = {"claims": [{"n": 2, "lines": [
+        {"date": "20241121", "billed": "10.00"},
+        {"date": "20241122", "billed": "20.00"},
+        {"date": "20241121", "billed": "30.00"},
+        {"date": "20241122", "billed": "40.00"},
+        {"date": "20241121", "billed": "50.00"}]}]}
+    out = _build_I(repo, doc, claims=2)
+    claim2 = _blocks(out)[1]
+    assert [s for s in claim2 if s.startswith("LX*")] == \
+        ["LX*1", "LX*2", "LX*3", "LX*4", "LX*5"]
+    rev_and_code = [(s.split("*")[1], s.split("*")[2])
+                    for s in claim2 if s.startswith("SV2*")]
+    assert rev_and_code == [
+        ("0430", "HC:97530"), ("0440", "HC:92507"),
+        ("0430", "HC:97530"), ("0440", "HC:92507"),
+        ("0430", "HC:97530")]
+    charges = [s.split("*")[3] for s in claim2 if s.startswith("SV2*")]
+    assert charges == ["10.00", "20.00", "30.00", "40.00", "50.00"]
+
+
 def test_professional_line_splice_grows_from_a_single_loop(repo):
     # P seed block 1 (claim 1, claims=1) has exactly one LX loop (T5-d) and
     # no NTE anywhere in it - the plain growth case for the non-uniform P
@@ -232,13 +260,16 @@ def test_professional_line_splice_shrinks_dropping_the_nte_bearing_loop(repo):
     assert int(se.split("*")[1]) == len(claim6)
 
 
-def test_professional_line_splice_grows_by_duplicating_the_nte_bearing_loop(repo):
-    # Same block 6, the other direction: growing past six lines duplicates
-    # the block's LAST loop, which is the one carrying NTE*TPO*. The
-    # duplicate NTE segments are inert (nothing addresses them by literal
-    # more than once in a way that needs distinct values) but must not
-    # crash the build, and the two new lines must still land distinct
-    # amounts via the index-addressed edit form.
+def test_professional_line_splice_grows_round_robin_and_drops_fabricated_nte(repo):
+    # Ruling T5-f / T5-e (fix round): growing past six lines no longer
+    # duplicates the block's LAST loop (loop 6, the one carrying NTE*TPO*)
+    # over and over - it copies round-robin from the block's ORIGINAL six
+    # loops (loop 7 <- loop 1, loop 8 <- loop 2), and any NTE a fabricated
+    # loop would have inherited is dropped per
+    # UHCG_Special_Instructions_NTE_Guide.md:50 (line-level NTE is only
+    # passed when there is line-level reduction info for THAT line - a
+    # fabricated line has none of its own). The two new lines must still
+    # land distinct amounts via the index-addressed edit form.
     doc = {"claims": [{"n": 6, "lines": [
         {"date": "20260205", "billed": "100.00", "savings": "10.00"},
         {"date": "20260205", "billed": "200.00", "savings": "25.00"},
@@ -256,9 +287,48 @@ def test_professional_line_splice_grows_by_duplicating_the_nte_bearing_loop(repo
     charges = [s.split("*")[2] for s in claim6 if s.startswith("SV1*")]
     assert charges == ["100.00", "200.00", "150.00", "80.00", "220.00",
                        "50.00", "60.00", "70.00"]
-    # The original loop 6 already carried one NTE; growing to 8 lines
-    # duplicates that same loop twice more, so the total is 1 + 2 = 3.
-    assert len([s for s in claim6 if s.startswith("NTE*")]) == 3
+    # Loops 7 and 8 are fabricated copies of original loops 1 and 2 (round
+    # robin), which never carried a procedure code of HC:82172 (that is
+    # original loop 6's own code) - whole-segment assertions on the
+    # procedure-code element prove the round-robin source, not just the
+    # rewritten charge.
+    codes = [s.split("*")[1] for s in claim6 if s.startswith("SV1*")]
+    assert codes == ["HC:80053", "HC:80061", "HC:83695", "HC:86141",
+                     "HC:83090", "HC:82172", "HC:80053", "HC:80061"]
+    # Only original loop 6 keeps its NTE; loops 7/8 are fabricated from
+    # loops 1/2 (which never had one), so the block-wide NTE count is
+    # unchanged from the seed's own single NTE, not 1 + 2 duplicates.
+    assert len([s for s in claim6 if s.startswith("NTE*")]) == 1
+    profile = seeds.get("P")
+    fn, _label = validate.MONEY_RULES[profile.money_rule]
+    ok, detail = fn(_blocks(out), profile)
+    assert ok, detail
+
+
+def test_fabricated_loop_drops_copied_nte_but_seed_originals_keep_theirs(repo):
+    # Ruling T5-e. P seed block 7 (claim 7, claims=7) has TWO loops and BOTH
+    # carry their own NTE*TPO* (unlike block 6, where only the last loop
+    # does) - the case where the fabricated loop's SOURCE loop itself has an
+    # NTE, so a naive "copy including NTE" would land a line-level remark
+    # asserting a fact (a repricing reduction) about a line that never
+    # existed and was never repriced independently.
+    doc = {"claims": [{"n": 7, "lines": [
+        {"date": "20251022", "billed": "50.00", "savings": "5.00"},
+        {"date": "20251022", "billed": "60.00", "savings": "6.00"},
+        {"date": "20251022", "billed": "70.00", "savings": "7.00"},
+    ]}]}
+    out = _build_P(repo, doc, claims=7)
+    claim7 = _blocks(out)[6]
+    assert [s for s in claim7 if s.startswith("LX*")] == \
+        ["LX*1", "LX*2", "LX*3"]
+    # Loops 1 and 2 are the seed's own - their NTE survives byte for byte,
+    # untouched by this feature. Loop 3 is fabricated (round-robin copy of
+    # loop 1) and must carry no NTE at all.
+    assert claim7.count("NTE*TPO*Y|Allowed Amount equal to Billed Charges") \
+        == 2
+    lx_at = [j for j, s in enumerate(claim7) if s.startswith("LX*")]
+    loop3 = claim7[lx_at[2]:]
+    assert not [s for s in loop3 if s.startswith("NTE*")]
     profile = seeds.get("P")
     fn, _label = validate.MONEY_RULES[profile.money_rule]
     ok, detail = fn(_blocks(out), profile)
