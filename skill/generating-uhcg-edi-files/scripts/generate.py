@@ -664,6 +664,7 @@ import tempfile
 
 import masterfile as M
 import overrides
+import seed_introspect
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -722,7 +723,22 @@ def _default_output(repo, code, claims):
                         "fromUHCG-837%s-WKN_%dclaims.x12" % (code, claims))
 
 
-def main():
+def _load_document(path):
+    """The override document named by --data, or None.
+
+    A path rather than an inline argument: a 200-claim document is far past
+    the ~8k Windows command-line ceiling. `-` reads stdin so a caller that
+    already holds the document in memory need not touch the filesystem.
+    """
+    if path is None:
+        return None
+    if path == "-":
+        return json.load(sys.stdin)
+    with io.open(path, encoding="utf-8") as fh:
+        return json.load(fh)
+
+
+def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("--repo", required=True)
     ap.add_argument("--type")
@@ -730,16 +746,39 @@ def main():
     ap.add_argument("--pin", help="replay the allocation in this manifest")
     ap.add_argument("--output")
     ap.add_argument("--force", action="store_true")
+    ap.add_argument("--data",
+                    help="override document (JSON file, or - for stdin)")
+    ap.add_argument("--print-defaults", action="store_true",
+                    help="emit the seed's values as an override document")
+    ap.add_argument("--json", action="store_true",
+                    help="emit the output paths and batch id as JSON")
     ap.add_argument("--fail-after-validate", action="store_true",
                     help=argparse.SUPPRESS)
-    args = ap.parse_args()
+    args = ap.parse_args(argv)
+
+    # With --json, stdout carries exactly one JSON object and nothing else -
+    # the Express bridge parses it whole. Progress lines go to stderr.
+    progress = sys.stderr if args.json else sys.stdout
 
     repo = os.path.abspath(args.repo)
+    if args.data and args.pin:
+        # --pin already replays the declaration the manifest records. A second
+        # document would silently lose to it, producing a file that is not
+        # what either input asked for.
+        sys.stderr.write("--data cannot be combined with --pin\n")
+        return 1
     pinned = None
     if args.pin:
         with io.open(args.pin, encoding="utf-8") as fh:
             pinned = json.loads(fh.read())
         code, claims = pinned["type"], pinned["claims"]
+    elif args.print_defaults:
+        # Reading the seed's own values allocates nothing, so a claim count
+        # would mean nothing here.
+        if not args.type:
+            sys.stderr.write("--type is required with --print-defaults\n")
+            return 1
+        code, claims = args.type, None
     else:
         if not args.type or args.claims is None:
             sys.stderr.write("--type and --claims are required "
@@ -756,6 +795,18 @@ def main():
             % (code, code.upper()))
         return 1
 
+    # Before the masterfile is touched: --print-defaults allocates nothing,
+    # and the UI calls it on every transaction-type switch.
+    if args.print_defaults:
+        try:
+            json.dump(seed_introspect.defaults_for(profile, repo),
+                      sys.stdout)
+        except (seeds.SeedMismatch, IOError, OSError) as exc:
+            sys.stderr.write("%s\n" % exc)
+            return 1
+        sys.stdout.write("\n")
+        return 0
+
     # An out-of-range claim count is an argument error, so it is refused here
     # rather than inside allocate() - otherwise a repo with no masterfile yet
     # reports the missing masterfile instead of the bad count. allocate()
@@ -764,6 +815,17 @@ def main():
                            and 1 <= claims <= M.MAX_CLAIMS):
         sys.stderr.write("claim count must be between 1 and %d, got %r\n"
                          % (M.MAX_CLAIMS, claims))
+        return 1
+
+    # Read the document before anything is allocated, so a malformed file
+    # costs nothing from the masterfile.
+    try:
+        raw_doc = _load_document(args.data)
+    except ValueError as exc:
+        sys.stderr.write("%s is not valid JSON: %s\n" % (args.data, exc))
+        return 1
+    except (IOError, OSError) as exc:
+        sys.stderr.write("%s cannot be read: %s\n" % (args.data, exc))
         return 1
 
     outp = os.path.abspath(args.output or _default_output(repo, profile.code,
@@ -785,10 +847,9 @@ def main():
         else:
             mf = M.load(repo)
             alloc = M.allocate(mf, repo, profile, claims)
-            # No CLI path submits a document yet - task 8 owns --data. Until
-            # then an unpinned run declares nothing, and manifest_record
-            # writes an empty declaration.
-            raw_doc = {}
+            # A run without --data declares nothing, and manifest_record
+            # writes an empty declaration rather than omitting the key.
+            raw_doc = raw_doc or {}
             ov = overrides.parse(raw_doc, profile, claims)
         text = render(build(seed_segs, profile, alloc, claims, ov))
     except (seeds.SeedMismatch, M.MasterfileError, BuildError,
@@ -835,8 +896,19 @@ def main():
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
+    batch_id = None
     if not pinned:
         M.append_run(repo, record)
+        # The 1-based index of this run in the masterfile: the only stable
+        # handle the UI can use to fetch the file back. A --pin replay appends
+        # nothing, so it has no batch of its own to name.
+        #
+        # The index counts runs[0], the "imported" pseudo-run bootstrap writes
+        # for the identifiers already on disk, so the first generated batch in
+        # a fresh repo is batch 2. That is deliberate: the id has to index the
+        # array a reader can actually fetch, and a reader listing history
+        # filters on type != "imported" rather than re-basing the numbering.
+        batch_id = len(M.load(repo)["runs"])
 
     # The reference .docx is the last thing built, outside the
     # allocate->validate->move->append sequence. The file and its
@@ -848,15 +920,19 @@ def main():
         summary = None
         sys.stderr.write("claim summary not written: %s\n" % exc)
 
-    sys.stdout.write("wrote %s (%d bytes)\n" % (outp, len(text)))
-    sys.stdout.write("manifest %s\n" % manp)
-    sys.stdout.write("ISA13 %s  GS06 %s  envelope %s %s\n"
-                     % (alloc.isa13, alloc.gs06, alloc.envelope_date,
-                        alloc.envelope_time))
-    sys.stdout.write("statement %s  claims %d\n" % (alloc.statement, claims))
-    sys.stdout.write("CLM01 %s .. %s\n" % (alloc.clm01[0], alloc.clm01[-1]))
+    progress.write("wrote %s (%d bytes)\n" % (outp, len(text)))
+    progress.write("manifest %s\n" % manp)
+    progress.write("ISA13 %s  GS06 %s  envelope %s %s\n"
+                   % (alloc.isa13, alloc.gs06, alloc.envelope_date,
+                      alloc.envelope_time))
+    progress.write("statement %s  claims %d\n" % (alloc.statement, claims))
+    progress.write("CLM01 %s .. %s\n" % (alloc.clm01[0], alloc.clm01[-1]))
     if summary:
-        sys.stdout.write("summary %s\n" % summary)
+        progress.write("summary %s\n" % summary)
+    if args.json:
+        json.dump({"x12FilePath": outp, "docxFilePath": summary,
+                   "manifestPath": manp, "batchId": batch_id}, sys.stdout)
+        sys.stdout.write("\n")
     return 0
 
 
