@@ -332,14 +332,14 @@ def splice_lines(profile, ov, payload, n):
     :50 (Outbound) permits a line-level NTE where line-level reduction
     information exists; it does not license copying one line's wording onto
     another. Emitting no remark is always safe under the guide; emitting a
-    possibly-false one about money is not. Loops the seed itself carries - kept as-is
-    when shrinking, or copied FROM when growing - are never altered; only a
-    fabricated loop's own NTE is stripped. Only LX01 is renumbered here, and
-    money_edits (which runs after this, addressing segments by position
-    rather than content - Ruling T5-a) sets the amounts. A claim with no
-    line override, or one whose line count already matches the seed block,
-    is untouched - this keeps splice_lines inert for every claim task 1-4's
-    tests exercise.
+    possibly-false one about money is not. Loops the seed itself carries -
+    kept as-is when shrinking, or copied FROM when growing - are never
+    altered; only a fabricated loop's own NTE is stripped. Only LX01 is
+    renumbered here, and money_edits (which runs after this, addressing
+    segments by position rather than content - Ruling T5-a) sets the
+    amounts. A claim with no line override, or one whose line count already
+    matches the seed block, is untouched - this keeps splice_lines inert for
+    every claim task 1-4's tests exercise.
     """
     c = ov.claim(n) if ov else None
     if not c or not c["lines"]:
@@ -432,10 +432,11 @@ def money_edits(profile, ov, payload, n):
     837I seed's own blocks 2-9 already carry 2..9 SV2 segments drawn from
     only two distinct values, so byte-identical repeats exist in the seed
     before any splice. Index addressing is therefore still REQUIRED, not a
-    leftover from the old copy-the-last-loop behaviour. A literal-addressed edit tuple
-    cannot express that: apply_edits' `must_occur`/`replace_n` contract
-    writes the SAME replacement into every matching hit, so `must_occur=2`
-    would force both loops to the same amount and `must_occur=1` would raise
+    leftover from the old copy-the-last-loop behaviour. A literal-addressed
+    edit tuple cannot express that: apply_edits' `must_occur`/`replace_n`
+    contract writes the SAME replacement into every hit it matches, so
+    `must_occur=2` would force both loops to the same amount and
+    `must_occur=1` would raise
     "occurs 2 times, expected exactly 1" (this is the brief's own Step 4
     test). So every edit this function emits is index-addressed - a
     (index, expected_literal, replacement) 3-tuple that apply_edits matches

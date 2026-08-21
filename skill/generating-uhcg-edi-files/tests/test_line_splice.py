@@ -243,10 +243,10 @@ def test_professional_line_splice_grows_from_a_single_loop(repo):
 def test_professional_line_splice_shrinks_dropping_the_nte_bearing_loop(repo):
     # P seed block 6 (claim 6, claims=6) has six LX loops and ONLY the last
     # one carries an NTE*TPO* segment, and it sits between that loop's DTP
-    # and its HCP - fourth of five - not after them (confirmed by reading the seed
-    # directly - not assumed uniform with the other five loops). Shrinking to
-    # three lines keeps loops 1-3 (no NTE) and must drop the NTE-bearing loop
-    # 6 cleanly along with loops 4-5.
+    # and its HCP - fourth of five - not after them (confirmed by reading
+    # the seed directly, not assumed uniform with the other five loops).
+    # Shrinking to three lines keeps loops 1-3 (no NTE) and must drop the
+    # NTE-bearing loop 6 cleanly along with loops 4-5.
     doc = {"claims": [{"n": 6, "lines": [
         {"date": "20260205", "billed": "11.00", "savings": "1.00"},
         {"date": "20260205", "billed": "22.00", "savings": "2.00"},
@@ -346,6 +346,11 @@ def test_fabricated_loop_drops_copied_nte_but_seed_originals_keep_theirs(repo):
     # Stripping a segment from a fabricated loop reduces the block's segment
     # count, so a strip that ran without renumber_se seeing it would leave
     # SE01 one too high and the file would fail its own trailer check.
+    # Honest scope: this assertion cannot be falsified by stubbing the strip
+    # today - the NTE-count assertion above fails first - and SE01 is
+    # correct because renumber_se recounts AFTER splice_lines runs. It is a
+    # REGRESSION GUARD against a future reordering that strips segments
+    # after the renumber, not a test that currently discriminates.
     se = [s for s in claim7 if s.startswith("SE*")][0]
     assert int(se.split("*")[1]) == len(claim7)
     profile = seeds.get("P")

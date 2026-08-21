@@ -231,3 +231,46 @@ def test_a_date_with_non_digit_characters_is_rejected():
            [{"date": "2024112X", "billed": "10.00"}]}]}
     with pytest.raises(overrides.OverrideError, match="CCYYMMDD"):
         overrides.parse(doc, I, claims=1)
+
+
+# Fix round 1 review, Important 2: the gate validated the CONTENTS of each
+# container but never the containers themselves, so a wrong-shaped one
+# reached an attribute access and escaped as a bare AttributeError rather
+# than an OverrideError. Each test below reproduced that exact traceback
+# ("'str' object has no attribute 'get'") before the guards were added.
+
+def test_a_non_object_identity_is_rejected():
+    # A string is the trap worth pinning: it is iterable, so this used to
+    # walk its CHARACTERS and report "unknown identity key 'a'".
+    with pytest.raises(overrides.OverrideError, match="identity must be"):
+        overrides.parse({"identity": "abc"}, I, claims=1)
+
+
+def test_a_non_array_claims_is_rejected():
+    with pytest.raises(overrides.OverrideError, match="claims must be"):
+        overrides.parse({"claims": "abc"}, I, claims=1)
+
+
+def test_a_non_object_claim_entry_is_rejected():
+    with pytest.raises(overrides.OverrideError, match="each claim must be"):
+        overrides.parse({"claims": ["x"]}, I, claims=1)
+
+
+def test_a_non_array_lines_is_rejected():
+    doc = {"claims": [{"n": 1, "lines": {"a": 1}}]}
+    with pytest.raises(overrides.OverrideError, match="lines must be"):
+        overrides.parse(doc, I, claims=1)
+
+
+def test_a_non_object_line_entry_is_rejected():
+    doc = {"claims": [{"n": 1, "lines": ["x"]}]}
+    with pytest.raises(overrides.OverrideError, match="each line must be"):
+        overrides.parse(doc, I, claims=1)
+
+
+def test_empty_containers_are_still_accepted():
+    # The guards reject wrong SHAPES, not empty ones: an absent override is
+    # the normal case and must keep parsing clean.
+    assert overrides.parse({"claims": []}, I, claims=1).is_empty()
+    doc = {"claims": [{"n": 1, "lines": []}]}
+    assert overrides.parse(doc, I, claims=1).claim(1)["lines"] == []

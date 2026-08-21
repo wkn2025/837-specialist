@@ -414,19 +414,43 @@ def test_a_malformed_override_document_is_a_clean_cli_error(monkeypatch,
     # overrides.OverrideError - the same exception class overrides.parse()
     # raises for a real malformed document - and asserts it surfaces through
     # main()'s existing clean error path rather than propagating.
+    #
+    #
+    # --repo and --output BOTH point into a throwaway directory, never at a
+    # real repo. This test drives the real main(), and main() loads the
+    # masterfile and allocates never-reused EDI identifiers (ISA13, GS06,
+    # REF*9A, ...) from it. Those allocations are permanent: CLAUDE.md states
+    # masterfile.json is written by the generator alone and never edited by
+    # hand, and a consumed identifier cannot be handed back. Pointing --repo
+    # at a real tree would leave this test one statement reordering inside
+    # main() away from burning real identifiers on every run - the
+    # monkeypatched load_seed happening to be the FIRST call in the try block
+    # is not a safety property worth relying on. Here the worst case is a
+    # masterfile that does not exist, inside a directory that is removed.
+    # (tempfile.mkdtemp rather than pytest's tmp_path: this environment
+    # denies access to pytest's own temp root, and mkdtemp is already the
+    # house pattern - test_masterfile.py:34 and five others use it.)
+    import shutil
+    import tempfile
+
     import overrides
 
-    def boom(profile, repo):
-        raise overrides.OverrideError("malformed override document")
+    root = tempfile.mkdtemp(prefix="clierr_")
+    try:
+        def boom(profile, repo):
+            raise overrides.OverrideError("malformed override document")
 
-    monkeypatch.setattr(G.seeds, "load_seed", boom)
-    monkeypatch.setattr(
-        sys, "argv",
-        ["generate.py", "--repo", REPO, "--type", "I", "--claims", "1"])
-    rc = G.main()
-    assert rc == 1
-    captured = capsys.readouterr()
-    assert "malformed override document" in captured.err
+        monkeypatch.setattr(G.seeds, "load_seed", boom)
+        monkeypatch.setattr(
+            sys, "argv",
+            ["generate.py", "--repo", root, "--type", "I", "--claims", "1",
+             "--output", os.path.join(root, "out.x12")])
+        rc = G.main()
+        assert rc == 1
+        captured = capsys.readouterr()
+        assert "malformed override document" in captured.err
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
 
 
 if __name__ == "__main__":

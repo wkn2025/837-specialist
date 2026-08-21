@@ -104,7 +104,19 @@ def parse(doc, profile, claims):
     if not isinstance(doc, dict):
         raise OverrideError("override document must be a JSON object")
 
+    # Fix round 1 review, Important 2: the gate validated the CONTENTS of
+    # each container but never the containers themselves, so a wrong-shaped
+    # one reached an attribute access and escaped as a bare AttributeError
+    # ("'str' object has no attribute 'get'") - the same "accepted, then an
+    # unhandled traceback" class that items 4 and 6 exist to close, just one
+    # level up. A string is the trap worth naming: it is iterable, so
+    # {"identity": "abc"} used to walk its CHARACTERS and report the useless
+    # "unknown identity key 'a'".
     identity = doc.get("identity") or {}
+    if not isinstance(identity, dict):
+        raise OverrideError(
+            "identity must be a JSON object, got %s: %r"
+            % (type(identity).__name__, identity))
     for key in identity:
         if key.lower().replace("*", "") in FORBIDDEN:
             raise OverrideError(
@@ -133,7 +145,16 @@ def parse(doc, profile, claims):
             _check_no_delimiters(v, key, allow_nonstring=True)
 
     out = {}
-    for entry in doc.get("claims") or []:
+    entries = doc.get("claims") or []
+    if not isinstance(entries, list):
+        raise OverrideError(
+            "claims must be a JSON array, got %s: %r"
+            % (type(entries).__name__, entries))
+    for entry in entries:
+        if not isinstance(entry, dict):
+            raise OverrideError(
+                "each claim must be a JSON object, got %s: %r"
+                % (type(entry).__name__, entry))
         n = entry.get("n")
         if not isinstance(n, int) or not 1 <= n <= claims:
             raise OverrideError("claim %s is outside the batch of %d"
@@ -142,7 +163,16 @@ def parse(doc, profile, claims):
             raise OverrideError("claim %d appears twice" % n)
 
         lines = []
-        for line in entry.get("lines") or []:
+        raw_lines = entry.get("lines") or []
+        if not isinstance(raw_lines, list):
+            raise OverrideError(
+                "claim %d: lines must be a JSON array, got %s: %r"
+                % (n, type(raw_lines).__name__, raw_lines))
+        for line in raw_lines:
+            if not isinstance(line, dict):
+                raise OverrideError(
+                    "claim %d: each line must be a JSON object, got %s: %r"
+                    % (n, type(line).__name__, line))
             billed = _money(line.get("billed"), "billed", n)
             if profile.money_rule == "split_85_15":
                 # UHCG_Overview_Reference.md:218 — UHCG's only requirement is
@@ -183,8 +213,12 @@ def parse(doc, profile, claims):
 
         pdx = entry.get("principalDiagnosis")
         if pdx is not None:
-            # Fix round 1, item 7c: "" parses clean today and produces
-            # either nothing or a malformed HI*ABK: segment downstream.
+            # Fix round 1, item 7c: "" used to parse clean and then do
+            # STRICTLY nothing - generate.py's diagnosis_edits guards with
+            # `not c.get("principalDiagnosis")`, which is falsy for "", so
+            # it returns no edits at all rather than emitting a malformed
+            # HI*ABK: segment. A pure silent no-op on a declared change,
+            # which is exactly what this gate exists to prevent.
             # None correctly means "not overridden" and must stay valid;
             # "" is a distinct mistake and gets its own message so it is
             # never confused with the legitimate not-overridden case.
