@@ -3,6 +3,8 @@ import json
 import os
 import sys
 
+import pytest
+
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                 "..", "scripts"))
 import generate
@@ -271,3 +273,52 @@ def test_a_null_identity_group_is_rejected(repo):
 def test_a_list_identity_group_is_rejected(repo):
     _assert_shape_rejected(repo, {"identity": {"billingProvider": ["x"]}})
     _assert_shape_rejected(repo, {"identity": {"taxId": ["998877665"]}})
+
+
+# Fix round 1, item 7a: dob addresses DMG*D8*, not NM1*IL* (docstring at
+# generate.py:210-212), so identity_edits' check against the group's own
+# `prefix` (NM1*IL* for subscriber) does not protect it. A block that
+# carries NM1*IL* but no DMG*D8* segment used to pass that check and then
+# silently produce no edit at all - the declared dob change never landed.
+# Constructed directly per the brief, rather than hunting for a seed block
+# shaped that way.
+
+def test_subscriber_dob_against_a_block_with_no_dmg_segment_is_rejected():
+    profile = seeds.get("I")
+    ov = overrides.Overrides({"subscriber": {"dob": "19850412"}}, {})
+    payload = ["NM1*IL*1*DOE*JANE****MI*W123456789"]   # no DMG*D8* segment
+    with pytest.raises(generate.BuildError) as exc:
+        generate.check_identity_targets(profile, ov, payload, 1)
+    msg = str(exc.value)
+    assert "claim 1" in msg
+    assert "dob" in msg
+    assert "DMG*D8*" in msg
+
+
+# Fix round 1, item 8: two generate.py raises with zero prior test coverage.
+
+def test_check_identity_targets_raises_when_the_groups_own_segment_is_missing():
+    # generate.py:220 (approx.) - the group's own prefix (NM1*IL* for
+    # subscriber) is absent from the block entirely.
+    profile = seeds.get("I")
+    ov = overrides.Overrides({"subscriber": {"last": "DOE"}}, {})
+    payload = ["SE*1*000000001"]                       # no NM1*IL* at all
+    with pytest.raises(generate.BuildError) as exc:
+        generate.check_identity_targets(profile, ov, payload, 1)
+    msg = str(exc.value)
+    assert "claim 1" in msg
+    assert "subscriber" in msg
+    assert "NM1*IL*" in msg
+
+
+def test_diagnosis_edits_raises_when_the_seed_has_no_abk_principal_diagnosis():
+    # generate.py:276 - the block has an HI* segment, but no ABK: composite.
+    profile = seeds.get("I")
+    ov = overrides.Overrides({}, {1: {"principalDiagnosis": "E119",
+                                      "lines": []}})
+    payload = ["HI*ABF:E119"]                           # no HI*ABK:
+    with pytest.raises(generate.BuildError) as exc:
+        generate.diagnosis_edits(profile, ov, payload, 1)
+    msg = str(exc.value)
+    assert "claim 1" in msg
+    assert "ABK" in msg

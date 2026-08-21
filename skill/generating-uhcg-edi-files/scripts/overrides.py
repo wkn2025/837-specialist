@@ -29,12 +29,32 @@ class OverrideError(Exception):
 # outright). overrides.py is the declared validation gate for this document,
 # so this check belongs here, not in generate.py - duplicating it there
 # would leave the gate itself permissive.
+#
+# Fix round 1, item 5: the old body was `if not isinstance(value, str):
+# return` - a silent early-out that let *any* non-string value (an int, a
+# bool, a list, a dict, None) skip the gate entirely and flow downstream
+# into segment assembly, where it crashes on a str.join or lands a
+# wrong-typed value in the file. A leaf field nested inside a declared
+# identity group (subscriber.last, etc.) or principalDiagnosis has no other
+# net to catch that, so those callers now get an explicit type rejection.
+# A *group's own* bare value (e.g. taxId given as a bare JSON value, or one
+# of the object-shaped groups given as something other than an object) is
+# deliberately left permissive here (`allow_nonstring=True`) and still
+# checked by generate.py's check_identity_targets against _IDENTITY_SHAPE,
+# which already raises a clear "must be a JSON <shape>" BuildError naming
+# the group - hardening it a second time here would only produce a second,
+# earlier, differently-worded error for the same defect.
 _X12_DELIMS = "*:~^"
 
 
-def _check_no_delimiters(value, field, n=None):
+def _check_no_delimiters(value, field, n=None, allow_nonstring=False):
     if not isinstance(value, str):
-        return
+        if allow_nonstring:
+            return
+        where = "claim %d: %s" % (n, field) if n is not None else field
+        raise OverrideError(
+            "%s must be a string, got %s: %r"
+            % (where, type(value).__name__, value))
     bad = [c for c in _X12_DELIMS if c in value]
     if bad:
         where = "claim %d: %s" % (n, field) if n is not None else field
@@ -48,6 +68,17 @@ def _money(raw, field, n):
         v = Decimal(str(raw))
     except (InvalidOperation, TypeError):
         raise OverrideError("claim %d: %s %r is not a number" % (n, field, raw))
+    # Fix round 1, item 4: json.loads turns the bare tokens NaN, Infinity and
+    # -Infinity into Python floats, and Decimal(str(float("nan"))) succeeds -
+    # so without this check a NaN/Infinity slips past both guards below: the
+    # negative check (`v < 0`) is False for NaN (every comparison with NaN is
+    # False) and Infinity's exponent is the string 'F' (NaN's is 'n'), not an
+    # int, so `v.as_tuple().exponent < -2` raises an uncaught TypeError
+    # rather than an OverrideError. Reject non-finite values up front, before
+    # either check, with a message that names what actually went wrong.
+    if not v.is_finite():
+        raise OverrideError(
+            "claim %d: %s %r is not a finite number" % (n, field, raw))
     if v < 0:
         raise OverrideError("claim %d: %s may not be negative" % (n, field))
     if v.as_tuple().exponent < -2:
@@ -83,10 +114,23 @@ def parse(doc, profile, claims):
             raise OverrideError("unknown identity key %r" % key)
         v = identity[key]
         if isinstance(v, dict):
+            # Fix round 1, item 7b: a group declared with no fields at all
+            # ({"identity": {"subscriber": {}}}) used to parse clean and
+            # change nothing - a silent no-op on a declared change, the
+            # failure mode this gate exists to prevent.
+            if not v:
+                raise OverrideError(
+                    "identity group %r has no fields" % key)
             for fname, fval in v.items():
                 _check_no_delimiters(fval, "%s.%s" % (key, fname))
         else:
-            _check_no_delimiters(v, key)
+            # The group's own bare value (e.g. taxId, or an object-shaped
+            # group given as something other than an object) is left
+            # permissive here; generate.py's check_identity_targets is the
+            # one place that validates a group's overall JSON shape against
+            # _IDENTITY_SHAPE, and it already raises a clear BuildError
+            # naming the group and the shape it got.
+            _check_no_delimiters(v, key, allow_nonstring=True)
 
     out = {}
     for entry in doc.get("claims") or []:
@@ -138,7 +182,18 @@ def parse(doc, profile, claims):
             lines.append({"date": date, "billed": billed, "savings": savings})
 
         pdx = entry.get("principalDiagnosis")
-        _check_no_delimiters(pdx, "principalDiagnosis", n)
+        if pdx is not None:
+            # Fix round 1, item 7c: "" parses clean today and produces
+            # either nothing or a malformed HI*ABK: segment downstream.
+            # None correctly means "not overridden" and must stay valid;
+            # "" is a distinct mistake and gets its own message so it is
+            # never confused with the legitimate not-overridden case.
+            if pdx == "":
+                raise OverrideError(
+                    "claim %d: principalDiagnosis is an empty string; use "
+                    "null (or omit the field) to leave it unoverridden"
+                    % n)
+            _check_no_delimiters(pdx, "principalDiagnosis", n)
         out[n] = {"principalDiagnosis": pdx, "lines": lines}
 
     return Overrides(identity, out)

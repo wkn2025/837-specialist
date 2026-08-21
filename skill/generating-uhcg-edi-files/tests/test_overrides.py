@@ -1,3 +1,5 @@
+import json
+
 import pytest
 from decimal import Decimal
 import overrides, seeds
@@ -99,3 +101,133 @@ def test_a_segment_terminator_in_a_name_is_rejected():
     with pytest.raises(overrides.OverrideError, match="delimiter"):
         overrides.parse({"identity": {"billingProvider": {
             "name": "RIVERBEND~MEDICAL", "npi": "1740283920"}}}, I, claims=1)
+
+
+# Fix round 1, item 4: json.loads turns the bare tokens NaN, Infinity and
+# -Infinity into Python floats, and Decimal(str(float("nan"))) succeeds - so
+# without a finiteness guard these used to either slip past _money's
+# negative/precision checks (NaN) or raise an uncaught TypeError instead of
+# an OverrideError (Infinity/-Infinity's exponent is not an int). Feed the
+# tokens through json.loads, the same path a real --data document takes.
+
+@pytest.mark.parametrize("token", ["NaN", "Infinity", "-Infinity"])
+def test_non_finite_billed_is_rejected(token):
+    doc = json.loads(
+        '{"claims":[{"n":1,"lines":[{"date":"20241121","billed":%s}]}]}'
+        % token)
+    with pytest.raises(overrides.OverrideError, match="not a finite number"):
+        overrides.parse(doc, I, claims=1)
+
+
+@pytest.mark.parametrize("token", ["NaN", "Infinity", "-Infinity"])
+def test_non_finite_savings_is_rejected(token):
+    # 837P always calls _money on savings unconditionally (no derived-ratio
+    # short-circuit the way 837I's split_85_15 rule has), so this is the
+    # cleanest profile to pin the savings field with.
+    doc = json.loads(
+        '{"claims":[{"n":1,"lines":[{"date":"20260101","billed":"100.00",'
+        '"savings":%s}]}]}' % token)
+    with pytest.raises(overrides.OverrideError, match="not a finite number"):
+        overrides.parse(doc, seeds.get("P"), claims=1)
+
+
+# Fix round 1, item 5: _check_no_delimiters used to silently skip any
+# non-string value (`if not isinstance(value, str): return`), so a field
+# nested inside a declared identity group flowed downstream untyped and
+# crashed on a str.join, or landed a wrong-typed value in the file. True is
+# called out specifically because isinstance(True, str) is False too, so it
+# used to skip the same way an int or a dict would.
+
+@pytest.mark.parametrize("bad,type_name", [
+    (12345, "int"),
+    (None, "NoneType"),
+    (["A"], "list"),
+    ({"x": 1}, "dict"),
+    (True, "bool"),
+])
+def test_a_non_string_identity_field_is_rejected(bad, type_name):
+    with pytest.raises(overrides.OverrideError, match=type_name):
+        overrides.parse({"identity": {"subscriber": {"last": bad}}},
+                        I, claims=1)
+
+
+@pytest.mark.parametrize("bad,type_name", [
+    (12345, "int"),
+    (["A"], "list"),
+    ({"x": 1}, "dict"),
+])
+def test_a_non_string_principal_diagnosis_is_rejected(bad, type_name):
+    doc = {"claims": [{"n": 1, "principalDiagnosis": bad}]}
+    with pytest.raises(overrides.OverrideError, match=type_name):
+        overrides.parse(doc, I, claims=1)
+
+
+def test_principal_diagnosis_none_still_parses_cleanly():
+    # None means "not overridden" and must keep working - it is not one of
+    # the non-string values item 5 rejects.
+    doc = {"claims": [{"n": 1, "principalDiagnosis": None}]}
+    o = overrides.parse(doc, I, claims=1)
+    assert o.claim(1)["principalDiagnosis"] is None
+
+
+# Fix round 1, item 7b: a group declared with no fields at all parsed clean
+# and changed nothing - a silent no-op on a declared change.
+
+def test_an_empty_identity_group_is_rejected():
+    with pytest.raises(overrides.OverrideError, match="no fields"):
+        overrides.parse({"identity": {"subscriber": {}}}, I, claims=1)
+
+
+# Fix round 1, item 7c: "" parsed clean and produced either nothing or a
+# malformed HI*ABK: segment downstream. Distinguish it from None, which
+# correctly means "not overridden" (pinned above).
+
+def test_empty_principal_diagnosis_is_rejected():
+    doc = {"claims": [{"n": 1, "principalDiagnosis": ""}]}
+    with pytest.raises(overrides.OverrideError, match="empty string"):
+        overrides.parse(doc, I, claims=1)
+
+
+# Fix round 1, item 8: six existing raises with zero test coverage. Each
+# assertion below pins the specific message, not just the exception type, so
+# a refactor that deleted the guard - or replaced it with a different one -
+# would still be caught.
+
+def test_money_that_decimal_cannot_parse_is_not_a_number():
+    # Distinct from item 4's non-finite guard: Decimal(str("abc")) fails to
+    # construct at all, raising InvalidOperation before is_finite() is ever
+    # reached.
+    doc = {"claims": [{"n": 1, "lines":
+           [{"date": "20241121", "billed": "abc"}]}]}
+    with pytest.raises(overrides.OverrideError, match="is not a number"):
+        overrides.parse(doc, I, claims=1)
+
+
+def test_a_list_document_is_rejected():
+    with pytest.raises(overrides.OverrideError, match="JSON object"):
+        overrides.parse(["x"], I, claims=1)
+
+
+def test_a_string_document_is_rejected():
+    with pytest.raises(overrides.OverrideError, match="JSON object"):
+        overrides.parse("not a dict", I, claims=1)
+
+
+def test_a_repeated_claim_number_is_rejected():
+    doc = {"claims": [{"n": 1}, {"n": 1}]}
+    with pytest.raises(overrides.OverrideError, match="appears twice"):
+        overrides.parse(doc, I, claims=2)
+
+
+def test_a_date_with_wrong_length_is_rejected():
+    doc = {"claims": [{"n": 1, "lines":
+           [{"date": "2024112", "billed": "10.00"}]}]}
+    with pytest.raises(overrides.OverrideError, match="CCYYMMDD"):
+        overrides.parse(doc, I, claims=1)
+
+
+def test_a_date_with_non_digit_characters_is_rejected():
+    doc = {"claims": [{"n": 1, "lines":
+           [{"date": "2024112X", "billed": "10.00"}]}]}
+    with pytest.raises(overrides.OverrideError, match="CCYYMMDD"):
+        overrides.parse(doc, I, claims=1)

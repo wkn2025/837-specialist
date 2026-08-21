@@ -400,5 +400,34 @@ def _reverse(block, profile, alloc, n):
     return out
 
 
+def test_a_malformed_override_document_is_a_clean_cli_error(monkeypatch,
+                                                             capsys):
+    # Fix round 1, item 9a: main()'s except tuple was
+    # (seeds.SeedMismatch, M.MasterfileError, BuildError), omitting
+    # overrides.OverrideError - so a validation failure from the override
+    # gate, the whole point of that gate, would reach the user as an
+    # unhandled traceback instead of the module's clean "write to stderr,
+    # return 1" CLI error path. generate.py's CLI does not accept an
+    # override document of its own yet (that wiring is a later task's job),
+    # so this test forces the exact failure the fixed except tuple must now
+    # catch by making the first call inside main()'s try block raise
+    # overrides.OverrideError - the same exception class overrides.parse()
+    # raises for a real malformed document - and asserts it surfaces through
+    # main()'s existing clean error path rather than propagating.
+    import overrides
+
+    def boom(profile, repo):
+        raise overrides.OverrideError("malformed override document")
+
+    monkeypatch.setattr(G.seeds, "load_seed", boom)
+    monkeypatch.setattr(
+        sys, "argv",
+        ["generate.py", "--repo", REPO, "--type", "I", "--claims", "1"])
+    rc = G.main()
+    assert rc == 1
+    captured = capsys.readouterr()
+    assert "malformed override document" in captured.err
+
+
 if __name__ == "__main__":
     unittest.main()

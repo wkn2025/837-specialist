@@ -185,7 +185,7 @@ def identity_edits(profile, ov, payload):
 def check_identity_targets(profile, ov, payload, n):
     """Every declared identity group must be well-formed for this block.
 
-    Three independent hard failures, all against the same declared group:
+    Four independent hard failures, all against the same declared group:
 
     1. swap() is deliberately silent about a missing target segment so that
        a future validate.py check (Task 6, not written yet) can evaluate one
@@ -210,6 +210,15 @@ def check_identity_targets(profile, ov, payload, n):
        subscriber is a special case: "dob" is a valid field even though it
        is not in _IDENTITY_SEGMENTS["subscriber"]'s fields tuple, because it
        addresses the DMG*D8* segment instead of NM1*IL*.
+    4. Fix round 1, item 7a: "dob" addresses DMG*D8*, not NM1*IL* - so
+       failure #1 above (checked against `prefix`, i.e. NM1*IL* for
+       subscriber) does not protect it. A block that carries NM1*IL* but no
+       DMG*D8* segment passes #1 through #3 and identity_edits' swap()
+       silently produces no edit at all (swap() only raises when its own
+       target prefix is missing, and dob's target is DMG*D8*, not
+       NM1*IL*). Checked separately, after the field-name check, because it
+       only applies once "dob" is confirmed to be a known field of a
+       dict-shaped subscriber override.
     """
     if not ov or not ov.identity:
         return
@@ -237,6 +246,11 @@ def check_identity_targets(profile, ov, payload, n):
                     "claim %d: %s override names unknown field(s) %s "
                     "(valid: %s)"
                     % (n, key, ", ".join(unknown), ", ".join(sorted(valid))))
+            if (key == "subscriber" and "dob" in v
+                    and not any(s.startswith("DMG*D8*") for s in payload)):
+                raise BuildError(
+                    "claim %d: override names subscriber.dob but the seed "
+                    "block has no DMG*D8* segment" % n)
 
 
 def check_frozen_segments(profile, payload, n):
@@ -282,9 +296,9 @@ def _loop_bounds(payload):
     A loop runs from its LX segment up to (but not including) the next LX
     segment, or - for the last loop - up to the SE segment if the payload
     ends in one. Loop length is NOT assumed uniform: the P seed's block 6
-    carries a trailing NTE*TPO* in its sixth loop only (confirmed by
-    reading the seed directly), so bounds are derived purely from LX
-    position, never from a fixed per-loop segment count.
+    carries an NTE*TPO* between the DTP and the HCP in its sixth loop only
+    (confirmed by reading the seed directly), so bounds are derived purely
+    from LX position, never from a fixed per-loop segment count.
     """
     starts = [j for j, s in enumerate(payload) if s.startswith("LX*")]
     if not starts:
@@ -444,7 +458,10 @@ def money_edits(profile, ov, payload, n):
         # (SeedMismatch, MasterfileError, BuildError) tuple main() catches,
         # so it would surface as an unhandled crash instead of the module's
         # "hard failure with claim context" pattern diagnosis_edits already
-        # follows. Give both lookups the same explicit, labeled failure.
+        # follows. Give all three lookups the same explicit, labeled
+        # failure - the two per-line lookups below, and the claim-level HCP
+        # lookup after this loop (fix round 1, item 6: that third bare
+        # next() was missed the first time round).
         # These searches are still scoped forward from this loop's own LX
         # (index j), so a duplicate loop elsewhere in the payload can never
         # be mistaken for this one's SV/HCP - only the index found matters.
@@ -469,8 +486,12 @@ def money_edits(profile, ov, payload, n):
                            _money_fmt(savings))
         ed.append((hcp_idx, hcp, new_hcp))
 
-    claim_hcp_idx = next(k for k in range(lx_at[0])
-                         if payload[k].startswith("HCP*"))
+    claim_hcp_idx = next((k for k in range(lx_at[0])
+                          if payload[k].startswith("HCP*")), None)
+    if claim_hcp_idx is None:
+        raise BuildError(
+            "claim %d: seed block has no claim-level HCP segment before "
+            "its first service line" % n)
     claim_hcp = payload[claim_hcp_idx]
     saved = sum(l["savings"] for l in c["lines"])
     ed.append((claim_hcp_idx, claim_hcp,
@@ -626,6 +647,7 @@ import sys
 import tempfile
 
 import masterfile as M
+import overrides
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -712,7 +734,8 @@ def main():
             mf = M.load(repo)
             alloc = M.allocate(mf, repo, profile, claims)
         text = render(build(seed_segs, profile, alloc, claims))
-    except (seeds.SeedMismatch, M.MasterfileError, BuildError) as exc:
+    except (seeds.SeedMismatch, M.MasterfileError, BuildError,
+            overrides.OverrideError) as exc:
         sys.stderr.write("%s\n" % exc)
         return 1
 

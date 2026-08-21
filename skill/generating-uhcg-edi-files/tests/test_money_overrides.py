@@ -390,6 +390,56 @@ def test_money_edits_raises_build_error_when_hcp_segment_is_missing(repo):
     assert "HCP" in msg
 
 
+def test_override_on_block_9_lands_each_amount_on_the_correct_line(repo):
+    # Fix round 1, item 3 - regression test. Every money test above this one
+    # used claims=1 or claims=2, and 837I seed block 1 has exactly one SV2
+    # segment: the one shape where a literal-addressed (4-tuple) edit still
+    # works. Blocks 3-9 of the 837I seed each contain two or more SV2
+    # segments but only 2 distinct values among them (confirmed by reading
+    # the seed directly), so blocks 3-9 all contain byte-identical repeats -
+    # exactly the shape apply_edits' literal-substitution form cannot
+    # express (a BuildError this generator hit on an older commit, fixed by
+    # the index-addressed 3-tuple form money_edits emits). This pins that
+    # fix so it cannot silently regress: override every line of block 9 at
+    # claims=9 (nine SV2 segments) with nine distinct billed amounts and
+    # assert each landed on the correct line - splitting the segment and
+    # comparing element index 3 explicitly, not a substring, so a value
+    # landing in the wrong element cannot pass.
+    amounts = ["100.00", "200.00", "300.00", "400.00", "500.00",
+               "600.00", "700.00", "800.00", "900.00"]
+    doc = {"claims": [{"n": 9, "lines":
+           [{"date": "20241121", "billed": a} for a in amounts]}]}
+    out = _build_I(repo, doc, claims=9)
+    claim9 = _blocks(out)[8]
+    sv2 = [s for s in claim9 if s.startswith("SV2*")]
+    assert len(sv2) == 9
+    landed = [X.elems(s)[3] for s in sv2]
+    assert landed == amounts
+
+
+def test_money_edits_raises_build_error_when_claim_level_hcp_is_missing(repo):
+    # Fix round 1, item 6: the two per-line lookups above already got a
+    # labeled BuildError (review finding 5); this third bare next() - the
+    # claim-level HCP lookup, scanning backward from before the first LX
+    # loop - was missed. A payload whose only HCP segments sit inside LX
+    # loops (no claim-level HCP before the first LX*) used to raise an
+    # uncaught StopIteration here, which main()'s (SeedMismatch,
+    # MasterfileError, BuildError) except tuple does not catch, so it
+    # surfaced as an unhandled traceback. This is the brief's own minimal
+    # repro payload.
+    profile = seeds.get("I")
+    ov = overrides.Overrides({}, {1: {"principalDiagnosis": None, "lines": [
+        {"date": "20241121", "billed": Decimal("100.00"),
+         "savings": Decimal("15.00")}]}})
+    payload = ["LX*1", "SV2*0430*HC:97530*100.00*UN*2",
+               "HCP*10*85.00*15.00*9327*0.00**0.00****UN*2"]
+    with pytest.raises(generate.BuildError) as exc:
+        generate.money_edits(profile, ov, payload, 1)
+    msg = str(exc.value)
+    assert "claim 1" in msg
+    assert "no claim-level HCP" in msg
+
+
 def test_money_fmt_is_pure_decimal_never_float(repo):
     # Review finding 6: _money_fmt used to be "%.2f" % v, which converts the
     # Decimal to a float before formatting - a literal violation of
