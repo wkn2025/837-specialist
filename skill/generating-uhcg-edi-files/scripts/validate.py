@@ -18,7 +18,7 @@ import re
 import subprocess
 import sys
 import tempfile
-from decimal import Decimal as D
+from decimal import Decimal as D, ROUND_HALF_UP
 
 import generate as G
 import masterfile as M
@@ -104,44 +104,84 @@ def reverse_pairs(profile, man, n):
     return out
 
 
+_CENTS = D("0.01")
+
+
+def split_85_15(charge):
+    """(allowed, savings) for a charge, derived the way the generator does.
+
+    Savings first, allowed as the remainder - so allowed + savings equals the
+    charge exactly, for every charge. This is the guide's formula, read in the
+    only direction that is exactly invertible:
+
+        docs/reference/umr-uhcg-837/UHCG_Overview_Reference.md:218 -
+        "Repriced Saving Amount is calculated as Billed Amount -
+        Allowed Amount."
+
+    The 85/15 RATIO is NOT a UHCG requirement; no guide mandates it. It is the
+    repricing ratio the 837I seed file itself carries, frozen as a
+    seed-fidelity invariant so sliced claim payload stays internally
+    consistent with the seed it came from. overrides.py:177-199 is the
+    generator side of the same invariant.
+
+    Decimal with ROUND_HALF_UP, never float and never the Decimal context
+    default, per CLAUDE.md's money rules and to match overrides.py:193 and
+    generate.py's _money_fmt byte for byte.
+    """
+    savings = (charge * D("0.15")).quantize(_CENTS, rounding=ROUND_HALF_UP)
+    return charge - savings, savings
+
+
 def _check_money_split(blocks, profile):
-    """CLM02 = sum of line charges, and every HCP is an 85/15 split."""
+    """CLM02 = sum of line charges, and every HCP is the seed's 85/15 split.
+
+    Decimal throughout. This check used to derive both sides independently in
+    float - `round(total * 0.85, 2)` and `round(total * 0.15, 2)` - which for
+    a charge of 0.50 yields 0.42/0.07, a pair that does not even reconcile to
+    the charge (0.90 and 1.10 give 0.77/0.14 and 0.94/0.17, both over). The
+    generator has always derived savings and then subtracted, so the two
+    disagreed on roughly 2.4% of cent values and the validator would have
+    rejected the generator's own correct output. See split_85_15 above for
+    the citation, and CLAUDE.md ("Money is Decimal... never float") for why
+    no value on this path is allowed through a float.
+    """
     ok, detail = True, []
     for i, b in enumerate(blocks):
-        total = round(float(X.elems(
-            [s for s in b if s.startswith("CLM*")][0])[2]), 2)
-        charges = round(sum(float(X.elems(s)[3]) for s in b
-                            if s.startswith(profile.line_id + "*")), 2)
+        total = D(X.elems([s for s in b if s.startswith("CLM*")][0])[2])
+        charges = sum((D(X.elems(s)[3]) for s in b
+                       if s.startswith(profile.line_id + "*")), D("0"))
         if charges != total:
             ok = False
-            detail.append("claim %d lines sum to %.2f but CLM02 is %.2f"
+            detail.append("claim %d lines sum to %s but CLM02 is %s"
                           % (i + 1, charges, total))
         hcp = claim_hcp(b)
         if hcp is None:
             ok = False
             detail.append("claim %d has no single claim-level HCP" % (i + 1))
             continue
-        a = round(float(X.elems(hcp)[2]), 2)
-        s2 = round(float(X.elems(hcp)[3]), 2)
-        if (a, s2) != (round(total * 0.85, 2), round(total * 0.15, 2)):
+        a = D(X.elems(hcp)[2])
+        s2 = D(X.elems(hcp)[3])
+        want_a, want_s = split_85_15(total)
+        if (a, s2) != (want_a, want_s):
             ok = False
-            detail.append("claim %d HCP %.2f/%.2f is not 85/15 of %.2f"
-                          % (i + 1, a, s2, total))
+            detail.append("claim %d HCP %s/%s is not %s/%s, the 85/15 split "
+                          "of %s" % (i + 1, a, s2, want_a, want_s, total))
         for j, seg in enumerate(b):
             if not seg.startswith(profile.line_id + "*"):
                 continue
-            charge = round(float(X.elems(seg)[3]), 2)
+            charge = D(X.elems(seg)[3])
             lh = next((x for x in b[j:] if x.startswith("HCP*")), None)
             if lh is None:
                 ok = False
                 detail.append("claim %d: a service line has no HCP" % (i + 1))
                 continue
-            la = round(float(X.elems(lh)[2]), 2)
-            ls = round(float(X.elems(lh)[3]), 2)
-            if (la, ls) != (round(charge * 0.85, 2), round(charge * 0.15, 2)):
+            la = D(X.elems(lh)[2])
+            ls = D(X.elems(lh)[3])
+            want_la, want_ls = split_85_15(charge)
+            if (la, ls) != (want_la, want_ls):
                 ok = False
-                detail.append("claim %d line %.2f: HCP %.2f/%.2f not 85/15"
-                              % (i + 1, charge, la, ls))
+                detail.append("claim %d line %s: HCP %s/%s is not %s/%s"
+                              % (i + 1, charge, la, ls, want_la, want_ls))
     return ok, detail
 
 

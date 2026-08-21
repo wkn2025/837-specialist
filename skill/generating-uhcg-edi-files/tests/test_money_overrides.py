@@ -120,17 +120,16 @@ def test_the_generated_file_passes_the_money_validator(repo):
     # each as a whole-segment assertion, so removing the feature fails
     # this test for the right reason.
     #
-    # 1234.56 is not an arbitrary round number: the generator derives
-    # savings with Decimal ROUND_HALF_UP (overrides.py's `_money()` +
-    # T2-b), while validate.py's own _check_money_split/_check_money_allowed
-    # re-derive the same 85/15 ratio in float (`round(x * 0.15, 2)`). The
-    # two disagree on some fraction of amounts - e.g. 0.50, 0.90, 1.10 make
-    # a generated 837I file fail its own validator today - and aligning
-    # validate.py to Decimal is Task 6's job, not this one's. 1234.56 ->
-    # savings 185.18 is one of the amounts where Decimal ROUND_HALF_UP and
-    # float rounding agree, so this test can assert both that the override
-    # landed AND that MONEY_RULES accepts the result, without tripping over
-    # the already-triaged validate.py float defect.
+    # 1234.56 is not an arbitrary round number: when this test was written
+    # the generator derived savings with Decimal ROUND_HALF_UP (overrides.py's
+    # `_money()` + T2-b) while validate.py re-derived the same 85/15 ratio in
+    # float (`round(x * 0.15, 2)`), and the two disagreed on ~2.4% of amounts
+    # - e.g. 0.50, 0.90 and 1.10 made a generated 837I file fail its own
+    # validator. 1234.56 -> savings 185.18 is an amount where both agree, so
+    # the test could be written without tripping over that defect. Task 6
+    # commit A aligned validate.py to Decimal, so the workaround is no longer
+    # needed here (the divergent cents now have their own tests at the foot of
+    # this file); 1234.56 is kept so this assertion stays a stable pin.
     doc = {"claims": [{"n": 1, "lines":
            [{"date": "20241121", "billed": "1234.56"}]}]}
     out = _build_I(repo, doc, claims=1)
@@ -450,3 +449,83 @@ def test_money_fmt_is_pure_decimal_never_float(repo):
     assert generate._money_fmt(Decimal("123.45")) == "123.45"
     assert generate._money_fmt(Decimal("1234.567")) == "1234.57"
     assert generate._money_fmt(Decimal("0")) == "0.00"
+
+
+# --------------------------------------------------------------------------
+# Task 6, commit A: validate._check_money_split derives the split in Decimal
+# --------------------------------------------------------------------------
+
+# Controller-measured divergences between the generator's Decimal derivation
+# (savings first, allowed = charge - savings) and validate.py's former float
+# derivation (each side rounded independently). At 0.50, 0.90 and 1.10 the
+# float pair does not even reconcile to the charge.
+#
+#   charge | Decimal allowed/savings (sums to) | float allowed/savings
+#   0.50   | 0.42 / 0.08  -> 0.50              | 0.42 / 0.07  -> 0.49
+#   0.90   | 0.76 / 0.14  -> 0.90              | 0.77 / 0.14  -> 0.91
+#   1.10   | 0.93 / 0.17  -> 1.10              | 0.94 / 0.17  -> 1.11
+_DIVERGENT = [
+    ("0.50", "0.42", "0.08", "0.42", "0.07"),
+    ("0.90", "0.76", "0.14", "0.77", "0.14"),
+    ("1.10", "0.93", "0.17", "0.94", "0.17"),
+]
+
+
+def _one_line_block(charge, allowed, savings):
+    """A minimal ST..SE 837I block carrying one service line."""
+    return [
+        "ST*837*000000001*005010X223A2",
+        "CLM*TESTX*%s***13:A:1**A*Y*Y" % charge,
+        "HCP*10*%s*%s*9327*******UN*1" % (allowed, savings),
+        "LX*1",
+        "SV2*0430*HC:97530*%s*UN*2" % charge,
+        "HCP*10*%s*%s*9327*0.00**0.00****UN*2" % (allowed, savings),
+        "SE*6*000000001",
+    ]
+
+
+def test_money_split_accepts_the_decimal_derivation_on_divergent_cents():
+    profile = seeds.get("I")
+    for charge, allowed, savings, _fa, _fs in _DIVERGENT:
+        ok, detail = validate._check_money_split(
+            [_one_line_block(charge, allowed, savings)], profile)
+        assert ok, "charge %s rejected: %s" % (charge, detail)
+
+
+def test_money_split_rejects_the_old_float_derivation_on_divergent_cents():
+    # The non-vacuous half: the float expectation must now be REJECTED. At
+    # 0.50 and 0.90 the float pair differs from the Decimal one; at 1.10 it
+    # differs in the allowed element only. All three must be red.
+    profile = seeds.get("I")
+    for charge, _a, _s, float_allowed, float_savings in _DIVERGENT:
+        ok, detail = validate._check_money_split(
+            [_one_line_block(charge, float_allowed, float_savings)], profile)
+        assert not ok, "charge %s: float split %s/%s was accepted" % (
+            charge, float_allowed, float_savings)
+        assert detail
+
+
+def test_split_85_15_always_reconciles_to_the_charge():
+    # The property the float form broke: allowed + savings == charge, for
+    # every cent. Sweep a band that contains all three divergent values.
+    for cents in range(1, 2001):
+        charge = Decimal(cents).scaleb(-2)
+        allowed, savings = validate.split_85_15(charge)
+        assert allowed + savings == charge
+
+
+def test_generated_837i_with_a_divergent_charge_passes_its_own_validator(repo):
+    # End to end: the generator writes 0.50/0.90/1.10 and the money rule the
+    # validator dispatches to (check 11) accepts it. Under the old float
+    # derivation each of these three builds failed its own validator.
+    profile = seeds.get("I")
+    fn, _label = validate.MONEY_RULES[profile.money_rule]
+    for charge, allowed, savings, _fa, _fs in _DIVERGENT:
+        doc = {"claims": [{"n": 1, "lines":
+               [{"date": "20241121", "billed": charge}]}]}
+        out = _build_I(repo, doc, claims=1)
+        ok, detail = fn(_blocks(out), profile)
+        assert ok, "charge %s: %s" % (charge, detail)
+        claim = _blocks(out)[0]
+        assert "SV2*0430*HC:97530*%s*UN*2" % charge in claim
+        assert "HCP*10*%s*%s*9327*******UN*1" % (allowed, savings) in claim
