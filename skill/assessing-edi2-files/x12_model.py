@@ -30,9 +30,20 @@ class Segment:
     start: int
     end: int
     text: str
+    transaction_index: int = None
+    claim_index: int = None
+    line_number: int = None
 
     def el(self, n):
         return self.elems[n] if n < len(self.elems) else ""
+
+    def element_span(self, n):
+        """Return raw-text offsets for element *n* (segment id is element 0)."""
+        if n < 0 or n >= len(self.elems):
+            return self.end, self.end
+        prefix = ELEM.join(self.elems[:n])
+        start = self.start + len(prefix) + (1 if n else 0)
+        return start, start + len(self.elems[n])
 
 
 @dataclass
@@ -129,7 +140,7 @@ def _group(segments):
         elif s.sid == "SE":
             if open_st is None:
                 raise ParseError("SE at offset %d with no ST" % s.start, s.start)
-            claims.append(_build_claim(open_st, s, body))
+            claims.append(_build_claim(open_st, s, body, len(claims) + 1))
             open_st, body = None, []
         elif open_st is not None:
             body.append(s)
@@ -139,14 +150,19 @@ def _group(segments):
     return claims
 
 
-def _build_claim(st, se, body):
+def _build_claim(st, se, body, claim_index):
     claim = Claim(st=st, se=se)
+    for s in [st] + body + [se]:
+        s.transaction_index = claim_index
+        s.claim_index = claim_index
     current = None
     for s in body:
         if s.sid == "LX":
             current = Line(lx=int(s.el(1) or 0), segments=[s])
+            s.line_number = current.lx
             claim.lines.append(current)
         elif current is not None and s.sid in LINE_SEGMENTS:
+            s.line_number = current.lx
             current.segments.append(s)
         else:
             claim.segments.append(s)
@@ -160,5 +176,6 @@ def parse_text(raw, path="<memory>"):
 
 
 def parse(path):
-    raw = io.open(path, encoding="utf-8-sig", newline="").read()
+    with io.open(path, encoding="utf-8-sig", newline="") as fh:
+        raw = fh.read()
     return parse_text(raw, path)

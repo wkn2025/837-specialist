@@ -1,4 +1,5 @@
 import unittest
+from unittest import mock
 
 import x12_model as M
 
@@ -34,6 +35,27 @@ class Parsing(unittest.TestCase):
         clm = [s for s in self.f.segments if s.sid == "CLM"][0]
         self.assertEqual(self.f.raw[clm.start:clm.end], clm.text)
         self.assertTrue(clm.text.startswith("CLM*TEST1*"))
+
+    def test_parse_closes_the_input_handle(self):
+        opener = mock.mock_open(read_data=TINY)
+        with mock.patch("x12_model.io.open", opener):
+            M.parse("fixture.x12")
+        opener.return_value.__enter__.assert_called_once_with()
+        opener.return_value.__exit__.assert_called_once()
+
+    def test_segments_retain_transaction_claim_and_line_context(self):
+        claim = self.f.claims[0]
+        k3 = claim.seg("K3")
+        sv2 = claim.lines[0].seg("SV2")
+        self.assertEqual((k3.transaction_index, k3.claim_index, k3.line_number),
+                         (1, 1, None))
+        self.assertEqual((sv2.transaction_index, sv2.claim_index,
+                          sv2.line_number), (1, 1, 1))
+
+    def test_element_span_points_at_the_exact_element(self):
+        clm = self.f.claims[0].seg("CLM")
+        start, end = clm.element_span(2)
+        self.assertEqual(self.f.raw[start:end], "420.00")
 
     def test_isa_is_106_characters_including_terminator(self):
         isa = self.f.segments[0]
