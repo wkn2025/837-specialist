@@ -166,13 +166,17 @@ class TestSeedDefaultsAreANoOp(unittest.TestCase):
 
 
 class TestLineCountAndShape(unittest.TestCase):
-    def test_a_line_count_mismatch_is_a_hard_failure(self):
-        # Splicing is Task 5; here the counts must agree.
+    def test_money_edits_refuse_a_block_whose_line_count_disagrees(self):
+        # build() reconciles the counts by splicing (Task 5), so this guard
+        # is an invariant on money_edits itself: it must never be handed a
+        # block it was not computed against.
+        payload = seeds.blocks(seeds.load_seed(I, REPO))[0]
         doc = {"claims": [{"n": 1, "lines": [
             {"date": "20241121", "billed": "10.00"},
-            {"date": "20241122", "billed": "10.00"}]}]}
+            {"date": "20241121", "billed": "10.00"}]}]}
+        ov = overrides.parse(doc, I, 1)
         with self.assertRaisesRegex(G.BuildError, "service line"):
-            _build(doc, claims=1)
+            G.money_edits(I, ov, payload, 1)
 
     def test_a_claim_with_no_line_override_is_untouched(self):
         out = _build({"claims": [{"n": 1, "principalDiagnosis": "E119"}]})

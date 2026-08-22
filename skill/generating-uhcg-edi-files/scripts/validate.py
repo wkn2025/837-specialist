@@ -22,6 +22,7 @@ from decimal import Decimal as D
 
 import generate as G
 import masterfile as M
+import overrides
 import seeds
 import x12_parse as X
 
@@ -71,6 +72,33 @@ def _service_date_pairs(profile, man):
         else:
             raise ValueError("unknown service_date_shape %r"
                              % profile.service_date_shape)
+    return out
+
+
+def declared_blocks(profile, man, seed_blocks, claims):
+    """The seed block each output claim must match, after declared splices.
+
+    A claim whose service lines were added to or removed from is longer or
+    shorter than its seed block. That is only allowed because the manifest
+    declares it: an undeclared change in segment count still fails, because
+    the expected shape is rebuilt from the declaration, never read off the
+    file being checked.
+    """
+    doc = (man or {}).get("overrides")
+    ov = None
+    if doc:
+        try:
+            ov = overrides.parse(doc, profile, claims)
+        except overrides.OverrideError:
+            # A manifest that declares something the generator would have
+            # refused cannot describe a legitimate file; leave ov unset so
+            # every block is measured against the untouched seed and the
+            # mismatch is reported by the checks that use this.
+            ov = None
+    out = []
+    for n in range(1, claims + 1):
+        block = seed_blocks[G.source_index(n, profile) - 1]
+        out.append(G.splice_lines(profile, ov, block, n) if ov else block)
     return out
 
 
@@ -460,8 +488,8 @@ def main():
              "the declared edits are reversed", ok, "; ".join(detail) or "ok")
 
     # 10 - coverage
-    expected_lens = [profile.block_lens[G.source_index(n, profile) - 1]
-                     for n in range(1, claims + 1)]
+    expected_lens = [len(b) for b in
+                     declared_blocks(profile, man, seed_blocks, claims)]
     check(10, "%d payload units whose shapes cycle the seed blocks" % claims,
           [len(b) for b in blocks] == expected_lens,
           "got %s expected %s" % ([len(b) for b in blocks][:12],

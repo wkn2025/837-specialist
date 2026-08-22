@@ -192,6 +192,75 @@ def diagnosis_edits(profile, ov, payload, n):
     raise BuildError("claim %d: seed block has no ABK principal diagnosis" % n)
 
 
+def _line_loops(profile, payload, n):
+    """Split a block into (head, [loop, ...], tail) around its LX loops.
+
+    The tail matters: a block does not end at its last service line. Every
+    block ends with SE, so a loop cannot be taken as "everything after the
+    last LX" without duplicating the trailer when a line is added.
+
+    A loop runs from its LX across the segments the seed's service lines are
+    built from - LX, the charge, the service date, an optional line note and
+    the line HCP. NTE is one of them: five professional lines carry a note
+    between DTP and HCP (UHCG_Special_Instructions_NTE_Guide.md), and it
+    describes that line, so a copied line keeps it. A loop carrying anything
+    else is refused rather than copied blindly - splicing a shape this
+    function does not model would silently corrupt the block.
+    """
+    starts = [j for j, s in enumerate(payload) if s.startswith("LX*")]
+    if not starts:
+        raise BuildError("claim %d: seed block has no service line" % n)
+    owned = ("LX*", profile.line_id + "*", "DTP*472*", "HCP*", "NTE*")
+
+    loops, end = [], starts[0]
+    for k, start in enumerate(starts):
+        stop = starts[k + 1] if k + 1 < len(starts) else len(payload)
+        j = start
+        while j < stop and payload[j].startswith(owned):
+            j += 1
+        if k + 1 < len(starts) and j != stop:
+            raise BuildError(
+                "claim %d: service line %d carries an unmodelled segment %r"
+                % (n, k + 1, payload[j]))
+        loops.append(payload[start:j])
+        end = j
+    return payload[:starts[0]], loops, payload[end:]
+
+
+def splice_to(profile, payload, want, n):
+    """Return the block with exactly `want` LX loops, renumbered from 1.
+
+    Added loops are copies of the block's last loop, so every qualifier and
+    revenue code the seed carried survives. Only LX01 is set here; the
+    amounts are written afterwards by money_edits, and SE01 by renumber_se.
+    """
+    if want < 1:
+        raise BuildError("claim %d: a claim needs at least one service line"
+                         % n)
+    head, loops, tail = _line_loops(profile, payload, n)
+    if want == len(loops):
+        return payload
+
+    out_loops = [list(lp) for lp in loops[:want]]
+    while len(out_loops) < want:
+        out_loops.append(list(loops[-1]))
+
+    out = list(head)
+    for i, loop in enumerate(out_loops, 1):
+        loop = list(loop)
+        loop[0] = "LX*%d" % i
+        out.extend(loop)
+    return out + list(tail)
+
+
+def splice_lines(profile, ov, payload, n):
+    """Grow or shrink a block's service lines to the override's line count."""
+    c = ov.claim(n) if ov else None
+    if not c or not c["lines"]:
+        return payload
+    return splice_to(profile, payload, len(c["lines"]), n)
+
+
 def _fmt(v):
     return "%.2f" % v
 
@@ -388,12 +457,17 @@ def build(seed_segs, profile, alloc, claims, ov=None):
                 % (n, len(payload),
                    profile.block_lens[source_index(n, profile) - 1]))
         _assert_seed_fidelity(profile, payload, n)
+        # The seed checks above run on the seed block; everything below runs
+        # on the block that will actually be emitted. Splicing changes the
+        # segment count, so the date counts and the positional indices must
+        # both be taken from the spliced block, never from the seed.
+        payload = splice_lines(profile, ov, payload, n)
         edits = (edits_for(profile, alloc, n, claim_total(ov, n))
                  + _date_edits(payload, profile, alloc)
                  + identity_edits(profile, ov, payload)
                  + diagnosis_edits(profile, ov, payload, n))
         out = apply_edits(payload, edits, str(n))
-        # Positional edits are computed against the seed block and applied
+        # Positional edits are computed against the spliced block and applied
         # after the literal ones. No literal edit touches a charge or an HCP,
         # so the expected-literal check below would catch any overlap.
         out = apply_positional_edits(out, money_edits(profile, ov, payload, n),
