@@ -94,4 +94,8 @@ blockers, say so plainly in chat - do not report success.
 
 ## Scope
 
-837I (`005010X223A2`) only. An 837P file is refused; `rules_837p.py` is a stub.
+The correction/report workflow above remains 837I (`005010X223A2`) only and
+`assess.py` refuses 837P. The separate read-only `validate_api.py` path supports
+Professional (`005010X222A1`) validation. Professional validation has one
+human-reviewed returned adjustment golden fixture; other Professional scenario
+families retain their existing guide-derived and synthetic test coverage.

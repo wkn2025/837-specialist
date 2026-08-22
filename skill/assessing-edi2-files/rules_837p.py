@@ -1,11 +1,12 @@
 """Guide-derived validation rules for returned 837P (Professional) EDI2.
 
-These deterministic checks have synthetic fixture coverage, but no
-human-reviewed returned Professional file is available as a golden fixture.
+These deterministic checks have synthetic scenario coverage and one
+human-reviewed returned Professional adjustment golden fixture.
 """
 from __future__ import annotations
 
 from dataclasses import replace
+from datetime import datetime
 from decimal import Decimal, InvalidOperation
 
 from findings import ADVISORY, BLOCKER, Finding
@@ -23,9 +24,10 @@ P_RULES = []
 ZERO = Decimal("0")
 
 PROFESSIONAL_VALIDATION_NOTE = (
-    "Professional validation is guide-derived with deterministic synthetic "
-    "fixtures; no human-reviewed returned Professional EDI2 golden fixture "
-    "has been provided yet."
+    "Professional validation is backed by one human-reviewed returned "
+    "Professional adjustment golden fixture. Other Professional scenario "
+    "families remain covered at their existing guide-derived and synthetic "
+    "test level; this is not broader certification."
 )
 
 
@@ -68,6 +70,26 @@ def _decimal(value):
         return parsed if parsed is None or parsed.is_finite() else None
     except InvalidOperation:
         return None
+
+
+def _calendar_date(value):
+    if len(value) != 8 or not value.isascii() or not value.isdigit():
+        return None
+    try:
+        return datetime.strptime(value, "%Y%m%d").date()
+    except ValueError:
+        return None
+
+
+def _valid_service_date(format_code, value):
+    if format_code == "D8":
+        return _calendar_date(value) is not None
+    if format_code != "RD8" or value.count("-") != 1:
+        return False
+    start_text, end_text = value.split("-", 1)
+    start = _calendar_date(start_text)
+    end = _calendar_date(end_text)
+    return start is not None and end is not None and start <= end
 
 
 def _sum(values):
@@ -196,17 +218,67 @@ def p_fmt_bht03_len(ctx):
 
 
 @p_rule("P-REQ-LINE-SV1", BLOCKER,
-        "%s, Loop 2400 SV1: Professional service is required" % CG)
+        "%s, Loops 2300/2400 LX and SV1: at least one service line, exactly "
+        "one SV1 per line, and SV101-1/2, SV102, SV103, SV104 and SV107-1 "
+        "are required for Professional service" % CG)
 def p_req_line_sv1(ctx):
     for claim in ctx.edi.claims:
+        if not claim.lines:
+            yield Finding(
+                "P-REQ-LINE-SV1", "",
+                "Professional claim requires at least one LX service line",
+                claim=claim.uhap_id,
+                segment_index=(claim.seg("CLM") or claim.st).index,
+            )
         for line in claim.lines:
-            sv1 = line.seg("SV1")
-            if sv1 is None or not sv1.el(1) or not sv1.el(2) or not sv1.el(4):
+            sv1s = line.segs("SV1")
+            sv1 = sv1s[0] if sv1s else None
+            procedure = sv1.el(1).split(":") if sv1 is not None else []
+            pointers = sv1.el(7).split(":") if sv1 is not None else []
+            problems = []
+            if len(sv1s) != 1:
+                problems.append("exactly one SV1 segment (found %d)" % len(sv1s))
+            if len(procedure) < 2 or procedure[0] != "HC" or not procedure[1]:
+                problems.append("SV101 HC procedure")
+            if sv1 is None or not sv1.el(2):
+                problems.append("SV102 billed amount")
+            if sv1 is None or sv1.el(3) not in ("MJ", "UN"):
+                problems.append("SV103 unit code MJ or UN")
+            if sv1 is None or not sv1.el(4):
+                problems.append("SV104 units")
+            if (not pointers or not pointers[0] or
+                    any(not value.isdigit() or not 1 <= int(value) <= 12
+                        for value in pointers if value)):
+                problems.append("SV107 diagnosis pointer 1 through 12")
+            if problems:
                 yield Finding("P-REQ-LINE-SV1", "",
-                              "line %d requires SV101 procedure, SV102 billed "
-                              "amount, and SV104 units" % line.lx,
+                              "line %d requires %s" %
+                              (line.lx, ", ".join(problems)),
                               claim=claim.uhap_id, lx=line.lx,
-                              segment_index=line.seg("LX").index)
+                              segment_index=(sv1.index if sv1 is not None else
+                                             line.seg("LX").index))
+
+
+@p_rule("P-REQ-LINE-SERVICE-DATE", BLOCKER,
+        "%s, Loop 2400 DTP*472: one service date using D8 CCYYMMDD or "
+        "RD8 CCYYMMDD-CCYYMMDD is required" % CG)
+def p_req_line_service_date(ctx):
+    for claim in ctx.edi.claims:
+        for line in claim.lines:
+            dates = [seg for seg in line.segs("DTP") if seg.el(1) == "472"]
+            valid = (len(dates) == 1 and
+                     _valid_service_date(dates[0].el(2), dates[0].el(3)))
+            if len(dates) != 1 or not valid:
+                detail = "missing" if not dates else \
+                    "%s/%s" % (dates[0].el(2), dates[0].el(3))
+                yield Finding(
+                    "P-REQ-LINE-SERVICE-DATE", "",
+                    "line %d service date is %s; expected one DTP*472 D8 or RD8"
+                    % (line.lx, detail),
+                    claim=claim.uhap_id, lx=line.lx,
+                    segment_index=(dates[0].index if dates else
+                                   line.seg("LX").index),
+                )
 
 
 @p_rule("P-REQ-CLAIM-BENEFIT-DECISION", BLOCKER,
@@ -320,6 +392,62 @@ def p_svd_service_parity(ctx):
                 yield Finding("P-SVD-SERVICE-PARITY", "", "; ".join(problems),
                               claim=claim.uhap_id, lx=line.lx,
                               segment_index=svd.index)
+
+
+@p_rule("P-MATH-BILLED-BALANCE", BLOCKER,
+        "%s, CLM02: total billed balances to the sum of Professional SV102 "
+        "service-line charges" % CG)
+def p_math_billed_balance(ctx):
+    for claim in ctx.edi.claims:
+        clm = claim.seg("CLM")
+        claim_billed = _decimal(clm.el(2)) if clm is not None else None
+        line_billed = [
+            _decimal(line.seg("SV1").el(2)) if line.seg("SV1") is not None
+            else None
+            for line in claim.lines
+        ]
+        if claim_billed is None or any(value is None for value in line_billed):
+            continue
+        expected = _sum(line_billed)
+        if claim_billed != expected:
+            yield Finding(
+                "P-MATH-BILLED-BALANCE", "",
+                "CLM02 billed %s does not equal SV102 line total %s"
+                % (claim_billed, expected),
+                claim=claim.uhap_id, segment_index=clm.index,
+            )
+
+
+@p_rule("P-MATH-HCP-SAVINGS", BLOCKER,
+        "%s, HCP03: repriced savings equals billed amount minus HCP02 allowed "
+        "amount when HCP03 is transmitted" % CG)
+def p_math_hcp_savings(ctx):
+    for claim in ctx.edi.claims:
+        clm = claim.seg("CLM")
+        pairs = [(None, clm.el(2) if clm is not None else "", claim.seg("HCP"))]
+        pairs.extend(
+            (line.lx,
+             line.seg("SV1").el(2) if line.seg("SV1") is not None else "",
+             line.seg("HCP"))
+            for line in claim.lines
+        )
+        for lx, billed_text, hcp in pairs:
+            if hcp is None or not hcp.el(3):
+                continue
+            billed = _decimal(billed_text)
+            allowed = _decimal(hcp.el(2))
+            savings = _decimal(hcp.el(3))
+            if None in (billed, allowed, savings):
+                continue
+            expected = billed - allowed
+            if savings != expected:
+                scope = "claim" if lx is None else "line %d" % lx
+                yield Finding(
+                    "P-MATH-HCP-SAVINGS", "",
+                    "%s HCP03 savings %s does not equal billed minus allowed %s"
+                    % (scope, savings, expected),
+                    claim=claim.uhap_id, lx=lx, segment_index=hcp.index,
+                )
 
 
 @p_rule("P-MATH-LINE", BLOCKER,

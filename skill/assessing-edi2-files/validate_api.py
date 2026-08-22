@@ -37,7 +37,8 @@ def _coverage(workflow_code, standalone="performed"):
         "sourceComparison": "skipped",
         "original837Comparison": "not-performed",
         "professionalGolden": (
-            "not-performed" if workflow_code == "P" else "not-applicable"),
+            "returned-adjustment" if workflow_code == "P"
+            else "not-applicable"),
     }
 
 

@@ -4,6 +4,10 @@
 **Status:** Approved for implementation
 **Application:** `837-edi1-generator-ui`
 
+**Evidence update:** Professional validation now has one human-reviewed returned
+adjustment golden fixture. Other Professional scenario families remain at their
+original guide-derived and synthetic test level.
+
 ## Goal
 
 Add a read-only `EDI2 Validator` tab that safely accepts an inbound UHCG EDI2
@@ -56,7 +60,8 @@ called by the application.
   `docs/reference/umr-uhcg-837` path.
 - Expected-matrix paths are recorded but not interpreted.
 - Required-segment checks and Institutional scenario coverage are incomplete.
-- No returned Professional golden fixture exists.
+- At design time no returned Professional golden fixture existed. The first
+  returned adjustment golden was added during the subsequent hardening phase.
 - No normalized adjudication or per-check pass/fail/skipped JSON exists.
 - No upload API or validator UI exists.
 
@@ -184,10 +189,10 @@ Professional rules preserve line-level benefit decisions and Professional-only
 COB, Duplicate, iCES, and R&C distinctions. Synthetic guide-derived fixtures
 and mutations provide deterministic coverage.
 
-Until a real returned Professional EDI2 is supplied, the API and UI disclose:
-`Professional rules are guide-derived and deterministically tested; no real
-returned Professional golden fixture has been validated yet.` This is a
-remaining validation gap, not an architectural or implementation blocker.
+The API and UI disclose that one human-reviewed returned Professional
+adjustment golden fixture backs validation. They also state that other
+Professional scenario families remain covered at their existing guide-derived
+and synthetic test level and do not claim broader certification.
 
 ## Corrected, replacement, adjustment, and COB behavior
 
@@ -255,12 +260,14 @@ Implementation is strict test-first red-green-refactor. Verification includes:
 - parser, detection, trace, normalization, and contract tests;
 - Institutional golden parity and new supported scenario mutations;
 - guide-derived Professional synthetic fixtures and mutations;
+- one exact-byte human-reviewed returned Professional adjustment golden fixture;
 - Node upload security and cleanup tests;
 - React component and tab tests;
-- browser E2E for good/bad I and synthetic good/bad P;
+- browser E2E for good/bad I, returned adjustment P, and synthetic good/bad P;
 - TypeScript checking and production build;
 - independent code review.
 
-Completion reporting explicitly retains the missing real Professional golden
-fixture as a validation limitation. The feature is not described as fully
-production-certified while that gap remains.
+Completion reporting scopes returned-golden evidence to the represented
+Professional adjustment and retains the remaining evidence limitations for
+other scenario families. The feature is not described as fully
+production-certified.

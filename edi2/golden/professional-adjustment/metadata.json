@@ -1,0 +1,50 @@
+{
+  "fixtureType": "human-reviewed returned Professional EDI2 golden",
+  "workflow": "Professional",
+  "implementationGuide": "005010X222A1",
+  "scenario": "adjustment",
+  "source": {
+    "sanitizedFilename": "sanitized EDI2 837P.x12",
+    "sizeBytes": 1649,
+    "sha256": "6581c67f3d4b8c83afc7054ba0f4cac31acebce878735b0bdd25aea7b8275fc8",
+    "encoding": "UTF-8 without BOM",
+    "lineEndings": "CRLF"
+  },
+  "repositoryFixture": {
+    "filename": "ADJ-UHCG_ERCT_P_20260730143200.x12",
+    "filenameContext": "Guide-conforming adjustment harness name derived from the raw ISA receiver UHCG, raw ISA sender ERCT, Professional workflow, and ISA date/time. The source was supplied under a sanitized artifact name, so the original transport filename is unavailable; seconds are represented as 00 because the X12 envelope records only minute precision. This harness name is not asserted to be the original transmitted filename."
+  },
+  "adjustmentEvidence": {
+    "clm20": "11",
+    "meaning": "Adjustment request for this fixture only. CLM20=11 is not a generic requirement for all Professional EDI2 files.",
+    "claimFrequencyCode": "1",
+    "originalUhapReference9F": null
+  },
+  "historicalAliases": [
+    {
+      "raw": "ERCT",
+      "interpretedAs": "ECUSA",
+      "scope": "fixture/reference metadata only; preserve raw X12 and do not install a runtime alias"
+    },
+    {
+      "raw": "MacroHealth",
+      "interpretedAs": "UHCG",
+      "scope": "fixture/reference metadata only; preserve raw X12 and do not install a runtime alias"
+    }
+  ],
+  "authority": {
+    "appliesTo": [
+      "the represented Professional adjustment structure",
+      "loop and segment placement",
+      "raw field representation",
+      "transmitted adjudication values",
+      "source-trace expectations"
+    ],
+    "doesNotEstablish": [
+      "CLM20=11 for non-adjustment Professional claims",
+      "global runtime vendor aliases",
+      "original-837-to-EDI2 comparison behavior",
+      "certification of other Professional scenario families"
+    ]
+  }
+}

@@ -50,16 +50,18 @@ class ValidationContract(unittest.TestCase):
         self.assertGreater(result["summary"]["passed"], 0)
         self.assertGreater(result["summary"]["skipped"], 0)
 
-    def test_professional_limit_is_explicit(self):
+    def test_professional_adjustment_golden_scope_is_explicit(self):
         result = validate_api.validate(
             GOOD_P, filename="UHCG_ECUSA_P_20260817174931.x12")
 
         self.assertEqual(result["status"], "valid")
         self.assertEqual(result["workflow"]["workflow"], "P")
-        self.assertEqual(result["coverage"]["professionalGolden"], "not-performed")
-        self.assertIn("guide-derived", result["limitations"][0])
-        self.assertIn("no human-reviewed returned Professional",
+        self.assertEqual(result["coverage"]["professionalGolden"],
+                         "returned-adjustment")
+        self.assertIn("human-reviewed returned Professional adjustment",
                       result["limitations"][0])
+        self.assertIn("other professional scenario families",
+                      result["limitations"][0].lower())
 
     def test_conflicting_workflow_is_indeterminate(self):
         raw = GOOD_I.replace("ST*837*000000002*005010X223A2~",

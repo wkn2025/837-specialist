@@ -280,7 +280,7 @@ export interface Edi2ValidationResult {
     standaloneValidation: 'performed' | 'not-performed';
     sourceComparison: 'skipped';
     original837Comparison: 'not-performed';
-    professionalGolden: 'not-performed' | 'not-applicable';
+    professionalGolden: 'returned-adjustment' | 'not-applicable';
   };
   limitations: string[];
   checks: Edi2Check[];

@@ -79,6 +79,40 @@ class Parsing(unittest.TestCase):
         self.assertEqual((subscriber.loop_iteration, payer.loop_iteration),
                          (1, 1))
 
+    def test_professional_rendering_and_service_facility_names_use_2310_loops(self):
+        raw = TINY.replace("005010X223A2", "005010X222A1").replace(
+            "K3*1~",
+            "K3*1~"
+            "NM1*82*1*DOYLE WARREN C MD*****XX*1568816536~"
+            "NM1*77*2*DOYLE WARREN C MD*****XX*1568816536~"
+            "N3*250 WESTMORELAND RD~N4*GREER*SC*296519013~",
+        )
+        claim = M.parse_text(raw).claims[0]
+
+        self.assertEqual(
+            [segment.text for segment in claim.loop_segs("2310B", "NM1")],
+            ["NM1*82*1*DOYLE WARREN C MD*****XX*1568816536"],
+        )
+        self.assertEqual(
+            [segment.loop_id for segment in claim.segs("NM1")],
+            ["2310B", "2310C"],
+        )
+        self.assertEqual(
+            [segment.loop_id for segment in claim.segs("N3") + claim.segs("N4")],
+            ["2310C", "2310C"],
+        )
+
+    def test_professional_rendering_loop_does_not_change_institutional_assignment(self):
+        raw = TINY.replace(
+            "K3*1~",
+            "K3*1~NM1*82*1*RENDERING PROVIDER*****XX*1568816536~",
+        )
+
+        claim = M.parse_text(raw).claims[0]
+
+        self.assertEqual(claim.segs("NM1")[0].loop_id, "2300")
+        self.assertEqual(claim.loop_segs("2310B", "NM1"), [])
+
     def test_element_span_points_at_the_exact_element(self):
         clm = self.f.claims[0].seg("CLM")
         start, end = clm.element_span(2)

@@ -34,9 +34,11 @@ def blocker_ids(text):
 
 
 class ProfessionalFixtureProvenance(unittest.TestCase):
-    def test_support_is_guide_derived_and_not_golden_validated(self):
-        self.assertIn("guide-derived", rules_837p.PROFESSIONAL_VALIDATION_NOTE)
-        self.assertIn("no human-reviewed returned Professional", rules_837p.PROFESSIONAL_VALIDATION_NOTE)
+    def test_support_records_one_returned_adjustment_golden_without_overclaiming(self):
+        note = rules_837p.PROFESSIONAL_VALIDATION_NOTE
+        self.assertIn("human-reviewed returned Professional adjustment", note)
+        self.assertIn("guide-derived and synthetic", note)
+        self.assertIn("not broader certification", note)
 
     def test_synthetic_good_fixture_has_no_blockers(self):
         self.assertEqual(blocker_ids(raw()), set())
@@ -81,6 +83,64 @@ class ProfessionalStructure(unittest.TestCase):
     def test_sv1_is_required_on_each_line(self):
         bad = raw().replace("SV1*HC:97530*420.00*UN*2*11**1~", "")
         self.assertIn("P-REQ-LINE-SV1", blocker_ids(bad))
+
+    def test_professional_claim_requires_a_line_and_exactly_one_sv1_per_line(self):
+        line_block = (
+            "LX*1~SV1*HC:97530*420.00*UN*2*11**1~"
+            "DTP*472*D8*20241121~K3*1~HCP*10*357.00*63.00*9327~"
+            "SVD*ECUSA*357.00*HC:97530**2~"
+            "CAS*PR*1*0.00**2*0.00**3*0.00**96*0.00~"
+            "CAS*CO*45*357.00~CAS*OA*23*100~"
+        )
+        no_line = raw().replace("CLM*TESTP1*420.00*", "CLM*TESTP1*0.00*")
+        no_line = no_line.replace(line_block, "")
+        duplicate_sv1 = raw().replace(
+            "SV1*HC:97530*420.00*UN*2*11**1~",
+            "SV1*HC:97530*420.00*UN*2*11**1~"
+            "SV1*HC:97530*420.00*UN*2*11**1~",
+        )
+
+        self.assertIn("P-REQ-LINE-SV1", blocker_ids(no_line))
+        self.assertIn("P-REQ-LINE-SV1", blocker_ids(duplicate_sv1))
+
+    def test_sv1_requires_hc_procedure_unit_code_and_diagnosis_pointer(self):
+        cases = (
+            ("SV1*HC:97530*420.00*UN*2*11**1~",
+             "SV1*ZZ:97530*420.00*UN*2*11**1~"),
+            ("SV1*HC:97530*420.00*UN*2*11**1~",
+             "SV1*HC:97530*420.00**2*11**1~"),
+            ("SV1*HC:97530*420.00*UN*2*11**1~",
+             "SV1*HC:97530*420.00*UN*2*11***~"),
+        )
+        for old, new in cases:
+            with self.subTest(sv1=new):
+                self.assertIn("P-REQ-LINE-SV1",
+                              blocker_ids(raw().replace(old, new)))
+
+    def test_service_date_requires_one_valid_d8_or_rd8_472_segment(self):
+        missing = raw().replace("DTP*472*D8*20241121~", "")
+        malformed = raw().replace("DTP*472*D8*20241121~",
+                                  "DTP*472*RD8*20241121~")
+        same_day_range = raw().replace(
+            "DTP*472*D8*20241121~",
+            "DTP*472*RD8*20241121-20241121~",
+        )
+
+        self.assertIn("P-REQ-LINE-SERVICE-DATE", blocker_ids(missing))
+        self.assertIn("P-REQ-LINE-SERVICE-DATE", blocker_ids(malformed))
+        self.assertNotIn("P-REQ-LINE-SERVICE-DATE",
+                         blocker_ids(same_day_range))
+
+    def test_service_date_rejects_invalid_calendar_dates_and_reversed_ranges(self):
+        invalid_day = raw().replace(
+            "DTP*472*D8*20241121~", "DTP*472*D8*20240230~")
+        reversed_range = raw().replace(
+            "DTP*472*D8*20241121~",
+            "DTP*472*RD8*20241231-20240101~",
+        )
+
+        self.assertIn("P-REQ-LINE-SERVICE-DATE", blocker_ids(invalid_day))
+        self.assertIn("P-REQ-LINE-SERVICE-DATE", blocker_ids(reversed_range))
 
     def test_claim_and_line_decisions_are_required(self):
         claim_missing = raw().replace("K3*1~", "", 1)
@@ -143,6 +203,34 @@ class ProfessionalAdjudication(unittest.TestCase):
                                     "HCP*10*400.00*20.00*9327~", 2)
         self.assertIn("P-MATH-LINE", blocker_ids(bad_co))
         self.assertIn("P-MATH-LINE", blocker_ids(bad_allowed))
+
+    def test_claim_billed_amount_balances_to_professional_lines(self):
+        bad = raw().replace("CLM*TESTP1*420.00*", "CLM*TESTP1*421.00*")
+
+        self.assertIn("P-MATH-BILLED-BALANCE", blocker_ids(bad))
+
+    def test_repriced_savings_equals_billed_minus_allowed_when_transmitted(self):
+        claim_bad = raw().replace(
+            "HCP*10*357.00*63.00*9327~",
+            "HCP*10*357.00*64.00*9327~",
+            1,
+        )
+        line_bad = raw().replace(
+            "HCP*10*357.00*63.00*9327~SVD*ECUSA",
+            "HCP*10*357.00*64.00*9327~SVD*ECUSA",
+            1,
+        )
+
+        self.assertIn("P-MATH-HCP-SAVINGS", blocker_ids(claim_bad))
+        self.assertIn("P-MATH-HCP-SAVINGS", blocker_ids(line_bad))
+
+    def test_repriced_savings_check_does_not_make_hcp03_mandatory(self):
+        without_savings = raw().replace(
+            "HCP*10*357.00*63.00*9327~",
+            "HCP*10*357.00**9327~",
+        )
+
+        self.assertNotIn("P-MATH-HCP-SAVINGS", blocker_ids(without_savings))
 
     def test_claim_amounts_reconcile_to_lines_and_patient_responsibility(self):
         bad_paid = raw().replace("K3*357.00|PA~", "K3*350.00|PA~")

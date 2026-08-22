@@ -163,7 +163,7 @@ def _build_claim(st, se, body, claim_index):
     for s in [st] + body + [se]:
         s.transaction_index = claim_index
         s.claim_index = claim_index
-    _assign_loops(body)
+    _assign_loops(body, st.el(3))
     current = None
     for s in body:
         if s.sid == "LX":
@@ -181,7 +181,7 @@ def _build_claim(st, se, body, claim_index):
     return claim
 
 
-def _assign_loops(body):
+def _assign_loops(body, implementation_guide):
     """Assign the subset of 837 loops needed by deterministic EDI2 rules.
 
     The parser deliberately records loop context instead of guessing from
@@ -195,6 +195,8 @@ def _assign_loops(body):
     hl_loops = {"20": "2000A", "22": "2000B", "23": "2000C"}
     preclaim_names = {"85": "2010AA", "IL": "2010BA", "PR": "2010BB"}
     claim_names = {"71": "2310A", "77": "2310C"}
+    if implementation_guide == "005010X222A1":
+        claim_names["82"] = "2310B"
     other_payer_names = {"IL": "2330A", "PR": "2330B"}
 
     for seg in body:

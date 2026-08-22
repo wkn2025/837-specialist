@@ -162,10 +162,10 @@ const P_VALID = {
     ...I_VALID.workflow!, workflow: 'P', version: '005010X222A1',
   },
   coverage: {
-    ...I_VALID.coverage, professionalGolden: 'not-performed',
+    ...I_VALID.coverage, professionalGolden: 'returned-adjustment',
   },
   limitations: [
-    'Professional validation is guide-derived; no human-reviewed returned Professional EDI2 golden fixture has been validated yet.',
+    'Professional validation is backed by one human-reviewed returned Professional adjustment golden fixture. Other Professional scenario families remain covered at their existing guide-derived and synthetic test level; this is not broader certification.',
   ],
 } as Edi2ValidationResult;
 
@@ -328,11 +328,12 @@ describe('traceable validation presentation', () => {
     expect(screen.queryByText('Workflow could not be determined')).toBeNull();
   });
 
-  it('shows the Professional golden limitation without invalidating the file', () => {
+  it('shows the returned adjustment golden scope without broader certification', () => {
     render(<ValidationSummary result={P_VALID} onTrace={() => {}} />);
 
     expect(screen.getByText('Valid in standalone mode')).toBeTruthy();
-    expect(screen.getByText(/no human-reviewed returned Professional/i)).toBeTruthy();
+    expect(screen.getByText(/one human-reviewed returned Professional adjustment/i)).toBeTruthy();
+    expect(screen.getByText(/other Professional scenario families/i)).toBeTruthy();
   });
 
   it('opens escaped source text and returns focus to the field trace button', async () => {

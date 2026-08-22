@@ -19,6 +19,9 @@ import { createApp, REPO } from './api';
 const app = createApp();
 const BAD_I = path.join(
   REPO, 'edi2', 'batch1', 'UHCG_ECUSA_I_20260817174931.x12');
+const GOLDEN_P_ADJUSTMENT = path.join(
+  REPO, 'edi2', 'golden', 'professional-adjustment',
+  'ADJ-UHCG_ERCT_P_20260730143200.x12');
 
 function upload(target: ReturnType<typeof createApp>, body: Buffer,
                 filename = 'UHCG_ECUSA_I_20260817174931.x12') {
@@ -128,6 +131,19 @@ describe('reads that allocate nothing', () => {
 });
 
 describe('read-only EDI2 uploads', () => {
+  it('securely validates the returned Professional adjustment golden bytes', async () => {
+    const bytes = await fs.readFile(GOLDEN_P_ADJUSTMENT);
+    const res = await upload(app, bytes, path.basename(GOLDEN_P_ADJUSTMENT));
+
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe('valid');
+    expect(res.body.workflow.workflow).toBe('P');
+    expect(res.body.coverage.professionalGolden).toBe('returned-adjustment');
+    expect(res.body.summary).toMatchObject({ claims: 1, lines: 2, blockers: 0 });
+    expect(res.body.adjudication.claims[0].adjustment.clm20.value).toBe('11');
+    expect(res.body.adjudication.claims[0].lines).toHaveLength(2);
+  });
+
   it('returns an invalid analysis as HTTP 200', async () => {
     const res = await upload(app, await fs.readFile(BAD_I));
 

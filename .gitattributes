@@ -10,6 +10,10 @@
 # clone. Generated output is unaffected: the generator always writes LF.
 "EDI1/Sample 837P/*.x12" -text
 
+# Human-reviewed returned Professional adjustment golden. Its sanitized source
+# uses CRLF and the fixture hash covers those exact received bytes.
+edi2/golden/professional-adjustment/*.x12 -text
+
 # .docx is a zip. The blanket `* text eol=lf` above would strip CRLF from its
 # compressed streams and corrupt it - proven, not assumed. Today's summaries
 # happen to contain no CRLF, which is luck, not safety.

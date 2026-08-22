@@ -23,9 +23,10 @@ file. The bridge accepts raw uploads up to 10 MB by default. Operators can set
 
 “Valid in standalone mode” means every applicable standalone check passed.
 Outbound-source immutability and original-837 comparison remain visibly marked
-not performed. Professional validation is guide-derived and deterministically
-tested with synthetic fixtures; no human-reviewed returned Professional golden
-fixture has been validated yet.
+not performed. Professional validation now has one human-reviewed returned
+golden fixture covering a Professional adjustment. Other Professional scenario
+families retain their existing guide-derived and synthetic test coverage; this
+does not establish broader certification.
 
 NTE remark codes and CAS reason codes are displayed separately. The UI does not
 call either one a denial code because no approved denial-code crosswalk is part
@@ -41,30 +42,37 @@ Do not generate a new EDI1 batch while running this checklist.
 2. Upload `edi2/batch1/UHCG_ECUSA_I_20260817174931.x12` and verify
    **Institutional 837I**, **Invalid in standalone mode**, and known blockers.
 3. Upload
-   `skill/assessing-edi2-files/tests/fixtures/UHCG_ECUSA_P_20260817174931.x12`
-   and verify
-   **Professional 837P**, **Valid in standalone mode**, and the missing real
-   returned Professional golden-fixture limitation.
+   `edi2/golden/professional-adjustment/ADJ-UHCG_ERCT_P_20260730143200.x12`
+   and verify **Professional 837P**, **Valid in standalone mode**, one claim,
+   two lines, `CLM20=11`, and the adjustment-golden coverage statement. Expand
+   the claim and verify the exact F8/9A/D9 references, covered claim/line
+   decisions, amounts, RD8 service dates, CAS triplets, AMT*EAF, and raw source
+   traces; confirm that ERCT remains unmodified in the uploaded X12. The fixture
+   metadata explains the guide-conforming harness
+   filename and historical aliases.
 4. Upload
+   `skill/assessing-edi2-files/tests/fixtures/UHCG_ECUSA_P_20260817174931.x12`
+   and verify **Professional 837P** and **Valid in standalone mode** for the
+   existing guide-derived synthetic covered scenario.
+5. Upload
    `skill/assessing-edi2-files/tests/fixtures/UHCG_ECUSA_P_20260817174932.x12`
    and verify
    **Professional 837P**, **Invalid in standalone mode**, and a Professional
    line-level finding.
-5. From findings and adjudication fields, verify source buttons open the exact
+6. From findings and adjudication fields, verify source buttons open the exact
    CLM, K3, CAS, or NTE segment and display its segment, element, loop, claim,
    and line context where applicable.
-6. Using only the keyboard, operate the file picker, structural-result filters,
+7. Using only the keyboard, operate the file picker, structural-result filters,
    claim disclosures, source drawer, Escape close, and focus return.
-7. Verify **New Batch** and **Batch History** still render and operate as before.
+8. Verify **New Batch** and **Batch History** still render and operate as before.
 
 Screenshots and the non-PHI run record belong in
 `scratch/evidence/edi2-validator/`. Do not copy raw fixture contents into the
 run record.
 
-## Future hardening
+## Remaining hardening
 
-When real returned Professional EDI2 files become available, add them as golden
-fixtures and use them to validate and refine the existing Professional rules.
-That is a validation/hardening phase; the normalized contract and UI should not
-need redesign. Structured expected-adjudication input and original-837-to-EDI2
-comparison are intentionally deferred.
+The returned golden covers one Professional adjustment scenario. Additional
+returned Professional scenario families should be added as separate golden
+fixtures when they become available. Structured expected-adjudication input and
+original-837-to-EDI2 comparison remain intentionally deferred.
