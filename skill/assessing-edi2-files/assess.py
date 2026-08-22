@@ -34,9 +34,13 @@ def find_guides(start):
     """Walk up from the file looking for the UHCG reference package."""
     here = os.path.abspath(os.path.dirname(start))
     while True:
-        candidate = os.path.join(here, "UMR_UHCG_837_EDI_Reference")
-        if os.path.isdir(candidate):
-            return candidate
+        candidates = [
+            os.path.join(here, "UMR_UHCG_837_EDI_Reference"),
+            os.path.join(here, "docs", "reference", "umr-uhcg-837"),
+        ]
+        for candidate in candidates:
+            if os.path.isdir(candidate):
+                return candidate
         parent = os.path.dirname(here)
         if parent == here:
             return None
@@ -69,7 +73,7 @@ def run(path, source_path=None, matrix_path=None, fix=False, out_dir=None,
 
     ctx = rules.Context(edi=edi, source=source, matrix=matrix_path,
                         filename=filename, scenarios=scenarios)
-    items = rules.run_all(ctx)
+    items = rules.run_all(ctx, rules_837i.registry())
 
     guides = find_guides(path)
     meta = {
@@ -101,7 +105,7 @@ def run(path, source_path=None, matrix_path=None, fix=False, out_dir=None,
     fixed_ctx = rules.Context(edi=fixed, source=source, matrix=matrix_path,
                               filename=result.filename, scenarios=scenarios)
     out["corrected_path"] = corrected_path
-    out["corrected_findings"] = rules.run_all(fixed_ctx)
+    out["corrected_findings"] = rules.run_all(fixed_ctx, rules_837i.registry())
     out["edits"] = result.edits
     return out
 
@@ -137,7 +141,7 @@ def main(argv=None):
                                    ("claim %s: " % f.claim) if f.claim else "",
                                    f.message))
     fired = {f.rule_id for f in result["findings"]}
-    print("[ OK ] %d rules passed" % (len(rules.registered_ids()) - len(fired)))
+    print("[ OK ] %d rules passed" % (len(rules_837i.registry()) - len(fired)))
     if result["corrected_path"]:
         remaining = [f for f in result["corrected_findings"]
                      if f.severity == F.BLOCKER]
