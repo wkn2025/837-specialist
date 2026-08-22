@@ -1,0 +1,14 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "bounce-easing",
+        "value": "cubic-bezier(.22, 1.4, .36, 1)",
+        "createdAt": "2026-08-22T02:30:47.386Z",
+        "reason": "design handoff README.md:34 specifies a small elastic pop on the generate button when it flips to the generated state; pinned brief, not a default"
+      }
+    ]
+  }
+}
