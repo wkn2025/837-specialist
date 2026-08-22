@@ -19,7 +19,7 @@ export function statusLabel(status: Edi2Status) {
   const labels: Record<Edi2Status, string> = {
     valid: 'Valid in standalone mode',
     invalid: 'Invalid in standalone mode',
-    indeterminate: 'Workflow could not be determined',
+    indeterminate: 'Validation was indeterminate',
     unparseable: 'File could not be parsed',
     error: 'Validation could not be completed',
   };

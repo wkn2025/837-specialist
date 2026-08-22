@@ -2,6 +2,7 @@ import unittest
 from unittest import mock
 
 import x12_model as M
+from tests.test_rules_math import CLAIM
 
 TINY = (
     "ISA*00*          *00*          *ZZ*ECUSA          *ZZ*UHCG           "
@@ -51,6 +52,32 @@ class Parsing(unittest.TestCase):
                          (1, 1, None))
         self.assertEqual((sv2.transaction_index, sv2.claim_index,
                           sv2.line_number), (1, 1, 1))
+
+    def test_subscriber_and_other_payer_sbr_have_distinct_loops(self):
+        raw = CLAIM.replace(
+            "HL*2*1*22*0~",
+            "HL*2*1*22*0~SBR*P*18*SUBSCRIBER******ZZ~",
+        )
+        claim = M.parse_text(raw).claims[0]
+
+        self.assertEqual([seg.loop_id for seg in claim.segs("SBR")],
+                         ["2000B", "2320"])
+        self.assertEqual(claim.loop_segs("2320", "SBR")[0].el(3),
+                         "999990570299999")
+
+    def test_other_payer_parties_retain_their_2320_iteration(self):
+        raw = CLAIM.replace(
+            "AMT*EAF*0.00~",
+            "AMT*EAF*0.00~"
+            "NM1*IL*1*OTHER*SUBSCRIBER****MI*MEMBER2~"
+            "NM1*PR*2*OTHER PAYER*****PI*PAYER2~",
+        )
+        claim = M.parse_text(raw).claims[0]
+
+        subscriber = claim.loop_segs("2330A", "NM1")[0]
+        payer = claim.loop_segs("2330B", "NM1")[0]
+        self.assertEqual((subscriber.loop_iteration, payer.loop_iteration),
+                         (1, 1))
 
     def test_element_span_points_at_the_exact_element(self):
         clm = self.f.claims[0].seg("CLM")

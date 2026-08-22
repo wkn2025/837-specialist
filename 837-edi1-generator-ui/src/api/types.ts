@@ -109,6 +109,7 @@ export interface Edi2Trace {
   claimIndex: number | null;
   lineNumber: number | null;
   loopId: string | null;
+  loopIteration: number | null;
   segmentId: string;
   elementPath: string | null;
   rawSegment: string;
@@ -148,6 +149,25 @@ export interface Edi2Note {
   qualifier: string;
   text: string;
   remarkCode: string | null;
+  traceIds: string[];
+}
+
+export interface Edi2OtherPayerParty {
+  name: Observed;
+  identifierQualifier: Observed;
+  identifier: Observed;
+  traceIds: string[];
+}
+
+export interface Edi2OtherPayer {
+  sbr: string;
+  responsibilitySequence: Observed;
+  relationshipCode: Observed;
+  subscriberGroupNumber: Observed;
+  claimFilingIndicator: Observed;
+  subscriber: Edi2OtherPayerParty;
+  payer: Edi2OtherPayerParty;
+  references: Edi2Reference[];
   traceIds: string[];
 }
 
@@ -203,7 +223,7 @@ export interface Edi2Claim {
   amts: Edi2Amt[];
   notes: Edi2Note[];
   references: Edi2Reference[];
-  otherPayers: Array<{ sbr: string; traceIds: string[] }>;
+  otherPayers: Edi2OtherPayer[];
   lines: Edi2Line[];
 }
 

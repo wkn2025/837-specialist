@@ -71,7 +71,38 @@ def _trace_ids_by_segment(normalized):
     result = {}
     for trace_id, trace in normalized["traces"].items():
         result.setdefault(trace["segmentIndex"], []).append(trace_id)
+    for trace_ids in result.values():
+        trace_ids.sort(key=lambda trace_id: (
+            normalized["traces"][trace_id]["elementPath"] is not None,
+            trace_id,
+        ))
     return result
+
+
+def _ensure_finding_traces(edi, normalized, checks):
+    """Add an exact whole-segment trace for every located finding."""
+    by_index = {segment.index: segment for segment in edi.segments}
+    traces = normalized["traces"]
+    for check in checks:
+        for finding in check.findings:
+            segment = by_index.get(finding.segment_index)
+            if segment is None:
+                continue
+            trace_id = "s%d" % segment.index
+            traces.setdefault(trace_id, {
+                "id": trace_id,
+                "segmentIndex": segment.index,
+                "transactionIndex": segment.transaction_index,
+                "claimIndex": segment.claim_index,
+                "lineNumber": segment.line_number,
+                "loopId": segment.loop_id,
+                "loopIteration": segment.loop_iteration,
+                "segmentId": segment.sid,
+                "elementPath": None,
+                "rawSegment": segment.text,
+                "charStart": segment.start,
+                "charEnd": segment.end,
+            })
 
 
 def _serialize_checks(checks, normalized):
@@ -119,6 +150,42 @@ def _indeterminate(path, filename, edi, detected):
     }
 
 
+def _rule_indeterminate(path, filename, edi, detected, normalized, error):
+    return {
+        "schemaVersion": SCHEMA_VERSION,
+        "status": "indeterminate",
+        "file": _file_info(path, filename),
+        "workflow": detected.to_dict(),
+        "summary": {**_counts(edi), "checks": 0, "passed": 0, "failed": 0,
+                    "warnings": 0, "skipped": 0, "blockers": 0,
+                    "advisories": 0},
+        "coverage": _coverage(detected.workflow, standalone="not-performed"),
+        "limitations": _limitations(detected.workflow) + [
+            "Standalone validation was not completed because rule %s could "
+            "not be evaluated." % error.rule_id],
+        "checks": [],
+        "adjudication": normalized,
+    }
+
+
+def _analysis_indeterminate(path, filename, edi, detected):
+    return {
+        "schemaVersion": SCHEMA_VERSION,
+        "status": "indeterminate",
+        "file": _file_info(path, filename),
+        "workflow": detected.to_dict(),
+        "summary": {**_counts(edi), "checks": 0, "passed": 0, "failed": 0,
+                    "warnings": 0, "skipped": 0, "blockers": 0,
+                    "advisories": 0},
+        "coverage": _coverage(detected.workflow, standalone="not-performed"),
+        "limitations": _limitations(detected.workflow) + [
+            "Standalone validation and adjudication interpretation could not "
+            "be completed for this malformed input."],
+        "checks": [],
+        "adjudication": None,
+    }
+
+
 def _unparseable(path, filename, error):
     with open(path, encoding="utf-8-sig", errors="replace", newline="") as fh:
         raw = fh.read()
@@ -157,8 +224,18 @@ def validate(path, filename=None):
         return _indeterminate(path, safe_filename, edi, detected)
 
     context = rules.Context(edi=edi, filename=safe_filename)
-    checks = rules.run_checks(context, _registry(detected.workflow))
-    normalized = adjudication.interpret(edi, detected)
+    try:
+        normalized = adjudication.interpret(edi, detected)
+    except Exception:
+        return _analysis_indeterminate(
+            path, safe_filename, edi, detected)
+    try:
+        checks = rules.run_checks(
+            context, _registry(detected.workflow), fail_on_rule_error=True)
+    except rules.RuleExecutionError as error:
+        return _rule_indeterminate(
+            path, safe_filename, edi, detected, normalized, error)
+    _ensure_finding_traces(edi, normalized, checks)
     summary = _summary(checks, edi)
     return {
         "schemaVersion": SCHEMA_VERSION,
@@ -180,12 +257,11 @@ def main(argv=None):
     args = parser.parse_args(argv)
     try:
         result = validate(args.file, filename=args.filename)
-    except (OSError, UnicodeError) as error:
+    except Exception:
         result = {
             "schemaVersion": SCHEMA_VERSION,
             "status": "error",
-            "error": "unable to read the uploaded EDI2 file: %s"
-                     % error.__class__.__name__,
+            "error": "unable to safely analyze the uploaded EDI2 file",
         }
         print(json.dumps(result, separators=(",", ":")))
         return 2

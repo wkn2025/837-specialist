@@ -35,20 +35,37 @@ def p_rule(rule_id, severity, citation):
 
 def registry():
     """Return proven common checks followed by isolated Professional checks."""
-    common = rules_common.registry(rules_837i.registry())
+    common = [item for item in rules_common.registry(rules_837i.registry())
+              if item.id != "FMT-BHT03-LEN"]
+    overview_rules = {
+        "ENV-CLAIM-LIMIT", "ENV-FILENAME", "STR-EMPTY-SEGMENT",
+        "FMT-MONEY-FORM", "FMT-MONEY-NEGATIVE",
+        "ADJ-CLM20-FILE-PREFIX",
+    }
+    nte_rules = {"FMT-NTE-DELIMITER", "FMT-NTE-LENGTH", "NTE-NO-ECHO"}
+    validation_rules = {"FMT-COVERAGE-PCT"}
+
+    def source_for(rule_id):
+        if rule_id in overview_rules:
+            return OVR
+        if rule_id in nte_rules:
+            return rules_837i.NTEG
+        if rule_id in validation_rules:
+            return VR
+        return CG
+
     cited_for_p = [replace(
         item,
-        citation=item.citation
-        .replace("UHCG_837I_Companion_Guide_FULL.csv", CG)
-        .replace("UHCG_Validation_Rules_Institutional.csv", VR)
-        .replace("Institutional", "Professional"),
+        citation="%s; shared deterministic check (%s)"
+                 % (source_for(item.id), item.id),
     ) for item in common]
     return cited_for_p + list(P_RULES)
 
 
 def _decimal(value):
     try:
-        return Decimal(value) if value not in (None, "") else None
+        parsed = Decimal(value) if value not in (None, "") else None
+        return parsed if parsed is None or parsed.is_finite() else None
     except InvalidOperation:
         return None
 
@@ -93,7 +110,7 @@ def _cas(segments):
 
 
 def _amt(claim, qualifier="EAF"):
-    for seg in claim.segments:
+    for seg in claim.loop_segs("2320"):
         if seg.sid == "AMT" and seg.el(1) == qualifier:
             return _decimal(seg.el(2))
     return None
@@ -101,7 +118,7 @@ def _amt(claim, qualifier="EAF"):
 
 def _has_ref(claim, qualifier):
     return any(seg.el(1) == qualifier and seg.el(2)
-               for seg in claim.segs("REF"))
+               for seg in claim.loop_segs("2300", "REF"))
 
 
 def _frequency(claim):
@@ -154,11 +171,28 @@ def p_fmt_money(ctx):
         for line in claim.lines:
             sv1 = line.seg("SV1")
             value = sv1.el(2) if sv1 is not None else ""
-            if value and (_decimal(value) is None or value.startswith(("-", "+"))):
+            valid_form = bool(rules_837i.MONEY_RE.match(value))
+            leading_zero = value.startswith("0") and not value.startswith("0.")
+            if value and (not valid_form or leading_zero or
+                          _decimal(value) is None):
                 yield Finding("P-FMT-MONEY", "",
                               "line %d SV102 is not a valid unsigned amount: %r"
                               % (line.lx, value), claim=claim.uhap_id,
                               lx=line.lx, segment_index=sv1.index)
+
+
+@p_rule("P-FMT-BHT03-LEN", BLOCKER,
+        "%s, BHT03: AN 1-50" % CG)
+def p_fmt_bht03_len(ctx):
+    for claim in ctx.edi.claims:
+        bht = claim.seg("BHT")
+        value = bht.el(3) if bht is not None else ""
+        if not 1 <= len(value) <= 50:
+            yield Finding("P-FMT-BHT03-LEN", "",
+                          "BHT03 length is %d, expected 1 through 50"
+                          % len(value), claim=claim.uhap_id,
+                          segment_index=bht.index if bht is not None
+                          else claim.st.index)
 
 
 @p_rule("P-REQ-LINE-SV1", BLOCKER,
@@ -226,10 +260,14 @@ def p_line_decision_value(ctx):
         "%s, Loops 2300/2320: PA, NA, CP, HCP, CAS and AMT*EAF are required inbound" % CG)
 def p_req_claim_adjudication(ctx):
     for claim in ctx.edi.claims:
-        k3, cas = _k3(claim.segments), _cas(claim.segments)
+        k3 = _k3(claim.segments)
+        other_payer = claim.loop_segs("2320")
+        cas = _cas(other_payer)
         missing = [tag.upper() for tag in ("pa", "na", "cp") if k3[tag] is None]
         if claim.seg("HCP") is None:
             missing.append("HCP")
+        if not claim.loop_segs("2320", "SBR"):
+            missing.append("SBR")
         for key in (("PR", "1"), ("PR", "2"), ("PR", "3")):
             if key not in cas:
                 missing.append("CAS*%s*%s" % key)
@@ -289,6 +327,8 @@ def p_svd_service_parity(ctx):
 def p_math_line(ctx):
     for claim in ctx.edi.claims:
         reductions = {value.lower() for value in _k3(claim.segments)["reductions"]}
+        if "r&c" in reductions:
+            continue
         for line in claim.lines:
             values = _line_amounts(line)
             decision = _k3(line.segments)["decision"]
@@ -301,7 +341,7 @@ def p_math_line(ctx):
                           ("net_paid", "deductible", "coinsurance", "copay",
                            "not_covered")]
             ordinary_covered = decision == "1" and not reductions.intersection(
-                {"ices", "duplicate"})
+                {"ices", "duplicate", "r&c"})
             if ordinary_covered and values["allowed"] is not None \
                     and all(v is not None for v in components):
                 expected = _sum(components)
@@ -320,7 +360,10 @@ def p_math_claim(ctx):
     for claim in ctx.edi.claims:
         if not claim.lines:
             continue
-        k3, claim_cas = _k3(claim.segments), _cas(claim.segments)
+        k3 = _k3(claim.segments)
+        if "r&c" in {value.lower() for value in k3["reductions"]}:
+            continue
+        claim_cas = _cas(claim.loop_segs("2320"))
         lines = [_line_amounts(line) for line in claim.lines]
         comparisons = [
             ("net paid", _decimal(k3["pa"]), _sum(x["net_paid"] for x in lines)),
@@ -353,6 +396,10 @@ def p_math_claim(ctx):
         "%s: Not Covered and Duplicate Professional line amount semantics" % VR)
 def p_scen_line_decision(ctx):
     for claim in ctx.edi.claims:
+        reductions = {value.lower()
+                      for value in _k3(claim.segments)["reductions"]}
+        if "r&c" in reductions:
+            continue
         for line in claim.lines:
             decision = _k3(line.segments)["decision"]
             if decision not in ("2", "3"):
@@ -363,9 +410,13 @@ def p_scen_line_decision(ctx):
                 zero_keys.append("not_covered")
             nonzero = [key for key in zero_keys
                        if amounts[key] is not None and amounts[key] != ZERO]
-            if decision == "2" and amounts["billed"] is not None \
-                    and amounts["not_covered"] != amounts["billed"]:
-                nonzero.append("not_covered (expected billed %s)" % amounts["billed"])
+            expected_not_covered = (amounts["allowed"] if "cob" in reductions
+                                    else amounts["billed"])
+            if decision == "2" and expected_not_covered is not None \
+                    and amounts["not_covered"] != expected_not_covered:
+                basis = "allowed" if "cob" in reductions else "billed"
+                nonzero.append("not_covered (expected %s %s)"
+                               % (basis, expected_not_covered))
             if nonzero:
                 label = "Not Covered" if decision == "2" else "Duplicate"
                 yield Finding("P-SCEN-LINE-DECISION", "",
@@ -385,7 +436,7 @@ def p_scen_claim_decision(ctx):
         expected = k3["decision"]
         mismatches = [line.lx for line in claim.lines
                       if _k3(line.segments)["decision"] not in (None, expected)]
-        claim_cas = _cas(claim.segments)
+        claim_cas = _cas(claim.loop_segs("2320"))
         zero_values = [
             ("coverage", _decimal(k3["cp"])),
             ("net paid", _decimal(k3["pa"])),

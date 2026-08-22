@@ -89,6 +89,14 @@
   color: #fff;
 }
 .edi2-check-list { display: grid; gap: 9px; margin-top: 12px; }
+.edi2-check-family { display: grid; gap: 9px; }
+.edi2-check-family > h3 {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
 .edi2-check {
   padding: 13px 15px;
   border: 1px solid var(--border);

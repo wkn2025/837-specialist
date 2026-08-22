@@ -69,7 +69,20 @@ class Registry(unittest.TestCase):
         ctx = rules.Context(edi=M.parse_text("ST*837*1*X~SE*1*1~"))
         got = rules.run_all(ctx, registry=self.reg)
         self.assertEqual(got[0].rule_id, "ENV-BOOM")
-        self.assertIn("kaboom", got[0].message)
+        self.assertEqual(got[0].message, "rule could not be evaluated")
+        self.assertNotIn("kaboom", got[0].message)
+
+    def test_api_mode_raises_only_a_safe_rule_identifier(self):
+        @rules.rule("ENV-BOOM", F.BLOCKER, "c", registry=self.reg)
+        def _check(ctx):
+            raise ValueError("PRIVATE VALUE")
+
+        ctx = rules.Context(edi=M.parse_text("ST*837*1*X~SE*1*1~"))
+        with self.assertRaises(rules.RuleExecutionError) as raised:
+            rules.run_checks(ctx, registry=self.reg, fail_on_rule_error=True)
+
+        self.assertEqual(raised.exception.rule_id, "ENV-BOOM")
+        self.assertNotIn("PRIVATE", str(raised.exception))
 
     def test_run_checks_reports_pass_fail_and_warning(self):
         @rules.rule("ENV-PASS", F.BLOCKER, "pass citation", registry=self.reg,

@@ -29,6 +29,7 @@ COMMON_RULE_IDS = frozenset({
     "STR-HL-SEQUENCE",
     "STR-EMPTY-SEGMENT",
     "FMT-BHT03-LEN",
+    "FMT-LX01",
     "FMT-MONEY-FORM",
     "FMT-MONEY-NEGATIVE",
     "FMT-NTE-DELIMITER",
@@ -51,4 +52,3 @@ def registry(source=None):
     available = rules.RULES if source is None else source
     return [replace(item, workflow="common")
             for item in available if item.id in COMMON_RULE_IDS]
-

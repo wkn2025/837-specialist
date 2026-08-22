@@ -58,6 +58,7 @@ MUTATIONS = [
      "HI*ABK:I48:::::::U~NTE*ADD*716~", "STR-NTE-ADD-ORDER"),
     ("money_with_a_leading_zero", "K3*357.00|PA~", "K3*0357.00|PA~",
      "FMT-MONEY-FORM"),
+    ("lx_not_numeric", "LX*1~", "LX*ABC~", "FMT-LX01"),
     ("nte_text_over_the_limit", "NTE*ADD*716~", "NTE*ADD*%s~" % ("7" * 90),
      "FMT-NTE-LENGTH"),
     ("ccn_removed", "REF*F8*24012154121~", "", "ID-REF-F8"),

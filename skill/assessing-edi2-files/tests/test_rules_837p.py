@@ -3,14 +3,15 @@ import unittest
 
 import findings as F
 import rules
+import rules_837i
 import rules_837p
 import x12_model as M
 
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 FIXTURES = os.path.join(HERE, "fixtures")
-GOOD_PATH = os.path.join(FIXTURES, "professional_good.x12")
-BAD_PATH = os.path.join(FIXTURES, "professional_bad.x12")
+GOOD_PATH = os.path.join(FIXTURES, "UHCG_ECUSA_P_20260817174931.x12")
+BAD_PATH = os.path.join(FIXTURES, "UHCG_ECUSA_P_20260817174932.x12")
 NAME = "UHCG_ECUSA_P_20260817174931.x12"
 
 
@@ -55,6 +56,22 @@ class ProfessionalFixtureProvenance(unittest.TestCase):
                             and "837I_Companion" not in item.citation
                             for item in registered))
 
+    def test_shared_professional_rules_retain_their_authoritative_source_type(self):
+        registered = {item.id: item for item in rules_837p.registry()}
+
+        self.assertIn(rules_837p.OVR,
+                      registered["ENV-FILENAME"].citation)
+        self.assertIn(rules_837p.OVR,
+                      registered["STR-EMPTY-SEGMENT"].citation)
+        self.assertIn(rules_837p.OVR,
+                      registered["FMT-MONEY-FORM"].citation)
+        self.assertIn(rules_837i.NTEG,
+                      registered["FMT-NTE-LENGTH"].citation)
+        self.assertIn(rules_837p.VR,
+                      registered["FMT-COVERAGE-PCT"].citation)
+        self.assertIn(rules_837p.CG,
+                      registered["ENV-ISA-LEN"].citation)
+
 
 class ProfessionalStructure(unittest.TestCase):
     def test_professional_version_is_required(self):
@@ -85,12 +102,27 @@ class ProfessionalStructure(unittest.TestCase):
         self.assertIn("P-SVD-SERVICE-PARITY", blocker_ids(bad_units))
 
     def test_professional_billed_amount_format_is_validated(self):
-        bad = raw().replace("SV1*HC:97530*420.00*", "SV1*HC:97530*-420.00*")
-        self.assertIn("P-FMT-MONEY", blocker_ids(bad))
+        for value in ("-420.00", "1.234", "1E3", "NaN", "Infinity", "01.00"):
+            with self.subTest(value=value):
+                bad = raw().replace("SV1*HC:97530*420.00*",
+                                    "SV1*HC:97530*%s*" % value)
+                self.assertIn("P-FMT-MONEY", blocker_ids(bad))
 
     def test_unknown_claim_decision_is_rejected(self):
         bad = raw().replace("K3*1~", "K3*9~", 1)
         self.assertIn("P-CLAIM-BENEFIT-DECISION-VALUE", blocker_ids(bad))
+
+    def test_professional_bht03_accepts_guide_length_through_50(self):
+        for value in ("A", "B" * 11, "C" * 50):
+            with self.subTest(length=len(value)):
+                got = blocker_ids(raw().replace("2608170001", value, 1))
+                self.assertNotIn("FMT-BHT03-LEN", got)
+                self.assertNotIn("P-FMT-BHT03-LEN", got)
+
+    def test_professional_bht03_rejects_more_than_50_characters(self):
+        bad = raw().replace("2608170001", "X" * 51, 1)
+
+        self.assertIn("P-FMT-BHT03-LEN", blocker_ids(bad))
 
 
 class ProfessionalAdjudication(unittest.TestCase):
@@ -176,10 +208,38 @@ class ProfessionalAdjudication(unittest.TestCase):
         self.assertIn("P-SCEN-DUPLICATE-REDUCTION", blocker_ids(duplicate))
 
     def test_rc_reduction_is_advisory_not_an_invented_blocker(self):
-        rc = raw().replace("K3*1~", "K3*R&C~K3*1~", 1).replace("SE*28*", "SE*29*")
+        rc = (raw()
+              .replace("K3*1~", "K3*R&C~K3*1~", 1)
+              .replace("K3*357.00|PA~", "K3*350.00|PA~")
+              .replace("HCP*10*357.00*63.00*9327~",
+                       "HCP*10*400.00*20.00*9327~", 2)
+              .replace("SE*28*", "SE*29*"))
         result = by_id(checks(rc), "P-ADV-RC-REDUCTION")
         self.assertEqual(result.status, "warning")
         self.assertEqual(result.severity, F.ADVISORY)
+        self.assertNotIn("P-MATH-LINE", blocker_ids(rc))
+        self.assertNotIn("P-MATH-CLAIM", blocker_ids(rc))
+
+    def test_cob_not_covered_is_priced_from_allowed_amount(self):
+        cob = (raw()
+               .replace("K3*1~", "K3*COB~K3*1~", 1)
+               .replace("K3*357.00|PA~", "K3*0.00|PA~")
+               .replace("K3*0.00|NA~", "K3*357.00|NA~")
+               .replace("K3*100|CP~", "K3*0|CP~")
+               .replace("AMT*EAF*0.00~", "AMT*EAF*357.00~")
+               .replace("DTP*472*D8*20241121~K3*1~",
+                        "DTP*472*D8*20241121~K3*2~NTE*TPO*716~")
+               .replace("SVD*ECUSA*357.00*", "SVD*ECUSA*0.00*")
+               .replace("CAS*PR*1*0.00**2*0.00**3*0.00**96*0.00~",
+                        "CAS*PR*1*0.00**2*0.00**3*0.00**96*357.00~")
+               .replace("CAS*CO*45*357.00~", "CAS*CO*45*0.00~")
+               .replace("CAS*OA*23*100~", "CAS*OA*23*0~")
+               .replace("SE*28*", "SE*30*"))
+
+        self.assertNotIn("P-SCEN-LINE-DECISION", blocker_ids(cob))
+        billed_instead = cob.replace("CAS*PR*1*0.00**2*0.00**3*0.00**96*357.00~",
+                                     "CAS*PR*1*0.00**2*0.00**3*0.00**96*420.00~")
+        self.assertIn("P-SCEN-LINE-DECISION", blocker_ids(billed_instead))
 
     def test_professional_corrected_reference_mismatch_is_advisory(self):
         corrected = raw().replace("11:B:1", "11:B:7")

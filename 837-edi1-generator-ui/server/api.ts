@@ -85,7 +85,6 @@ async function masterfileRuns(): Promise<Run[]> {
 
 export function createApp(options: { edi2?: Edi2Options } = {}) {
   const app = express();
-  app.use(express.json({ limit: '32mb' }));
   app.use('/api/edi2', edi2Router({
     ...options.edi2,
     runPython: options.edi2?.runPython ?? ((args) => python(args, {
@@ -93,6 +92,7 @@ export function createApp(options: { edi2?: Edi2Options } = {}) {
       maxBuffer: 64 * 1024 * 1024,
     })),
   }));
+  app.use(express.json({ limit: '32mb' }));
 
   // The seed's own values, as an override document the form can load.
   app.get('/api/defaults', async (req, res) => {

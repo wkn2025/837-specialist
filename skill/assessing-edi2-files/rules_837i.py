@@ -256,18 +256,31 @@ def str_empty_segment(ctx):
 from decimal import Decimal, InvalidOperation  # noqa: E402  (kept next to use)
 
 MONEY_RE = re.compile(r"^\d+(\.\d{1,2})?$")
+LX_RE = re.compile(r"^[1-9]\d{0,5}$")
 PCT_RE = re.compile(r"^\d{1,3}$")
 DELIMS = set("*~:!")
 
 # Elements that carry money, as (segment id, element index) pairs.
 MONEY_ELEMENTS = [
-    ("CLM", 2), ("AMT", 2), ("SV2", 3), ("HCP", 2), ("HCP", 3), ("SVD", 2),
+    ("CLM", 2), ("AMT", 2), ("SV1", 2), ("SV2", 3), ("HCP", 2),
+    ("HCP", 3), ("SVD", 2),
 ]
 
 
 def money(text):
     """Decimal for a monetary element. Raises InvalidOperation on junk."""
-    return Decimal(text)
+    value = Decimal(text)
+    if not value.is_finite():
+        raise InvalidOperation
+    return value
+
+
+def maybe_money(text):
+    """Return a finite Decimal, or None so FMT rules own malformed values."""
+    try:
+        return money(text) if text not in (None, "") else None
+    except (InvalidOperation, ValueError):
+        return None
 
 
 def k3_values(claim):
@@ -319,6 +332,16 @@ def fmt_bht03_len(ctx):
                       % (bht.el(3), len(bht.el(3))),
                       claim=claim.uhap_id, segment_index=bht.index,
                       fix=Fix(bht.index, bht.text, "*".join(parts)))
+
+
+@rule("FMT-LX01", BLOCKER,
+      "%s, Loop 2400 LX01: Assigned Number N 1-6" % CG)
+def fmt_lx01(ctx):
+    for seg in ctx.edi.segs("LX"):
+        if not LX_RE.match(seg.el(1)):
+            yield Finding("FMT-LX01", "",
+                          "LX01 %r is not an assigned number of 1 through 6 digits"
+                          % seg.el(1), segment_index=seg.index)
 
 
 @rule("FMT-MONEY-FORM", BLOCKER,
@@ -390,7 +413,8 @@ def fmt_coverage_pct(ctx):
 # -------------------------------------------------------------- ID identifiers
 
 def _has_ref(claim, qualifier):
-    return any(s.el(1) == qualifier and s.el(2) for s in claim.segs("REF"))
+    return any(s.el(1) == qualifier and s.el(2)
+               for s in claim.loop_segs("2300", "REF"))
 
 
 @rule("ID-REF-F8", BLOCKER, "%s, Loop 2300 REF*F8: claim control number (CCN)" % CG)
@@ -422,7 +446,7 @@ def id_ref_d9(ctx):
 def id_svd01_payer(ctx):
     for claim in ctx.edi.claims:
         payer = None
-        for seg in claim.segments:
+        for seg in claim.loop_segs("2010BB", "NM1"):
             if seg.sid == "NM1" and seg.el(1) == "PR" and seg.el(8) == "PI":
                 payer = seg.el(9)
         if payer is None:
@@ -454,7 +478,8 @@ def _cas_amounts(segments):
             amount = seg.el(idx + 1)
             if reason and amount:
                 try:
-                    out[(group, reason)] = money(amount)
+                    key = (group, reason)
+                    out[key] = out.get(key, ZERO) + money(amount)
                 except InvalidOperation:
                     pass
     return out
@@ -469,20 +494,20 @@ def line_amounts(line):
         return cas.get(key)
 
     return {
-        "allowed": money(hcp.el(2)) if hcp and hcp.el(2) else None,
+        "allowed": maybe_money(hcp.el(2)) if hcp else None,
         "deduct": get(("PR", "1")),
         "coins": get(("PR", "2")),
         "copay": get(("PR", "3")),
         "notcov": get(("PR", "96")),
-        "netpaid": money(svd.el(2)) if svd and svd.el(2) else None,
+        "netpaid": maybe_money(svd.el(2)) if svd else None,
         "writeoff": get(("CO", "45")),
     }
 
 
 def claim_patient_resp(claim):
-    for seg in claim.segments:
+    for seg in claim.loop_segs("2320"):
         if seg.sid == "AMT" and seg.el(1) == "EAF" and seg.el(2):
-            return money(seg.el(2))
+            return maybe_money(seg.el(2))
     return None
 
 
@@ -539,12 +564,13 @@ def i_req_claim_hcp(ctx):
       "%s, Loop 2320 SBR/CAS: required for the adjudicated inbound claim" % CG)
 def i_req_claim_cas(ctx):
     for claim in ctx.edi.claims:
-        cas = _cas_amounts(claim.segments)
+        other_payer = claim.loop_segs("2320", "SBR")
+        cas = _cas_amounts(claim.loop_segs("2320"))
         missing = [reason for reason in ("1", "2", "3")
                    if ("PR", reason) not in cas]
-        if claim.seg("SBR") is None or missing:
+        if not other_payer or missing:
             detail = []
-            if claim.seg("SBR") is None:
+            if not other_payer:
                 detail.append("SBR")
             if missing:
                 detail.append("CAS*PR reason%s %s" % (
@@ -558,7 +584,7 @@ def i_req_claim_cas(ctx):
       "%s, Loop 2320 AMT*EAF: remaining patient liability is required inbound" % CG)
 def i_req_claim_amt(ctx):
     for claim in ctx.edi.claims:
-        amt = next((seg for seg in claim.segments
+        amt = next((seg for seg in claim.loop_segs("2320")
                     if seg.sid == "AMT" and seg.el(1) == "EAF" and seg.el(2)), None)
         if amt is None:
             yield Finding("I-REQ-CLAIM-AMT", "",
@@ -621,7 +647,8 @@ def math_claim_sums_lines(ctx):
         for label, claim_value, line_total in checks:
             if claim_value is None:
                 continue
-            if money(claim_value) != line_total:
+            parsed_claim = maybe_money(claim_value)
+            if parsed_claim is not None and parsed_claim != line_total:
                 yield Finding("MATH-CLAIM-SUMS-LINES", "",
                               "claim %s is %s but the lines sum to %s"
                               % (label, claim_value, line_total),
@@ -635,14 +662,14 @@ def math_amt_eaf(ctx):
         stated = claim_patient_resp(claim)
         if stated is None:
             continue
-        cas = _cas_amounts(claim.segments)
+        cas = _cas_amounts(claim.loop_segs("2320"))
         # The claim-level CAS*PR group carries deductible, coinsurance and copay.
         # Not covered lives on the lines, so it reaches the claim through K3 NA
         # unless the claim-level CAS*PR itself carries reason code 96.
         notcov = cas.get(("PR", "96"))
         if notcov is None:
             k3_na = k3_values(claim)["na"]
-            notcov = money(k3_na) if k3_na is not None else None
+            notcov = maybe_money(k3_na)
         want = _sum([cas.get(("PR", "1")), cas.get(("PR", "2")),
                      cas.get(("PR", "3")), notcov])
         if stated != want:
@@ -725,8 +752,11 @@ def math_claim_reconciles(ctx):
             # A line denied above its allowed amount throws the whole claim out;
             # SCEN-PARTIAL-DENIAL-ALLOWED reports the cause.
             continue
-        allowed = money(hcp.el(2))
-        total = money(k3["pa"]) + resp
+        allowed = maybe_money(hcp.el(2))
+        paid = maybe_money(k3["pa"])
+        if allowed is None or paid is None:
+            continue
+        total = paid + resp
         if total != allowed:
             yield Finding("MATH-CLAIM-RECONCILES", "",
                           "net paid %s plus patient responsibility %s is %s, "
@@ -803,8 +833,8 @@ def scen_mrr_paid(ctx):
         expected = _expected_bd(ctx, claim)
         if expected != BD_MRR:
             continue
-        paid = money(k3["pa"]) if k3["pa"] else ZERO
-        cover = Decimal(k3["cp"]) if k3["cp"] else ZERO
+        paid = maybe_money(k3["pa"])
+        cover = maybe_money(k3["cp"])
         lines_paid = _sum(line_amounts(l)["netpaid"] for l in claim.lines)
         if k3["bd"] == BD_MRR and paid == ZERO and cover == ZERO \
                 and lines_paid == ZERO:
@@ -822,20 +852,21 @@ def scen_mrr_paid(ctx):
                           fix=Fix(bd_seg.index, bd_seg.text, "K3*%s" % BD_MRR,
                                   reason=_scenario_reason(ctx, claim)))
         pa_seg = _k3_seg(claim, "PA")
-        if pa_seg is not None and paid != ZERO:
+        if pa_seg is not None and paid is not None and paid != ZERO:
             yield Finding("SCEN-MRR-PAID", "", message, claim=claim.uhap_id,
                           segment_index=pa_seg.index,
                           fix=Fix(pa_seg.index, pa_seg.text, "K3*0.00|PA",
                                   uncertain=True, reason=MRR_REASON))
         cp_seg = _k3_seg(claim, "CP")
-        if cp_seg is not None and cover != ZERO:
+        if cp_seg is not None and cover is not None and cover != ZERO:
             yield Finding("SCEN-MRR-PAID", "", message, claim=claim.uhap_id,
                           segment_index=cp_seg.index,
                           fix=Fix(cp_seg.index, cp_seg.text, "K3*0|CP",
                                   uncertain=True, reason=MRR_REASON))
         for line in claim.lines:
             svd = line.seg("SVD")
-            if svd is not None and svd.el(2) and money(svd.el(2)) != ZERO:
+            net_paid = maybe_money(svd.el(2)) if svd is not None else None
+            if net_paid is not None and net_paid != ZERO:
                 parts = list(svd.elems)
                 parts[2] = "0.00"
                 yield Finding("SCEN-MRR-PAID", "", message, claim=claim.uhap_id,
@@ -864,13 +895,17 @@ def scen_full_denial(ctx):
         if k3["bd"] != BD_NOT_COVERED:
             continue
         clm = claim.seg("CLM")
-        billed = money(clm.el(2)) if clm and clm.el(2) else None
+        billed = maybe_money(clm.el(2)) if clm else None
         problems = []
-        if k3["pa"] is not None and money(k3["pa"]) != ZERO:
+        paid = maybe_money(k3["pa"])
+        if paid is not None and paid != ZERO:
             problems.append("net paid is %s, expected 0.00" % k3["pa"])
-        if k3["cp"] is not None and Decimal(k3["cp"]) != ZERO:
+        coverage = maybe_money(k3["cp"])
+        if coverage is not None and coverage != ZERO:
             problems.append("coverage is %s%%, expected 0" % k3["cp"])
-        if billed is not None and k3["na"] is not None and money(k3["na"]) != billed:
+        not_covered = maybe_money(k3["na"])
+        if billed is not None and not_covered is not None \
+                and not_covered != billed:
             problems.append("not covered is %s, expected the billed amount %s"
                             % (k3["na"], billed))
         if problems:
@@ -922,8 +957,9 @@ def scen_partial_denial(ctx):
 
         # The claim-level totals restate what the lines now say.
         na_seg = _k3_seg(claim, "NA")
-        if na_seg is not None and k3["na"] is not None \
-                and money(k3["na"]) != corrected_total:
+        claim_not_covered = maybe_money(k3["na"])
+        if na_seg is not None and claim_not_covered is not None \
+                and claim_not_covered != corrected_total:
             yield Finding("SCEN-PARTIAL-DENIAL-ALLOWED", "",
                           "claim not covered is %s but the corrected lines total "
                           "%s" % (k3["na"], corrected_total),
@@ -931,8 +967,9 @@ def scen_partial_denial(ctx):
                           fix=Fix(na_seg.index, na_seg.text,
                                   "K3*%s|NA" % corrected_total))
 
+
         cas_claim = None
-        for seg in claim.segs("CAS"):
+        for seg in claim.loop_segs("2320", "CAS"):
             if seg.el(1) == "PR" and "96" in seg.elems:
                 cas_claim = seg
         if cas_claim is not None:
@@ -949,11 +986,11 @@ def scen_partial_denial(ctx):
                                       "*".join(parts)))
 
         amt = None
-        for seg in claim.segments:
+        for seg in claim.loop_segs("2320"):
             if seg.sid == "AMT" and seg.el(1) == "EAF":
                 amt = seg
         if amt is not None:
-            cas = _cas_amounts(claim.segments)
+            cas = _cas_amounts(claim.loop_segs("2320"))
             want = _sum([cas.get(("PR", "1")), cas.get(("PR", "2")),
                          cas.get(("PR", "3"))]) + corrected_total
             if amt.el(2) != str(want):
@@ -1196,7 +1233,7 @@ def i_scen_duplicate_amounts(ctx):
         k3 = k3_values(claim)
         if k3["bd"] != BD_DUPLICATE:
             continue
-        cas = _cas_amounts(claim.segments)
+        cas = _cas_amounts(claim.loop_segs("2320"))
         values = [
             ("coverage percentage", k3["cp"]),
             ("net paid", k3["pa"]),
@@ -1217,7 +1254,8 @@ def i_scen_duplicate_amounts(ctx):
             ])
         nonzero = []
         for label, value in values:
-            if value not in (None, "") and Decimal(value) != ZERO:
+            parsed = maybe_money(value)
+            if parsed is not None and parsed != ZERO:
                 nonzero.append("%s is %s" % (label, value))
         if nonzero:
             yield Finding("I-SCEN-DUPLICATE-AMOUNTS", "",
@@ -1232,16 +1270,20 @@ def i_scen_duplicate_amounts(ctx):
       "may still flag the missing 2330A/2330B other-payer name loops" % CG)
 def adv_2320_loops(ctx):
     for claim in ctx.edi.claims:
-        if claim.seg("SBR") is None:
-            continue
-        has_other_payer = any(
-            s.sid == "NM1" and s.el(1) in ("IL", "PR") and s.index > claim.seg("SBR").index
-            for s in claim.segments)
-        if not has_other_payer:
+        for sbr in claim.loop_segs("2320", "SBR"):
+            iteration = sbr.loop_iteration
+            has_subscriber = any(
+                s.loop_iteration == iteration
+                for s in claim.loop_segs("2330A", "NM1"))
+            has_payer = any(
+                s.loop_iteration == iteration
+                for s in claim.loop_segs("2330B", "NM1"))
+            if has_subscriber and has_payer:
+                continue
             yield Finding("ADV-2320-OTHER-PAYER-LOOPS", "",
                           "Loop 2320 carries SBR, CAS and AMT with no 2330A/2330B "
                           "other-payer loops; permitted by the UHCG guide",
-                          claim=claim.uhap_id, segment_index=claim.seg("SBR").index)
+                          claim=claim.uhap_id, segment_index=sbr.index)
 
 
 @rule("ADV-ISA14", ADVISORY,

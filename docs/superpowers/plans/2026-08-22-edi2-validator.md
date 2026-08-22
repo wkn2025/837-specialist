@@ -471,8 +471,8 @@ git commit -m "feat: harden supported Institutional adjudication checks"
 
 **Files:**
 - Replace: `skill/assessing-edi2-files/rules_837p.py`
-- Create: `skill/assessing-edi2-files/tests/fixtures/professional_good.x12`
-- Create: `skill/assessing-edi2-files/tests/fixtures/professional_bad.x12`
+- Create: `skill/assessing-edi2-files/tests/fixtures/UHCG_ECUSA_P_20260817174931.x12`
+- Create: `skill/assessing-edi2-files/tests/fixtures/UHCG_ECUSA_P_20260817174932.x12`
 - Create: `skill/assessing-edi2-files/tests/test_rules_837p.py`
 - Modify: `skill/assessing-edi2-files/tests/test_837p_refusal.py`
 
@@ -489,13 +489,13 @@ line decision/amount combination and removes a required remark.
 
 ```python
 def test_synthetic_professional_fixture_is_guide_derived_not_golden(self):
-    result = validate_fixture("professional_good.x12")
+    result = validate_fixture("UHCG_ECUSA_P_20260817174931.x12")
     self.assertEqual(blocker_ids(result), set())
     self.assertEqual(result["coverage"]["professionalGolden"], "not-performed")
 
 def test_professional_line_decision_is_required(self):
     self.assertIn("P-REQ-LINE-BENEFIT-DECISION",
-                  blocker_ids(validate_fixture("professional_bad.x12")))
+                  blocker_ids(validate_fixture("UHCG_ECUSA_P_20260817174932.x12")))
 
 def test_ices_line_requires_covered_decision(self):
     self.assertIn("P-SCEN-ICES-COVERED",
@@ -906,7 +906,7 @@ git commit -m "test: verify EDI2 Validator browser workflows"
 - Consumes: complete feature diff and approved spec.
 - Produces: reviewed, verified feature with an explicit Professional-golden limitation.
 
-- [ ] **Step 1: Run an independent code review against the spec**
+- [x] **Step 1: Run an independent code review against the spec**
 
 Use `superpowers:requesting-code-review`. Review specifically for:
 
@@ -918,12 +918,12 @@ Use `superpowers:requesting-code-review`. Review specifically for:
 - misleading standalone or Professional certification wording;
 - regressions in generator routes and views.
 
-- [ ] **Step 2: Address review findings with strict red-green-refactor**
+- [x] **Step 2: Address review findings with strict red-green-refactor**
 
 Each behavioral finding gets a reproducing failing test, minimal fix, focused
 green run, and full affected-suite run.
 
-- [ ] **Step 3: Run fresh full verification**
+- [x] **Step 3: Run fresh full verification**
 
 ```powershell
 $env:PYTHONDONTWRITEBYTECODE='1'
@@ -941,12 +941,12 @@ git status --short --branch
 Expected: Python, Vitest, TypeScript, and build exit 0; no diff whitespace
 errors; only intentional feature changes remain.
 
-- [ ] **Step 4: Re-run the four-case browser acceptance check**
+- [x] **Step 4: Re-run the four-case browser acceptance check**
 
 Expected: all four results and trace interactions match Task 11 with no browser
 console errors.
 
-- [ ] **Step 5: Commit review fixes, if any**
+- [x] **Step 5: Commit review fixes, if any**
 
 ```powershell
 git add skill/assessing-edi2-files 837-edi1-generator-ui scratch/evidence/edi2-validator

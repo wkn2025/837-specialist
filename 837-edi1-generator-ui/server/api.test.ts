@@ -8,11 +8,12 @@
  * the browser (task 13), not by a test that would spend real identifiers on
  * every run.
  */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import request from 'supertest';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { gzipSync } from 'node:zlib';
 import { createApp, REPO } from './api';
 
 const app = createApp();
@@ -197,5 +198,96 @@ describe('read-only EDI2 uploads', () => {
       error: 'EDI2 validation could not be completed',
     });
     expect(res.text).not.toContain(missingRoot);
+  });
+
+  it('rejects compressed request bodies instead of inflating them', async () => {
+    const isolated = createApp({ edi2: {
+      runPython: async () => { throw new Error('must not spawn'); },
+    } });
+    const res = await request(isolated).post('/api/edi2/validate')
+      .set('content-type', 'application/octet-stream')
+      .set('content-encoding', 'gzip')
+      .send(gzipSync(Buffer.from('ISA*00*SAFE~')));
+
+    expect(res.status).toBe(415);
+    expect(res.type).toMatch(/json/);
+    expect(res.body.error).toMatch(/compressed/i);
+  });
+
+  it('rejects malformed JSON before the application JSON parser can leak', async () => {
+    const res = await request(app).post('/api/edi2/validate')
+      .set('content-type', 'application/json')
+      .send('{PRIVATE INVALID JSON');
+
+    expect(res.status).toBe(415);
+    expect(res.type).toMatch(/json/);
+    expect(res.body).toEqual({
+      error: 'content-type must be application/octet-stream',
+    });
+    expect(res.text).not.toMatch(/SyntaxError|PRIVATE/);
+  });
+
+  it('fails safely when private upload cleanup cannot be confirmed', async () => {
+    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'edi2-cleanup-'));
+    let attempts = 0;
+    const reportOperationalError = vi.fn();
+    const isolated = createApp({ edi2: {
+      tempRoot,
+      runPython: async () => JSON.stringify({ status: 'valid' }),
+      reportOperationalError,
+      removeDirectory: async () => {
+        attempts += 1;
+        throw new Error(`PRIVATE ${tempRoot}`);
+      },
+    } });
+    try {
+      const res = await upload(isolated, Buffer.from('ISA*00*SAFE~'));
+      expect(res.status).toBe(500);
+      expect(res.body).toEqual({
+        error: 'EDI2 validation could not be completed',
+      });
+      expect(res.text).not.toContain(tempRoot);
+      expect(attempts).toBe(2);
+      expect(reportOperationalError).toHaveBeenCalledWith(
+        'EDI2 temporary upload cleanup failed');
+    } finally {
+      await fs.rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('cleans up and hides subprocess failures', async () => {
+    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'edi2-runner-'));
+    const isolated = createApp({ edi2: {
+      tempRoot,
+      runPython: async () => { throw new Error(`PRIVATE ${tempRoot}`); },
+    } });
+    try {
+      const res = await upload(isolated, Buffer.from('ISA*00*SAFE~'));
+      expect(res.status).toBe(500);
+      expect(res.text).not.toContain(tempRoot);
+      expect(await fs.readdir(tempRoot)).toEqual([]);
+    } finally {
+      await fs.rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('reports cleanup failure even when validation already failed', async () => {
+    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'edi2-both-'));
+    const reportOperationalError = vi.fn();
+    const isolated = createApp({ edi2: {
+      tempRoot,
+      runPython: async () => { throw new Error(`PRIVATE ${tempRoot}`); },
+      removeDirectory: async () => { throw new Error(`PRIVATE ${tempRoot}`); },
+      reportOperationalError,
+    } });
+    try {
+      const res = await upload(isolated, Buffer.from('ISA*00*SAFE~'));
+      expect(res.status).toBe(500);
+      expect(res.text).not.toContain(tempRoot);
+      expect(reportOperationalError).toHaveBeenCalledWith(
+        'EDI2 temporary upload cleanup failed');
+    } finally {
+      await fs.rm(tempRoot, { recursive: true, force: true });
+    }
   });
 });

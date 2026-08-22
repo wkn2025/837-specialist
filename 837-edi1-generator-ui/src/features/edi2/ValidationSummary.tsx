@@ -50,6 +50,12 @@ export function ValidationSummary({ result, onTrace }: Props) {
   ])) as Record<CheckStatus, number>;
   const checks = filter === 'all'
     ? result.checks : result.checks.filter((check) => check.status === filter);
+  const groups = checks.reduce<Map<string, Edi2Check[]>>((grouped, check) => {
+    const family = grouped.get(check.family) ?? [];
+    family.push(check);
+    grouped.set(check.family, family);
+    return grouped;
+  }, new Map());
 
   return (
     <section className="edi2-results" aria-labelledby="validation-summary-heading">
@@ -102,8 +108,13 @@ export function ValidationSummary({ result, onTrace }: Props) {
             ))}
           </div>
           <div className="edi2-check-list">
-            {checks.map((check) => (
-              <Check check={check} onTrace={onTrace} key={check.id} />
+            {[...groups].map(([family, familyChecks]) => (
+              <section className="edi2-check-family" key={family}>
+                <h3>{family} checks</h3>
+                {familyChecks.map((check) => (
+                  <Check check={check} onTrace={onTrace} key={check.id} />
+                ))}
+              </section>
             ))}
             {!checks.length && <p className="empty">No checks in this group.</p>}
           </div>

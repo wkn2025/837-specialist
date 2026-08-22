@@ -77,8 +77,9 @@ class Identifiers(unittest.TestCase):
 
     def test_svd01_must_match_the_payer_nm109(self):
         with_payer = self.full.replace(
-            "HI*ABK:I48:::::::U~",
-            "NM1*PR*2*ECUSA*****PI*ECUSA~HI*ABK:I48:::::::U~"
+            "CLM*TEST1*420.00***13:A:1**A*Y*Y~",
+            "NM1*PR*2*ECUSA*****PI*ECUSA~"
+            "CLM*TEST1*420.00***13:A:1**A*Y*Y~"
         ).replace("HCP*10*357.00*63.00*9327*0.00**0.00****UN*2~",
                   "HCP*10*357.00*63.00*9327*0.00**0.00****UN*2~"
                   "SVD*WRONG*357.00*HC:97530*0430*2~"

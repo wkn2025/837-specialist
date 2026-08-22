@@ -88,7 +88,25 @@ const I_VALID = {
         qualifier: 'TPO', text: 'Y|716', remarkCode: '716', traceIds: ['s2'],
       }],
       references: [{ qualifier: 'F8', value: '24012154121', traceIds: ['s7'] }],
-      otherPayers: [{ sbr: 'SBR*P*18*OTHER', traceIds: ['s11'] }],
+      otherPayers: [{
+        sbr: 'SBR*P*18*OTHER',
+        responsibilitySequence: observed('P'), relationshipCode: observed('18'),
+        subscriberGroupNumber: observed('OTHER'),
+        claimFilingIndicator: observed('ZZ'),
+        subscriber: {
+          name: observed('OTHER SUBSCRIBER'),
+          identifierQualifier: observed('MI'), identifier: observed('MEMBER2'),
+          traceIds: ['s11'],
+        },
+        payer: {
+          name: observed('OTHER PAYER'), identifierQualifier: observed('PI'),
+          identifier: observed('PAYER2'), traceIds: ['s11'],
+        },
+        references: [{
+          qualifier: '2U', value: 'OTHER-PAYER-REF', traceIds: ['s11'],
+        }],
+        traceIds: ['s11'],
+      }],
       lines: [{
         lineNumber: 1,
         service: {
@@ -128,6 +146,12 @@ const I_VALID = {
         lineNumber: 1, loopId: '2430', segmentId: 'CAS', elementPath: null,
         rawSegment: 'CAS*PR*96*0.00', charStart: 160, charEnd: 175,
       },
+      s10: {
+        id: 's10', segmentIndex: 22, transactionIndex: 1, claimIndex: 1,
+        lineNumber: null, loopId: '2300', loopIteration: null,
+        segmentId: 'K3', elementPath: 'K301', rawSegment: 'K3*1',
+        charStart: 176, charEnd: 180,
+      },
     },
   },
 } as unknown as Edi2ValidationResult;
@@ -164,6 +188,7 @@ describe('EDI2 Validator shell', () => {
     fireEvent.click(screen.getByRole('tab', { name: 'EDI2 Validator' }));
 
     expect(screen.getByRole('heading', { name: 'EDI2 Validator' })).toBeTruthy();
+    expect(screen.getByText(/Default maximum upload size: 10 MB/i)).toBeTruthy();
   });
 
   it('uploads the selected file and renders its detected workflow', async () => {
@@ -240,13 +265,67 @@ describe('traceable validation presentation', () => {
     expect(screen.queryByText('Envelope controls')).toBeNull();
   });
 
+  it('groups structural checks by rule family', () => {
+    render(<ValidationSummary result={I_VALID} onTrace={() => {}} />);
+
+    expect(screen.getByRole('heading', { name: 'I checks' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'ENV checks' })).toBeTruthy();
+  });
+
   it('keeps NTE remark codes and CAS reason codes separate', () => {
-    render(<AdjudicationClaims result={I_VALID} onTrace={() => {}} />);
+    const onTrace = vi.fn();
+    render(<AdjudicationClaims result={I_VALID} onTrace={onTrace} />);
     fireEvent.click(screen.getByRole('button', { name: /Claim TEST260812001/i }));
 
     expect(screen.getByText('Remark code 716')).toBeTruthy();
     expect(screen.getAllByText('CAS PR / 96').length).toBeGreaterThan(0);
+    expect(screen.getByText('OTHER PAYER')).toBeTruthy();
+    expect(screen.getByText('Responsibility sequence')).toBeTruthy();
+    expect(screen.getByText('Relationship code')).toBeTruthy();
+    expect(screen.getByText('Subscriber group number')).toBeTruthy();
+    expect(screen.getByText('Claim filing indicator')).toBeTruthy();
+    expect(screen.getByText('Payer identifier qualifier')).toBeTruthy();
+    expect(screen.getByText('Subscriber identifier qualifier')).toBeTruthy();
+    expect(screen.getByText('PI')).toBeTruthy();
+    expect(screen.getByText('MI')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', {
+      name: 'View source for other payer identifier qualifier',
+    }));
+    fireEvent.click(screen.getByRole('button', {
+      name: 'View source for other subscriber identifier qualifier',
+    }));
+    expect(onTrace.mock.calls).toEqual([['s11'], ['s11']]);
+    expect(screen.getByText('REF 2U')).toBeTruthy();
+    expect(screen.getAllByText('Repriced savings').length).toBeGreaterThan(0);
+    expect(screen.queryByText('Savings / discount')).toBeNull();
     expect(screen.queryByText(/denial code/i)).toBeNull();
+  });
+
+  it('opens the exact K3 source for a transmitted claim decision', () => {
+    render(<Edi2Validator initialResult={I_VALID} />);
+    fireEvent.click(screen.getByRole('button', { name: /Claim TEST260812001/i }));
+
+    fireEvent.click(screen.getByRole('button', {
+      name: 'View source for claim benefit decision',
+    }));
+
+    expect(screen.getByRole('dialog', { name: 'X12 source trace' })).toBeTruthy();
+    expect(screen.getByText('K3*1')).toBeTruthy();
+  });
+
+  it('uses indeterminate wording even when workflow detection succeeded', () => {
+    const indeterminate = {
+      ...I_VALID,
+      status: 'indeterminate',
+      coverage: {
+        ...I_VALID.coverage, standaloneValidation: 'not-performed',
+      },
+    } as Edi2ValidationResult;
+
+    render(<ValidationSummary result={indeterminate} onTrace={() => {}} />);
+
+    expect(screen.getByText('Validation was indeterminate')).toBeTruthy();
+    expect(screen.queryByText('Workflow could not be determined')).toBeNull();
   });
 
   it('shows the Professional golden limitation without invalidating the file', () => {
@@ -268,7 +347,19 @@ describe('traceable validation presentation', () => {
     expect(screen.getByRole('dialog', { name: 'X12 source trace' })).toBeTruthy();
     expect(screen.getByText(/CLM\*TEST260812001\*420\.00/)).toBeTruthy();
     expect(document.querySelector('script')).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: 'Close source trace' }));
+    const dialog = screen.getByRole('dialog', { name: 'X12 source trace' });
+    const close = screen.getByRole('button', { name: 'Close source trace' });
+    expect(document.activeElement).toBe(close);
+    fireEvent.keyDown(dialog, { key: 'Tab' });
+    expect(document.activeElement).toBe(close);
+    fireEvent.keyDown(dialog, { key: 'Tab', shiftKey: true });
+    expect(document.activeElement).toBe(close);
+    const tab = new KeyboardEvent('keydown', {
+      key: 'Tab', bubbles: true, cancelable: true,
+    });
+    dialog.dispatchEvent(tab);
+    expect(tab.defaultPrevented).toBe(true);
+    fireEvent.click(close);
     await waitFor(() => expect(document.activeElement).toBe(source));
   });
 });

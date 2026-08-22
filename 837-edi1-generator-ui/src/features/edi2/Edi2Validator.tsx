@@ -59,7 +59,9 @@ export function Edi2Validator({ validate, initialResult }: Props) {
           disabled={state.phase === 'loading'}
           onChange={choose}
         />
-        <p className="caption">Maximum upload size: 10 MB.</p>
+        <p className="caption">
+          Default maximum upload size: 10 MB; deployment configuration may differ.
+        </p>
       </section>
 
       <div aria-live="polite">

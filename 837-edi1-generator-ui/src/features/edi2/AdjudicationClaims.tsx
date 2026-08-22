@@ -25,7 +25,7 @@ function TraceButton({ traceIds, label, onTrace }: {
 const AMOUNT_FIELDS: Array<[keyof Edi2Amounts, string]> = [
   ['billed', 'Billed amount'],
   ['allowed', 'Allowed amount'],
-  ['repricedSavings', 'Savings / discount'],
+  ['repricedSavings', 'Repriced savings'],
   ['deductible', 'Deductible'],
   ['coinsurance', 'Coinsurance'],
   ['copay', 'Copay'],
@@ -141,6 +141,11 @@ function LineDetails({ line, workflow, onTrace }: {
     <article className="edi2-line-detail">
       <h4>Line {line.lineNumber ?? '—'} details</h4>
       <p><strong>{workflow === 'P' ? 'Transmitted line decision' : 'Derived financial outcome'}:</strong> {status}</p>
+      {workflow === 'P' && (
+        <TraceButton traceIds={line.benefitDecision.traceIds}
+                     label={`line ${line.lineNumber ?? 'unknown'} benefit decision`}
+                     onTrace={onTrace} />
+      )}
       <Amounts values={line.amounts} onTrace={onTrace}
                tracePrefix={`line ${line.lineNumber ?? 'unknown'} `} />
       <CasRows rows={line.cas} onTrace={onTrace} />
@@ -151,7 +156,11 @@ function LineDetails({ line, workflow, onTrace }: {
         <div className="edi2-raw-group">
           <h4>Reduction / rework indicators</h4>
           {line.reductionIndicators.map((indicator, index) => (
-            <p key={index}>{indicator.value}</p>
+            <p key={index}>
+              {indicator.value}
+              <TraceButton traceIds={indicator.traceIds}
+                           label="line reduction indicator" onTrace={onTrace} />
+            </p>
           ))}
         </div>
       )}
@@ -178,6 +187,8 @@ function ClaimDetails({ claim, workflow, onTrace }: {
       {decision && (
         <p className="edi2-decision">
           <strong>Claim benefit decision:</strong> {decision.code} — {decision.label}
+          <TraceButton traceIds={claim.benefitDecision.traceIds}
+                       label="claim benefit decision" onTrace={onTrace} />
         </p>
       )}
       <h3>Claim amounts</h3>
@@ -222,9 +233,47 @@ function ClaimDetails({ claim, workflow, onTrace }: {
         <section className="edi2-raw-group">
           <h4>COB / other payer values</h4>
           {claim.otherPayers.map((payer, index) => (
-            <p key={index}>{payer.sbr}
-              <TraceButton traceIds={payer.traceIds} label="other payer value" onTrace={onTrace} />
-            </p>
+            <div key={index}>
+              <dl className="edi2-identifiers">
+                <div><dt>Responsibility sequence</dt><dd>{value(payer.responsibilitySequence)}</dd>
+                  <TraceButton traceIds={payer.responsibilitySequence.traceIds}
+                               label="COB responsibility sequence" onTrace={onTrace} /></div>
+                <div><dt>Relationship code</dt><dd>{value(payer.relationshipCode)}</dd>
+                  <TraceButton traceIds={payer.relationshipCode.traceIds}
+                               label="COB relationship code" onTrace={onTrace} /></div>
+                <div><dt>Subscriber group number</dt><dd>{value(payer.subscriberGroupNumber)}</dd>
+                  <TraceButton traceIds={payer.subscriberGroupNumber.traceIds}
+                               label="COB subscriber group number" onTrace={onTrace} /></div>
+                <div><dt>Claim filing indicator</dt><dd>{value(payer.claimFilingIndicator)}</dd>
+                  <TraceButton traceIds={payer.claimFilingIndicator.traceIds}
+                               label="COB claim filing indicator" onTrace={onTrace} /></div>
+                <div><dt>Other payer</dt><dd>{value(payer.payer.name)}</dd>
+                  <TraceButton traceIds={payer.payer.name.traceIds}
+                               label="other payer name" onTrace={onTrace} /></div>
+                <div><dt>Payer ID</dt><dd>{value(payer.payer.identifier)}</dd>
+                  <TraceButton traceIds={payer.payer.identifier.traceIds}
+                               label="other payer identifier" onTrace={onTrace} /></div>
+                <div><dt>Payer identifier qualifier</dt><dd>{value(payer.payer.identifierQualifier)}</dd>
+                  <TraceButton traceIds={payer.payer.identifierQualifier.traceIds.length
+                                       ? payer.payer.identifierQualifier.traceIds : payer.payer.traceIds}
+                               label="other payer identifier qualifier" onTrace={onTrace} /></div>
+                <div><dt>Other subscriber</dt><dd>{value(payer.subscriber.name)}</dd>
+                  <TraceButton traceIds={payer.subscriber.name.traceIds}
+                               label="other subscriber name" onTrace={onTrace} /></div>
+                <div><dt>Subscriber ID</dt><dd>{value(payer.subscriber.identifier)}</dd>
+                  <TraceButton traceIds={payer.subscriber.identifier.traceIds}
+                               label="other subscriber identifier" onTrace={onTrace} /></div>
+                <div><dt>Subscriber identifier qualifier</dt><dd>{value(payer.subscriber.identifierQualifier)}</dd>
+                  <TraceButton traceIds={payer.subscriber.identifierQualifier.traceIds.length
+                                       ? payer.subscriber.identifierQualifier.traceIds
+                                       : payer.subscriber.traceIds}
+                               label="other subscriber identifier qualifier" onTrace={onTrace} /></div>
+              </dl>
+              <RefRows rows={payer.references} onTrace={onTrace} />
+              <p><code>{payer.sbr}</code>
+                <TraceButton traceIds={payer.traceIds} label="other payer value" onTrace={onTrace} />
+              </p>
+            </div>
           ))}
         </section>
       )}
@@ -232,7 +281,11 @@ function ClaimDetails({ claim, workflow, onTrace }: {
         <section className="edi2-raw-group">
           <h4>Reduction / rework indicators</h4>
           {claim.reductionIndicators.map((indicator, index) => (
-            <p key={index}>{indicator.value}</p>
+            <p key={index}>
+              {indicator.value}
+              <TraceButton traceIds={indicator.traceIds}
+                           label="claim reduction indicator" onTrace={onTrace} />
+            </p>
           ))}
         </section>
       )}

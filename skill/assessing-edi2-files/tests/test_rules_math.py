@@ -62,6 +62,15 @@ class Arithmetic(unittest.TestCase):
     def test_amt_eaf_off_by_a_dollar(self):
         self.assertIn("MATH-AMT-EAF", fired(CLAIM.replace("AMT*EAF*0.00~", "AMT*EAF*1.00~")))
 
+    def test_repeated_claim_cas_reasons_are_summed_for_validation(self):
+        repeated = (CLAIM
+                    .replace("CAS*PR*1*0.00**2*0.00**3*0.00~",
+                             "CAS*PR*1*1.00**2*0.00**3*0.00~"
+                             "CAS*PR*1*2.00~", 1)
+                    .replace("AMT*EAF*0.00~", "AMT*EAF*3.00~", 1))
+
+        self.assertNotIn("MATH-AMT-EAF", fired(repeated))
+
     def test_line_net_paid_does_not_follow_from_allowed(self):
         self.assertIn("MATH-LINE-NET-PAID", fired(CLAIM.replace("SVD*ECUSA*357.00*", "SVD*ECUSA*300.00*")))
 

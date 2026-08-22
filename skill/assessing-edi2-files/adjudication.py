@@ -42,7 +42,8 @@ class TraceIndex:
             "transactionIndex": seg.transaction_index,
             "claimIndex": seg.claim_index,
             "lineNumber": seg.line_number,
-            "loopId": loop_id,
+            "loopId": loop_id or seg.loop_id,
+            "loopIteration": seg.loop_iteration,
             "segmentId": seg.sid,
             "elementPath": element_path,
             "rawSegment": seg.text,
@@ -186,7 +187,8 @@ def _money_from_hcp(hcp, traces, loop_id):
 
 def _safe_decimal(value):
     try:
-        return Decimal(value) if value is not None else None
+        parsed = Decimal(value) if value is not None else None
+        return parsed if parsed is None or parsed.is_finite() else None
     except InvalidOperation:
         return None
 
@@ -279,19 +281,54 @@ def _service_date(segments, traces, loop_id):
 
 
 def _other_payers(claim, traces):
-    hcp = claim.seg("HCP")
-    if hcp is None:
-        return []
-    return [{"sbr": seg.text, "traceIds": [traces.add(seg, loop_id="2320")]}
-            for seg in claim.segs("SBR") if seg.index > hcp.index]
+    def party(seg, loop_id):
+        if seg is None:
+            return {
+                "name": observed(None),
+                "identifierQualifier": observed(None),
+                "identifier": observed(None),
+                "traceIds": [],
+            }
+        name = " ".join(value for value in (seg.el(3), seg.el(4), seg.el(5))
+                        if value)
+        trace_id = traces.add(seg, loop_id=loop_id)
+        return {
+            "name": observed(name or None, [trace_id] if name else []),
+            "identifierQualifier": _from_element(seg, 8, traces, loop_id),
+            "identifier": _from_element(seg, 9, traces, loop_id),
+            "traceIds": [trace_id],
+        }
+
+    rows = []
+    for sbr in claim.loop_segs("2320", "SBR"):
+        iteration = sbr.loop_iteration
+        subscriber = next((seg for seg in claim.loop_segs("2330A", "NM1")
+                           if seg.loop_iteration == iteration), None)
+        payer = next((seg for seg in claim.loop_segs("2330B", "NM1")
+                      if seg.loop_iteration == iteration), None)
+        related = [seg for seg in claim.segments
+                   if seg.loop_iteration == iteration and
+                   seg.loop_id in ("2320", "2330A", "2330B")]
+        rows.append({
+            "sbr": sbr.text,
+            "responsibilitySequence": _from_element(sbr, 1, traces, "2320"),
+            "relationshipCode": _from_element(sbr, 2, traces, "2320"),
+            "subscriberGroupNumber": _from_element(sbr, 3, traces, "2320"),
+            "claimFilingIndicator": _from_element(sbr, 9, traces, "2320"),
+            "subscriber": party(subscriber, "2330A"),
+            "payer": party(payer, "2330B"),
+            "references": _ref_rows(related, traces, None),
+            "traceIds": [traces.add(sbr, loop_id="2320")],
+        })
+    return rows
 
 
 def _claim(claim, workflow, traces, claim_index):
     loop_id = "2300"
     clm = claim.seg("CLM")
-    refs = _ref_rows(claim.segments, traces, loop_id)
-    cas = _cas_rows(claim.segments, traces, "2320")
-    amts = _amt_rows(claim.segments, traces, "2320")
+    refs = _ref_rows(claim.loop_segs("2300"), traces, loop_id)
+    cas = _cas_rows(claim.loop_segs("2320"), traces, "2320")
+    amts = _amt_rows(claim.loop_segs("2320"), traces, "2320")
     decision, tagged, reductions = _k3_values(claim.segments, traces, loop_id)
     hcp = claim.seg("HCP")
     frequency = None

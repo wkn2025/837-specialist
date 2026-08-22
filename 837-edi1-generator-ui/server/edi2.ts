@@ -15,6 +15,8 @@ export type Edi2Options = {
   runPython?: (args: string[]) => Promise<string>;
   tempRoot?: string;
   validateApi?: string;
+  removeDirectory?: (directory: string) => Promise<void>;
+  reportOperationalError?: (message: string) => void;
 };
 
 function configuredLimit(options: Edi2Options): number {
@@ -51,7 +53,13 @@ export function edi2Router(options: Edi2Options = {}) {
   const runPython = options.runPython ?? (async () => {
     throw new Error('EDI2 Python runner is not configured');
   });
-  const raw = express.raw({ type: 'application/octet-stream', limit });
+  const removeDirectory = options.removeDirectory ?? ((directory) => fs.rm(
+    directory, { recursive: true, force: true }));
+  const reportOperationalError = options.reportOperationalError
+    ?? ((message: string) => console.error(message));
+  const raw = express.raw({
+    type: 'application/octet-stream', limit, inflate: false,
+  });
 
   router.post('/validate', (req, res, next) => {
     if (!req.is('application/octet-stream')) {
@@ -88,7 +96,20 @@ export function edi2Router(options: Edi2Options = {}) {
       failure = error;
     } finally {
       if (directory) {
-        await fs.rm(directory, { recursive: true, force: true }).catch(() => {});
+        let cleanupFailure: unknown;
+        for (let attempt = 0; attempt < 2; attempt += 1) {
+          try {
+            await removeDirectory(directory);
+            cleanupFailure = undefined;
+            break;
+          } catch (error) {
+            cleanupFailure = error;
+          }
+        }
+        if (cleanupFailure) {
+          reportOperationalError('EDI2 temporary upload cleanup failed');
+        }
+        failure ??= cleanupFailure;
       }
     }
     if (failure) {
@@ -104,6 +125,14 @@ export function edi2Router(options: Edi2Options = {}) {
       return res.status(413).json({
         error: `EDI2 file exceeds the ${limit}-byte upload limit`,
       });
+    }
+    if (typed.type === 'encoding.unsupported') {
+      return res.status(415).json({
+        error: 'compressed EDI2 request bodies are not accepted',
+      });
+    }
+    if (typed.type) {
+      return res.status(400).json({ error: 'EDI2 upload could not be read' });
     }
     return next(error);
   });

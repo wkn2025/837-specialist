@@ -4,14 +4,17 @@ import os
 import tempfile
 import unittest
 from contextlib import redirect_stdout
+from unittest import mock
 
 import assess
+import adjudication
 import validate_api
 from tests.test_rules_math import CLAIM as GOOD_I
 
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-GOOD_P = os.path.join(HERE, "fixtures", "professional_good.x12")
+GOOD_P = os.path.join(
+    HERE, "fixtures", "UHCG_ECUSA_P_20260817174931.x12")
 
 
 class ValidationContract(unittest.TestCase):
@@ -85,6 +88,133 @@ class ValidationContract(unittest.TestCase):
         amount = result["adjudication"]["claims"][0]["amounts"]["billed"]
         self.assertEqual(amount["value"], "420.00")
         self.assertTrue(amount["traceIds"])
+
+    def test_structural_findings_have_whole_segment_source_traces(self):
+        path = self.write(
+            GOOD_I.replace("2608170001", "BHT-IDENTIFIER-TOO-LONG", 1),
+            "UHCG_ECUSA_I_20260817174931.x12",
+        )
+
+        result = validate_api.validate(path)
+        check = next(row for row in result["checks"]
+                     if row["id"] == "FMT-BHT03-LEN")
+        finding = check["findings"][0]
+        whole = next(trace_id for trace_id in finding["traceIds"]
+                     if result["adjudication"]["traces"][trace_id]
+                     ["elementPath"] is None)
+
+        self.assertEqual(
+            result["adjudication"]["traces"][whole]["segmentId"], "BHT")
+        self.assertTrue(
+            result["adjudication"]["traces"][whole]["rawSegment"]
+            .startswith("BHT*"))
+
+    def test_whole_segment_trace_is_first_when_element_traces_already_exist(self):
+        path = self.write(
+            GOOD_I.replace("K3*357.00|PA~", ""),
+            "UHCG_ECUSA_I_20260817174931.x12",
+        )
+
+        result = validate_api.validate(path)
+        check = next(row for row in result["checks"]
+                     if row["id"] == "I-REQ-CLAIM-NET-PAID")
+        trace_id = check["findings"][0]["traceIds"][0]
+        trace = result["adjudication"]["traces"][trace_id]
+
+        self.assertEqual(trace["segmentId"], "ST")
+        self.assertIsNone(trace["elementPath"])
+
+    def test_malformed_value_cannot_expose_a_rule_traceback(self):
+        path = self.write(
+            GOOD_I.replace("K3*357.00|PA~", "K3*PRIVATE-VALUE|PA~"),
+            "UHCG_ECUSA_I_20260817174931.x12",
+        )
+
+        result = validate_api.validate(path)
+        serialized = json.dumps(result)
+
+        self.assertEqual(result["status"], "invalid")
+        self.assertEqual(result["coverage"]["standaloneValidation"],
+                         "performed")
+        self.assertEqual(next(row for row in result["checks"]
+                              if row["id"] == "FMT-MONEY-FORM")["status"],
+                         "fail")
+        self.assertNotIn("Traceback", serialized)
+        self.assertNotIn(path, serialized)
+
+    def test_malformed_lx_is_a_structural_finding_not_an_api_crash(self):
+        for value in ("ABC", "1" * 5000):
+            with self.subTest(length=len(value)):
+                path = self.write(
+                    GOOD_I.replace("LX*1~", "LX*%s~" % value),
+                    "UHCG_ECUSA_I_20260817174931.x12",
+                )
+
+                result = validate_api.validate(path)
+
+                self.assertEqual(result["status"], "invalid")
+                self.assertEqual(
+                    next(row for row in result["checks"]
+                         if row["id"] == "FMT-LX01")["status"], "fail")
+
+    def test_non_finite_amount_is_safely_reported_as_invalid(self):
+        with open(GOOD_P, encoding="utf-8-sig", newline="") as fh:
+            raw = fh.read().replace("SVD*ECUSA*357.00*",
+                                    "SVD*ECUSA*NaN*")
+        path = self.write(raw, "UHCG_ECUSA_P_20260817174931.x12")
+
+        result = validate_api.validate(path)
+
+        self.assertEqual(result["status"], "invalid")
+        self.assertNotIn("Traceback", json.dumps(result))
+
+    def test_institutional_non_finite_cas_is_invalid_not_indeterminate(self):
+        path = self.write(
+            GOOD_I.replace("**96*0.00~", "**96*NaN~"),
+            "UHCG_ECUSA_I_20260817174931.x12",
+        )
+
+        result = validate_api.validate(path)
+
+        self.assertEqual(result["status"], "invalid")
+        self.assertEqual(
+            next(row for row in result["checks"]
+                 if row["id"] == "FMT-MONEY-FORM")["status"], "fail")
+
+    def test_institutional_non_finite_direct_amounts_remain_format_findings(self):
+        replacements = (
+            ("SVD*ECUSA*357.00*", "SVD*ECUSA*NaN*"),
+            ("HCP*10*357.00*63.00*", "HCP*10*NaN*63.00*"),
+            ("K3*357.00|PA~", "K3*NaN|PA~"),
+        )
+        for old, new in replacements:
+            with self.subTest(segment=old.split("*", 1)[0]):
+                path = self.write(
+                    GOOD_I.replace(old, new, 1),
+                    "UHCG_ECUSA_I_20260817174931.x12",
+                )
+
+                result = validate_api.validate(path)
+
+                self.assertEqual(result["status"], "invalid")
+                self.assertEqual(
+                    next(row for row in result["checks"]
+                         if row["id"] == "FMT-MONEY-FORM")["status"], "fail")
+
+    def test_unexpected_interpreter_failure_is_a_safe_indeterminate_result(self):
+        path = self.write(GOOD_I, "UHCG_ECUSA_I_20260817174931.x12")
+
+        with mock.patch.object(
+                adjudication, "interpret",
+                side_effect=RuntimeError("PRIVATE INTERNAL PATH")):
+            result = validate_api.validate(path)
+
+        serialized = json.dumps(result)
+        self.assertEqual(result["status"], "indeterminate")
+        self.assertEqual(result["coverage"]["standaloneValidation"],
+                         "not-performed")
+        self.assertNotIn("PRIVATE", serialized)
+        self.assertNotIn("Traceback", serialized)
 
 
 class JsonCli(unittest.TestCase):

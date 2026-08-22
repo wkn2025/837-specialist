@@ -77,6 +77,29 @@ class InstitutionalInterpretation(unittest.TestCase):
         self.assertEqual([row["value"] for row in claim["reductionIndicators"]],
                          ["COB"])
 
+    def test_other_payer_parties_are_normalized_with_source_traces(self):
+        raw = self.edi.raw.replace(
+            "AMT*EAF*0.00~",
+            "AMT*EAF*0.00~"
+            "NM1*IL*1*OTHER*SUBSCRIBER****MI*MEMBER2~"
+            "NM1*PR*2*OTHER PAYER*****PI*PAYER2~"
+            "REF*2U*OTHER-PAYER-REF~",
+            1,
+        )
+        edi = M.parse_text(raw)
+        result = adjudication.interpret(edi, workflow.detect(edi))
+        claim = result["claims"][0]
+        payer = claim["otherPayers"][0]
+
+        self.assertEqual(payer["subscriber"]["identifier"]["value"],
+                         "MEMBER2")
+        self.assertEqual(payer["payer"]["name"]["value"], "OTHER PAYER")
+        self.assertTrue(payer["subscriber"]["traceIds"])
+        self.assertTrue(payer["payer"]["traceIds"])
+        reference_trace = payer["references"][0]["traceIds"][0]
+        self.assertEqual(result["traces"][reference_trace]["loopId"], "2330B")
+        self.assertEqual(result["traces"][reference_trace]["loopIteration"], 1)
+
     def test_adjustment_and_original_reference_are_preserved(self):
         raw = self.edi.raw.replace(
             "CLM*TEST260812001*420.00***13:A:1**A*Y*Y~",
@@ -95,7 +118,7 @@ class ProfessionalGuideDerivedInterpretation(unittest.TestCase):
     def setUp(self):
         fixture = os.path.join(
             os.path.dirname(os.path.abspath(__file__)),
-            "fixtures", "professional_good.x12")
+            "fixtures", "UHCG_ECUSA_P_20260817174931.x12")
         self.edi = M.parse(fixture)
         self.detection = workflow.detect(self.edi, os.path.basename(fixture))
         self.result = adjudication.interpret(self.edi, self.detection)

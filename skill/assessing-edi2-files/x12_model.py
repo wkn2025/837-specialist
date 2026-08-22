@@ -33,6 +33,8 @@ class Segment:
     transaction_index: int = None
     claim_index: int = None
     line_number: int = None
+    loop_id: str = None
+    loop_iteration: int = None
 
     def el(self, n):
         return self.elems[n] if n < len(self.elems) else ""
@@ -77,9 +79,13 @@ class Claim:
     def segs(self, sid):
         return [s for s in self.segments if s.sid == sid]
 
+    def loop_segs(self, loop_id, sid=None):
+        return [s for s in self.segments
+                if s.loop_id == loop_id and (sid is None or s.sid == sid)]
+
     @property
     def uhap_id(self):
-        for s in self.segs("REF"):
+        for s in self.loop_segs("2300", "REF"):
             if s.el(1) == "9A":
                 return s.el(2)
         return ""
@@ -152,13 +158,19 @@ def _group(segments):
 
 def _build_claim(st, se, body, claim_index):
     claim = Claim(st=st, se=se)
+    st.loop_id = "ST"
+    se.loop_id = "SE"
     for s in [st] + body + [se]:
         s.transaction_index = claim_index
         s.claim_index = claim_index
+    _assign_loops(body)
     current = None
     for s in body:
         if s.sid == "LX":
-            current = Line(lx=int(s.el(1) or 0), segments=[s])
+            lx = s.el(1)
+            parsed_lx = (int(lx) if lx.isascii() and lx.isdigit()
+                         and len(lx) <= 6 else 0)
+            current = Line(lx=parsed_lx, segments=[s])
             s.line_number = current.lx
             claim.lines.append(current)
         elif current is not None and s.sid in LINE_SEGMENTS:
@@ -167,6 +179,56 @@ def _build_claim(st, se, body, claim_index):
         else:
             claim.segments.append(s)
     return claim
+
+
+def _assign_loops(body):
+    """Assign the subset of 837 loops needed by deterministic EDI2 rules.
+
+    The parser deliberately records loop context instead of guessing from
+    segment order later. It is not a complete TR3 grammar; unsupported loops
+    retain the most recent enclosing loop and are not promoted into validators.
+    """
+    current_loop = None
+    claim_started = False
+    line_started = False
+    other_payer_iteration = 0
+    hl_loops = {"20": "2000A", "22": "2000B", "23": "2000C"}
+    preclaim_names = {"85": "2010AA", "IL": "2010BA", "PR": "2010BB"}
+    claim_names = {"71": "2310A", "77": "2310C"}
+    other_payer_names = {"IL": "2330A", "PR": "2330B"}
+
+    for seg in body:
+        if seg.sid == "HL":
+            current_loop = hl_loops.get(seg.el(3), current_loop)
+            line_started = False
+        elif seg.sid == "CLM":
+            claim_started = True
+            line_started = False
+            current_loop = "2300"
+        elif seg.sid == "SBR":
+            if claim_started:
+                other_payer_iteration += 1
+                current_loop = "2320"
+            elif current_loop is None:
+                current_loop = "2000B"
+        elif seg.sid == "LX":
+            line_started = True
+            current_loop = "2400"
+        elif line_started and seg.sid == "SVD":
+            current_loop = "2430"
+        elif seg.sid == "NM1":
+            qualifier = seg.el(1)
+            if not claim_started:
+                current_loop = preclaim_names.get(qualifier, current_loop)
+            elif (other_payer_iteration and
+                  current_loop in ("2320", "2330A", "2330B")):
+                current_loop = other_payer_names.get(qualifier, current_loop)
+            elif not line_started:
+                current_loop = claim_names.get(qualifier, current_loop)
+
+        seg.loop_id = current_loop
+        if current_loop in ("2320", "2330A", "2330B"):
+            seg.loop_iteration = other_payer_iteration
 
 
 def parse_text(raw, path="<memory>"):
