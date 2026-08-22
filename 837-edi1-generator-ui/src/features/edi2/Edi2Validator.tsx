@@ -1,26 +1,41 @@
-import type { ChangeEvent } from 'react';
+import { useRef, useState, type ChangeEvent } from 'react';
 import type { Edi2ValidationResult } from '@/api/types';
+import { AdjudicationClaims } from './AdjudicationClaims';
+import { SourceTraceDrawer } from './SourceTraceDrawer';
+import { ValidationSummary } from './ValidationSummary';
 import {
   useEdi2Validation, type ValidateEdi2,
 } from './useEdi2Validation';
+import './edi2.css';
 
 type Props = {
   validate?: ValidateEdi2;
   initialResult?: Edi2ValidationResult;
 };
 
-function workflowName(result: Edi2ValidationResult) {
-  if (result.workflow?.workflow === 'I') return 'Institutional 837I';
-  if (result.workflow?.workflow === 'P') return 'Professional 837P';
-  return 'Workflow not determined';
-}
-
 export function Edi2Validator({ validate, initialResult }: Props) {
   const { state, analyze } = useEdi2Validation(validate, initialResult);
+  const [traceId, setTraceId] = useState<string | null>(null);
+  const traceOpener = useRef<HTMLElement | null>(null);
 
   function choose(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     if (file) void analyze(file);
+  }
+
+  const result = state.phase === 'complete' ? state.result : null;
+  const trace = traceId && result?.adjudication
+    ? result.adjudication.traces[traceId] : undefined;
+
+  function openTrace(id: string) {
+    traceOpener.current = document.activeElement instanceof HTMLElement
+      ? document.activeElement : null;
+    setTraceId(id);
+  }
+
+  function closeTrace() {
+    setTraceId(null);
+    queueMicrotask(() => traceOpener.current?.focus());
   }
 
   return (
@@ -34,7 +49,7 @@ export function Edi2Validator({ validate, initialResult }: Props) {
         the adjudication it transmits. The file is never rewritten.
       </p>
 
-      <section className="card volume" aria-labelledby="edi2-upload-heading">
+      <section className="card edi2-upload" aria-labelledby="edi2-upload-heading">
         <h2 id="edi2-upload-heading">Response file</h2>
         <label htmlFor="edi2-file">Choose EDI2 file</label>
         <input
@@ -57,13 +72,15 @@ export function Edi2Validator({ validate, initialResult }: Props) {
             {state.message}
           </div>
         )}
-        {state.phase === 'complete' && (
-          <section aria-labelledby="edi2-workflow-heading">
-            <h2 id="edi2-workflow-heading">{workflowName(state.result)}</h2>
-            <p>{state.result.file.filename}</p>
-          </section>
-        )}
       </div>
+      {result && (
+        <>
+          <p className="edi2-filename">Analyzed file: <strong>{result.file.filename}</strong></p>
+          <ValidationSummary result={result} onTrace={openTrace} />
+          <AdjudicationClaims result={result} onTrace={openTrace} />
+        </>
+      )}
+      {trace && <SourceTraceDrawer trace={trace} onClose={closeTrace} />}
     </main>
   );
 }
