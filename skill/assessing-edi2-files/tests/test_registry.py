@@ -71,6 +71,77 @@ class Registry(unittest.TestCase):
         self.assertEqual(got[0].rule_id, "ENV-BOOM")
         self.assertIn("kaboom", got[0].message)
 
+    def test_run_checks_reports_pass_fail_and_warning(self):
+        @rules.rule("ENV-PASS", F.BLOCKER, "pass citation", registry=self.reg,
+                    label="Passing check", workflow="common")
+        def _pass(ctx):
+            return []
+
+        @rules.rule("ENV-FAIL", F.BLOCKER, "fail citation", registry=self.reg,
+                    label="Failing check", workflow="I")
+        def _fail(ctx):
+            yield F.Finding("ENV-FAIL", "", "failed")
+
+        @rules.rule("ADV-WARN", F.ADVISORY, "warning citation", registry=self.reg,
+                    label="Warning check", workflow="common")
+        def _warn(ctx):
+            yield F.Finding("ADV-WARN", "", "warned")
+
+        ctx = rules.Context(edi=M.parse_text("ST*837*1*X~SE*1*1~"))
+        got = rules.run_checks(ctx, registry=self.reg)
+
+        self.assertEqual([item.status for item in got], ["pass", "fail", "warning"])
+        self.assertEqual(got[0].label, "Passing check")
+        self.assertEqual(got[1].workflow, "I")
+        self.assertEqual(got[1].family, "ENV")
+        self.assertEqual(got[1].findings[0].citation, "fail citation")
+
+    def test_prerequisite_marks_a_check_skipped(self):
+        @rules.rule(
+            "IMM-SOURCE", F.BLOCKER, "source citation", registry=self.reg,
+            label="Compare source", workflow="common",
+            skip=lambda ctx: "source outbound file not supplied" if ctx.source is None else "",
+        )
+        def _source(ctx):
+            raise AssertionError("a skipped check must not execute")
+
+        ctx = rules.Context(edi=M.parse_text("ST*837*1*X~SE*1*1~"))
+        got = rules.run_checks(ctx, registry=self.reg)
+
+        self.assertEqual(got[0].status, "skipped")
+        self.assertEqual(got[0].skipped_reason, "source outbound file not supplied")
+        self.assertEqual(got[0].findings, [])
+
+    def test_check_result_serializes_to_stable_json_shape(self):
+        @rules.rule("ENV-X", F.BLOCKER, "citation", registry=self.reg,
+                    label="Envelope X", workflow="common")
+        def _check(ctx):
+            yield F.Finding("ENV-X", "", "failed", segment_index=1)
+
+        ctx = rules.Context(edi=M.parse_text("ST*837*1*X~SE*1*1~"))
+        payload = rules.run_checks(ctx, registry=self.reg)[0].to_dict()
+
+        self.assertEqual(payload, {
+            "id": "ENV-X",
+            "family": "ENV",
+            "label": "Envelope X",
+            "workflow": "common",
+            "status": "fail",
+            "severity": F.BLOCKER,
+            "citation": "citation",
+            "findings": [{
+                "rule_id": "ENV-X",
+                "severity": F.BLOCKER,
+                "message": "failed",
+                "citation": "citation",
+                "claim": "",
+                "lx": None,
+                "segment_index": 1,
+                "fix": None,
+            }],
+            "skippedReason": "",
+        })
+
 
 if __name__ == "__main__":
     unittest.main()

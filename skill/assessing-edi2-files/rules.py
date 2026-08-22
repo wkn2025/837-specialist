@@ -1,7 +1,7 @@
 """Rule registry plumbing. Rules themselves live in rules_837i.py."""
 from __future__ import annotations
 import traceback
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 
 import findings as F
 
@@ -18,6 +18,35 @@ class Rule:
     severity: str
     citation: str
     func: object
+    label: str = ""
+    workflow: str = "I"
+    skip: object = None
+
+
+@dataclass
+class CheckResult:
+    id: str
+    family: str
+    label: str
+    workflow: str
+    status: str
+    severity: str
+    citation: str
+    findings: list = field(default_factory=list)
+    skipped_reason: str = ""
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "family": self.family,
+            "label": self.label,
+            "workflow": self.workflow,
+            "status": self.status,
+            "severity": self.severity,
+            "citation": self.citation,
+            "findings": [asdict(item) for item in self.findings],
+            "skippedReason": self.skipped_reason,
+        }
 
 
 @dataclass
@@ -34,13 +63,22 @@ class Context:
     scenarios: dict = field(default_factory=dict)
 
 
-def rule(rule_id, severity, citation, registry=None):
+def rule(rule_id, severity, citation, registry=None, label="", workflow="I",
+         skip=None):
     target = RULES if registry is None else registry
 
     def wrap(func):
         if any(r.id == rule_id for r in target):
             raise DuplicateRuleId(rule_id)
-        target.append(Rule(rule_id, severity, citation, func))
+        target.append(Rule(
+            id=rule_id,
+            severity=severity,
+            citation=citation,
+            func=func,
+            label=label or rule_id,
+            workflow=workflow,
+            skip=skip,
+        ))
         return func
 
     return wrap
@@ -51,19 +89,63 @@ def registered_ids(registry=None):
     return [r.id for r in target]
 
 
-def run_all(ctx, registry=None):
+def _execute(registered, ctx):
+    try:
+        produced = list(registered.func(ctx) or [])
+    except Exception:
+        return [F.Finding(
+            rule_id=registered.id,
+            severity=F.BLOCKER,
+            citation=registered.citation,
+            message="rule raised: %s" % traceback.format_exc(limit=2).strip(),
+        )]
+    for item in produced:
+        item.severity = registered.severity
+        item.citation = item.citation or registered.citation
+    return produced
+
+
+def run_checks(ctx, registry=None):
     target = RULES if registry is None else registry
     out = []
-    for r in target:
-        try:
-            produced = list(r.func(ctx) or [])
-        except Exception:
-            out.append(F.Finding(
-                rule_id=r.id, severity=F.BLOCKER, citation=r.citation,
-                message="rule raised: %s" % traceback.format_exc(limit=2).strip()))
+    for registered in target:
+        reason = registered.skip(ctx) if registered.skip else ""
+        if reason:
+            out.append(CheckResult(
+                id=registered.id,
+                family=registered.id.split("-", 1)[0],
+                label=registered.label,
+                workflow=registered.workflow,
+                status="skipped",
+                severity=registered.severity,
+                citation=registered.citation,
+                skipped_reason=reason,
+            ))
             continue
-        for item in produced:
-            item.severity = r.severity
-            item.citation = item.citation or r.citation
-            out.append(item)
+        produced = _execute(registered, ctx)
+        if any(item.severity == F.BLOCKER for item in produced):
+            status = "fail"
+        elif produced:
+            status = "warning"
+        else:
+            status = "pass"
+        out.append(CheckResult(
+            id=registered.id,
+            family=registered.id.split("-", 1)[0],
+            label=registered.label,
+            workflow=registered.workflow,
+            status=status,
+            severity=registered.severity,
+            citation=registered.citation,
+            findings=produced,
+        ))
     return out
+
+
+def run_all(ctx, registry=None):
+    """Compatibility projection containing only emitted findings."""
+    return [
+        finding
+        for result in run_checks(ctx, registry=registry)
+        for finding in result.findings
+    ]

@@ -9,6 +9,8 @@ import re
 import findings as F
 from findings import ADVISORY, BLOCKER, Finding, Fix
 from rules import rule
+import rules
+import rules_common
 
 VERSION_837I = "005010X223A2"
 VERSION_837P = "005010X222A1"
@@ -18,6 +20,16 @@ CG = "UHCG_837I_Companion_Guide_FULL.csv"
 VR = "UHCG_Validation_Rules_Institutional.csv"
 NTEG = "UHCG_Special_Instructions_NTE_Guide.md"
 OVR = "UHCG_Overview_Reference.md"
+
+
+def registry():
+    """Ordered Institutional registry with proven shared rules identified."""
+    common = {item.id: item for item in rules_common.registry(rules.RULES)}
+    return [common.get(item.id, item) for item in rules.RULES]
+
+
+def _source_prerequisite(ctx):
+    return "source outbound file not supplied" if ctx.source is None else ""
 
 
 # --------------------------------------------------------------- ENV envelope
@@ -920,7 +932,8 @@ def _source_claims(ctx):
 
 
 @rule("IMM-BILLED", BLOCKER,
-      "UHCG owns the billed amounts; the client must return them unchanged")
+      "UHCG owns the billed amounts; the client must return them unchanged",
+      skip=_source_prerequisite)
 def imm_billed(ctx):
     source = _source_claims(ctx)
     for claim in ctx.edi.claims:
@@ -943,7 +956,8 @@ def imm_billed(ctx):
 
 
 @rule("IMM-ALLOWED", BLOCKER,
-      "UHCG owns the allowed amounts (HCP02); the client must return them unchanged")
+      "UHCG owns the allowed amounts (HCP02); the client must return them unchanged",
+      skip=_source_prerequisite)
 def imm_allowed(ctx):
     source = _source_claims(ctx)
     for claim in ctx.edi.claims:
@@ -962,7 +976,8 @@ def imm_allowed(ctx):
 
 
 @rule("IMM-HCP03", BLOCKER,
-      "UHCG owns the repriced savings (HCP03); the client must return it unchanged")
+      "UHCG owns the repriced savings (HCP03); the client must return it unchanged",
+      skip=_source_prerequisite)
 def imm_hcp03(ctx):
     source = _source_claims(ctx)
     for claim in ctx.edi.claims:
