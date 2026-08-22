@@ -74,7 +74,7 @@ MUTATIONS = [
     ("full_denial_still_paying", "K3*0.00|PA~", "K3*10.00|PA~",
      "SCEN-FULL-DENIAL-AMOUNTS"),
     ("mrr_claim_carrying_payment", "K3*4~K3*0.00|PA~", "K3*4~K3*10.00|PA~",
-     "SCEN-MRR-PAID"),
+     "ADV-MRR-AMOUNTS"),
     ("partial_denial_priced_off_billed", "CAS*PR*1*0.00**2*0.00**3*0.00**96*326.40~",
      "CAS*PR*1*0.00**2*0.00**3*0.00**96*384.00~", "SCEN-PARTIAL-DENIAL-ALLOWED"),
     ("full_denial_without_a_claim_remark", "NTE*ADD*716~", "",
@@ -92,7 +92,14 @@ MUTATIONS = [
 # ENV-CLAIM-LIMIT and ADV-2320-OTHER-PAYER-LOOPS are exercised by dedicated
 # tests below rather than by a text mutation.
 EXTRA_COVERAGE = {"IMM-BILLED", "IMM-ALLOWED", "IMM-HCP03", "ENV-FILENAME",
-                  "ENV-CLAIM-LIMIT", "ADV-ISA14", "ADV-2320-OTHER-PAYER-LOOPS"}
+                  "ENV-CLAIM-LIMIT", "ADV-ISA14", "ADV-2320-OTHER-PAYER-LOOPS",
+                  # Focused evidence-backed tests live in test_rules_837i_gaps.
+                  "I-REQ-CLAIM-NET-PAID", "I-REQ-CLAIM-NOT-COVERED",
+                  "I-REQ-CLAIM-COVERAGE", "I-REQ-CLAIM-HCP",
+                  "I-REQ-CLAIM-CAS", "I-REQ-CLAIM-AMT", "I-REQ-LINE-HCP",
+                  "I-REQ-LINE-SVD", "I-REQ-LINE-CAS",
+                  "I-SCEN-DUPLICATE-AMOUNTS", "I-COR-REFERENCE",
+                  "ADV-MRR-AMOUNTS"}
 
 
 def fired(raw, filename, source=None):

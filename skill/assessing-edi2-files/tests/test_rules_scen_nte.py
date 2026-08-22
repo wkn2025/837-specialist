@@ -21,11 +21,25 @@ class Scenarios(unittest.TestCase):
         self.assertIn("SCEN-BD-VALUE", fired(CLAIM.replace("K3*1~", "K3*7~")))
 
     def test_mrr_claim_carrying_payment(self):
-        got = fired(CLAIM.replace("K3*1~", "K3*4~"))
-        self.assertIn("SCEN-MRR-PAID", got)
+        items = run(CLAIM.replace("K3*1~", "K3*4~"))
+        self.assertNotIn("SCEN-MRR-PAID", {item.rule_id for item in items})
+        advisory = [item for item in items if item.rule_id == "ADV-MRR-AMOUNTS"]
+        self.assertTrue(advisory)
+        self.assertTrue(all(item.severity == F.ADVISORY for item in advisory))
 
     def test_mrr_fix_is_marked_uncertain(self):
-        items = [f for f in run(CLAIM.replace("K3*1~", "K3*4~"))
+        raw = CLAIM.replace("K3*1~", "K3*4~")
+        ctx = rules.Context(
+            edi=M.parse_text(raw),
+            filename=NAME,
+            scenarios={
+                "E2E26081112125701": {
+                    "benefit_decision": "4",
+                    "reason": "recorded correction workflow scenario",
+                },
+            },
+        )
+        items = [f for f in rules.run_all(ctx)
                  if f.rule_id == "SCEN-MRR-PAID"]
         self.assertTrue(items)
         self.assertTrue(any(f.fix and f.fix.uncertain for f in items))

@@ -24,8 +24,9 @@ OVR = "UHCG_Overview_Reference.md"
 
 def registry():
     """Ordered Institutional registry with proven shared rules identified."""
-    common = {item.id: item for item in rules_common.registry(rules.RULES)}
-    return [common.get(item.id, item) for item in rules.RULES]
+    registered = [item for item in rules.RULES if item.id in _I_RULE_IDS]
+    common = {item.id: item for item in rules_common.registry(registered)}
+    return [common.get(item.id, item) for item in registered]
 
 
 def _source_prerequisite(ctx):
@@ -492,6 +493,121 @@ def _sum(values):
     return total
 
 
+# ----------------------------------------------- I-REQ required adjudication
+
+@rule("I-REQ-CLAIM-NET-PAID", BLOCKER,
+      "%s, Loop 2300 K3 (3): net paid (PA) is required inbound" % CG)
+def i_req_claim_net_paid(ctx):
+    for claim in ctx.edi.claims:
+        if k3_values(claim)["pa"] is None:
+            yield Finding("I-REQ-CLAIM-NET-PAID", "",
+                          "claim-level K3 net paid amount (PA) is missing",
+                          claim=claim.uhap_id, segment_index=claim.st.index)
+
+
+@rule("I-REQ-CLAIM-NOT-COVERED", BLOCKER,
+      "%s, Loop 2300 K3 (4): not covered (NA) is required inbound" % CG)
+def i_req_claim_not_covered(ctx):
+    for claim in ctx.edi.claims:
+        if k3_values(claim)["na"] is None:
+            yield Finding("I-REQ-CLAIM-NOT-COVERED", "",
+                          "claim-level K3 not covered amount (NA) is missing",
+                          claim=claim.uhap_id, segment_index=claim.st.index)
+
+
+@rule("I-REQ-CLAIM-COVERAGE", BLOCKER,
+      "%s, Loop 2300 K3 (5): coverage percentage (CP) is required inbound" % CG)
+def i_req_claim_coverage(ctx):
+    for claim in ctx.edi.claims:
+        if k3_values(claim)["cp"] is None:
+            yield Finding("I-REQ-CLAIM-COVERAGE", "",
+                          "claim-level K3 coverage percentage (CP) is missing",
+                          claim=claim.uhap_id, segment_index=claim.st.index)
+
+
+@rule("I-REQ-CLAIM-HCP", BLOCKER,
+      "%s, Loop 2300 HCP: usage R inbound" % CG)
+def i_req_claim_hcp(ctx):
+    for claim in ctx.edi.claims:
+        if claim.seg("HCP") is None:
+            yield Finding("I-REQ-CLAIM-HCP", "",
+                          "claim-level HCP repricing information is missing",
+                          claim=claim.uhap_id, segment_index=claim.st.index)
+
+
+@rule("I-REQ-CLAIM-CAS", BLOCKER,
+      "%s, Loop 2320 SBR/CAS: required for the adjudicated inbound claim" % CG)
+def i_req_claim_cas(ctx):
+    for claim in ctx.edi.claims:
+        cas = _cas_amounts(claim.segments)
+        missing = [reason for reason in ("1", "2", "3")
+                   if ("PR", reason) not in cas]
+        if claim.seg("SBR") is None or missing:
+            detail = []
+            if claim.seg("SBR") is None:
+                detail.append("SBR")
+            if missing:
+                detail.append("CAS*PR reason%s %s" % (
+                    "s" if len(missing) > 1 else "", ", ".join(missing)))
+            yield Finding("I-REQ-CLAIM-CAS", "",
+                          "claim-level 2320 adjudication is missing " + " and ".join(detail),
+                          claim=claim.uhap_id, segment_index=claim.st.index)
+
+
+@rule("I-REQ-CLAIM-AMT", BLOCKER,
+      "%s, Loop 2320 AMT*EAF: remaining patient liability is required inbound" % CG)
+def i_req_claim_amt(ctx):
+    for claim in ctx.edi.claims:
+        amt = next((seg for seg in claim.segments
+                    if seg.sid == "AMT" and seg.el(1) == "EAF" and seg.el(2)), None)
+        if amt is None:
+            yield Finding("I-REQ-CLAIM-AMT", "",
+                          "claim-level AMT*EAF patient responsibility is missing",
+                          claim=claim.uhap_id, segment_index=claim.st.index)
+
+
+@rule("I-REQ-LINE-HCP", BLOCKER,
+      "%s, Loop 2400 HCP: usage R inbound" % CG)
+def i_req_line_hcp(ctx):
+    for claim in ctx.edi.claims:
+        for line in claim.lines:
+            if line.seg("HCP") is None:
+                yield Finding("I-REQ-LINE-HCP", "",
+                              "line %d HCP repricing information is missing" % line.lx,
+                              claim=claim.uhap_id, lx=line.lx,
+                              segment_index=line.seg("LX").index)
+
+
+@rule("I-REQ-LINE-SVD", BLOCKER,
+      "%s, Loop 2430 SVD: expected as Level 1 HIPAA compliance inbound" % CG)
+def i_req_line_svd(ctx):
+    for claim in ctx.edi.claims:
+        for line in claim.lines:
+            if line.seg("SVD") is None:
+                yield Finding("I-REQ-LINE-SVD", "",
+                              "line %d SVD adjudication information is missing" % line.lx,
+                              claim=claim.uhap_id, lx=line.lx,
+                              segment_index=line.seg("LX").index)
+
+
+@rule("I-REQ-LINE-CAS", BLOCKER,
+      "%s, Loop 2430 CAS: PR amounts, CO*45 net paid, and OA*23 coverage "
+      "are required inbound" % CG)
+def i_req_line_cas(ctx):
+    expected = (("PR", "1"), ("PR", "2"), ("PR", "3"), ("PR", "96"),
+                ("CO", "45"), ("OA", "23"))
+    for claim in ctx.edi.claims:
+        for line in claim.lines:
+            cas = _cas_amounts(line.segments)
+            missing = ["%s*%s" % key for key in expected if key not in cas]
+            if missing:
+                yield Finding("I-REQ-LINE-CAS", "",
+                              "line %d CAS adjudication is missing %s"
+                              % (line.lx, ", ".join(missing)),
+                              claim=claim.uhap_id, lx=line.lx,
+                              segment_index=line.seg("LX").index)
+
+
 @rule("MATH-CLAIM-SUMS-LINES", BLOCKER,
       "%s: claim-level amounts equal the sum of their line values" % VR)
 def math_claim_sums_lines(ctx):
@@ -684,7 +800,7 @@ def scen_bd_value(ctx):
 def scen_mrr_paid(ctx):
     for claim in ctx.edi.claims:
         k3 = k3_values(claim)
-        expected = _expected_bd(ctx, claim) or k3["bd"]
+        expected = _expected_bd(ctx, claim)
         if expected != BD_MRR:
             continue
         paid = money(k3["pa"]) if k3["pa"] else ZERO
@@ -1022,7 +1138,94 @@ def adj_clm20_prefix(ctx):
                       "adjustments travel in an ADJ- prefixed file" % ctx.filename)
 
 
+def _claim_frequency(claim):
+    clm = claim.seg("CLM")
+    composite = clm.el(5) if clm is not None else ""
+    parts = composite.split(":")
+    return parts[2] if len(parts) > 2 else ""
+
+
+@rule("I-COR-REFERENCE", ADVISORY,
+      "%s, Loop 2300 REF*9F identifies a voided/replacement claim; %s, "
+      "Institutional bill-type frequency 7 is replacement and 8 is void" % (CG, OVR))
+def i_cor_reference(ctx):
+    for claim in ctx.edi.claims:
+        frequency = _claim_frequency(claim)
+        has_9f = _has_ref(claim, "9F")
+        clm = claim.seg("CLM")
+        if frequency in ("7", "8") and not has_9f:
+            yield Finding("I-COR-REFERENCE", "",
+                          "Institutional frequency %s indicates %s, but REF*9F "
+                          "does not identify the original UHAP claim"
+                          % (frequency, "replacement" if frequency == "7" else "void"),
+                          claim=claim.uhap_id,
+                          segment_index=clm.index if clm is not None else claim.st.index)
+        elif has_9f and frequency not in ("7", "8"):
+            ref = next(seg for seg in claim.segs("REF") if seg.el(1) == "9F")
+            yield Finding("I-COR-REFERENCE", "",
+                          "REF*9F identifies an original claim while Institutional "
+                          "frequency %s does not identify replacement or void; "
+                          "confirm the intended corrected-claim workflow"
+                          % (frequency or "blank"),
+                          claim=claim.uhap_id, segment_index=ref.index)
+
+
 # ---------------------------------------------------------------- ADV advisory
+
+@rule("ADV-MRR-AMOUNTS", ADVISORY,
+      "%s supports benefit decision 4, but %s contains no Medical Record "
+      "Request amount-validation scenario" % (CG, VR))
+def adv_mrr_amounts(ctx):
+    for claim in ctx.edi.claims:
+        if k3_values(claim)["bd"] != BD_MRR or _expected_bd(ctx, claim):
+            continue
+        yield Finding("ADV-MRR-AMOUNTS", "",
+                      "benefit decision 4 (Medical Record Request) is present; "
+                      "amount semantics are advisory because the authoritative "
+                      "Institutional validation matrix has no MRR scenario row",
+                      claim=claim.uhap_id,
+                      segment_index=(_bd_seg(claim).index if _bd_seg(claim)
+                                     else claim.st.index))
+
+
+@rule("I-SCEN-DUPLICATE-AMOUNTS", BLOCKER,
+      "%s, scenario 'All Lines Duplicate': coverage, copay, coinsurance, "
+      "deductible, not covered, net paid, and patient responsibility are zero" % VR)
+def i_scen_duplicate_amounts(ctx):
+    for claim in ctx.edi.claims:
+        k3 = k3_values(claim)
+        if k3["bd"] != BD_DUPLICATE:
+            continue
+        cas = _cas_amounts(claim.segments)
+        values = [
+            ("coverage percentage", k3["cp"]),
+            ("net paid", k3["pa"]),
+            ("not covered", k3["na"]),
+            ("deductible", str(cas.get(("PR", "1"), ZERO))),
+            ("coinsurance", str(cas.get(("PR", "2"), ZERO))),
+            ("copay", str(cas.get(("PR", "3"), ZERO))),
+            ("patient responsibility", str(claim_patient_resp(claim) or ZERO)),
+        ]
+        for line in claim.lines:
+            amounts = line_amounts(line)
+            values.extend([
+                ("line %d deductible" % line.lx, str(amounts["deduct"] or ZERO)),
+                ("line %d coinsurance" % line.lx, str(amounts["coins"] or ZERO)),
+                ("line %d copay" % line.lx, str(amounts["copay"] or ZERO)),
+                ("line %d not covered" % line.lx, str(amounts["notcov"] or ZERO)),
+                ("line %d net paid" % line.lx, str(amounts["netpaid"] or ZERO)),
+            ])
+        nonzero = []
+        for label, value in values:
+            if value not in (None, "") and Decimal(value) != ZERO:
+                nonzero.append("%s is %s" % (label, value))
+        if nonzero:
+            yield Finding("I-SCEN-DUPLICATE-AMOUNTS", "",
+                          "benefit decision 3 (Duplicate) requires zero "
+                          "adjudication amounts, but " + "; ".join(nonzero),
+                          claim=claim.uhap_id,
+                          segment_index=(_bd_seg(claim).index if _bd_seg(claim)
+                                         else claim.st.index))
 
 @rule("ADV-2320-OTHER-PAYER-LOOPS", ADVISORY,
       "%s lists only SBR, CAS and AMT for Loop 2320; a strict X12 TR3 validator "
@@ -1050,3 +1253,8 @@ def adv_isa14(ctx):
         yield Finding("ADV-ISA14", "",
                       "ISA14 is 0, so no TA1 interchange acknowledgment is requested",
                       segment_index=isa.index)
+
+
+# Snapshot this workflow's registrations so importing the Professional module
+# later cannot leak P-specific checks into the Institutional registry.
+_I_RULE_IDS = frozenset(rules.registered_ids())
