@@ -1,8 +1,14 @@
 """Validate a generated UHCG 837 file against its manifest and its seed.
 
-Check 9 reads the seed directly rather than the manifest: the payload-fidelity
-proof must not share a source of truth with the generator. Check 14 is what
-catches a manifest that lies about what was generated.
+Check 9 reads the seed file directly: the payload-fidelity proof keeps its own
+source of truth rather than taking the generator's word for what the payload
+should be. It does read the manifest for what was *declared* - only one module
+can map "subscriber.last" onto an element of NM1*IL, so the declaration is
+interpreted with generate.py's own edit functions. That is not a loophole: a
+declaration is a fixed input, every reversal is guarded on the exact bytes the
+declaration implies, and anything the manifest did not declare has no reversal
+and still fails against the seed. Check 14 is what catches a manifest that
+lies about what was generated.
 
 Usage:
     python validate.py --file PATH --manifest PATH --repo ROOT
@@ -52,11 +58,18 @@ def claim_hcp(block):
     return hcp[0] if len(hcp) == 1 else None
 
 
-def _swap_clm01(seg, value):
-    """The CLM segment with element 1 replaced. Kept local to the validator:
-    check 9 must not share a code path with the generator it audits."""
+def _swap_clm(seg, clm01, clm02=None):
+    """The CLM segment with element 1, and any declared element 2, replaced.
+
+    Kept local to the validator: the identifier reversal must not share a
+    code path with the generator it audits. CLM02 moves only when the
+    manifest declares new amounts, because CLM01 and CLM02 live in one
+    segment and the generator rewrites them together.
+    """
     e = seg.split(X.ELEM)
-    e[1] = value
+    e[1] = clm01
+    if clm02 is not None:
+        e[2] = clm02
     return X.ELEM.join(e)
 
 
@@ -75,6 +88,23 @@ def _service_date_pairs(profile, man):
     return out
 
 
+def declared_overrides(profile, man, claims):
+    """The override document this manifest declares, parsed, or None.
+
+    A declaration the generator itself would have refused is treated as no
+    declaration at all: the file is then measured against the untouched seed
+    and fails, rather than being excused by a document that could never have
+    produced it.
+    """
+    doc = (man or {}).get("overrides")
+    if not doc:
+        return None
+    try:
+        return overrides.parse(doc, profile, claims)
+    except overrides.OverrideError:
+        return None
+
+
 def declared_blocks(profile, man, seed_blocks, claims):
     """The seed block each output claim must match, after declared splices.
 
@@ -84,17 +114,7 @@ def declared_blocks(profile, man, seed_blocks, claims):
     the expected shape is rebuilt from the declaration, never read off the
     file being checked.
     """
-    doc = (man or {}).get("overrides")
-    ov = None
-    if doc:
-        try:
-            ov = overrides.parse(doc, profile, claims)
-        except overrides.OverrideError:
-            # A manifest that declares something the generator would have
-            # refused cannot describe a legitimate file; leave ov unset so
-            # every block is measured against the untouched seed and the
-            # mismatch is reported by the checks that use this.
-            ov = None
+    ov = declared_overrides(profile, man, claims)
     out = []
     for n in range(1, claims + 1):
         block = seed_blocks[G.source_index(n, profile) - 1]
@@ -102,10 +122,65 @@ def declared_blocks(profile, man, seed_blocks, claims):
     return out
 
 
-def reverse_pairs(profile, man, n):
-    """(derived literal, must_occur, source literal) for output claim n."""
+def expected_identity(profile, ov, seed_block):
+    """The frozen literals, with the declared identity overrides applied.
+
+    Anything the manifest did not declare must still match the seed exactly,
+    so check 12 keeps its meaning instead of being removed: only the segments
+    a declaration actually names are allowed to differ.
+    """
+    swaps = {}
+    if ov:
+        for literal, _must, _rep, replacement in G.identity_edits(
+                profile, ov, seed_block):
+            swaps[literal] = replacement
+    return [swaps.get(literal, literal) for literal in profile.frozen]
+
+
+def declared_dobs(ov):
+    """Dates of birth a declaration introduces, for the date-window check."""
+    if not ov:
+        return []
+    sub = (ov.identity or {}).get("subscriber") or {}
+    return [sub["dob"]] if "dob" in sub else []
+
+
+def restore_declared(profile, ov, expected_block, restored, n):
+    """Undo the declared content overrides on one block.
+
+    Every reversal is guarded: a segment is put back only when it is exactly
+    what the declaration says the generator would have written. A file that
+    differs from the declaration keeps its own bytes and fails the comparison
+    that follows, so a declaration can never excuse a change it does not
+    describe.
+    """
+    if not ov:
+        return restored
+    out = list(restored)
+    # Amounts are addressed by position: a claim repeats its service lines
+    # verbatim, so a literal cannot name one line.
+    for idx, seed_seg, generated_seg in G.money_edits(profile, ov,
+                                                      expected_block, n):
+        if 0 <= idx < len(out) and out[idx] == generated_seg:
+            out[idx] = seed_seg
+    for literal, _must, _rep, replacement in (
+            G.identity_edits(profile, ov, expected_block)
+            + G.diagnosis_edits(profile, ov, expected_block, n)):
+        out = [literal if s == replacement else s for s in out]
+    return out
+
+
+def reverse_pairs(profile, man, n, ov=None, block_len=None):
+    """(derived literal, must_occur, source literal) for output claim n.
+
+    `ov` and `block_len` carry the manifest's declaration: CLM02 moves with
+    the declared amounts, and SE01 counts the declared block, which a
+    declared splice makes longer or shorter than the seed's.
+    """
     i = G.source_index(n, profile) - 1
     src_clm = profile.src_clm[i]
+    clm02 = G.claim_total(ov, n) if ov else None
+    se_len = profile.block_lens[i] if block_len is None else block_len
     out = [
         ("ST*837*%s*%s" % (man["st02"][n - 1], profile.version), 1,
          "ST*837*%s*%s" % (profile.src_st02[i], profile.version)),
@@ -115,12 +190,14 @@ def reverse_pairs(profile, man, n):
          "BHT*0019*00*%s*%s*%s*CH" % (profile.src_st02[i],
                                       profile.src_bht_date,
                                       profile.src_bht_time)),
-        (_swap_clm01(src_clm, man["clm01"][n - 1]), 1, src_clm),
+        (_swap_clm(src_clm, man["clm01"][n - 1], clm02), 1, src_clm),
         ("REF*F8*%s" % man["ref_f8"][n - 1], 1,
          "REF*F8*%s" % profile.src_ref_f8[i]),
         ("REF*9A*%s" % man["ref_9a"][n - 1], 1,
          "REF*9A*%s" % profile.src_ref_9a[i]),
-        ("SE*%d*%s" % (profile.block_lens[i], man["st02"][n - 1]), 1,
+        # SE01 counts the emitted block, so a declared splice moves it; the
+        # seed block it is restored to still carries the seed's own count.
+        ("SE*%d*%s" % (se_len, man["st02"][n - 1]), 1,
          "SE*%d*%s" % (profile.block_lens[i], profile.src_st02[i])),
     ]
     if profile.statement_qualifier:
@@ -258,6 +335,10 @@ def main():
     raw, segs = X.read_segments(args.file)
     blocks = blocks_of(segs)
     claims = man["claims"]
+    # What the manifest declares this file was allowed to change, and the
+    # seed block each claim must match once those declarations are reversed.
+    declared = declared_overrides(profile, man, claims)
+    expected_blocks = declared_blocks(profile, man, seed_blocks, claims)
 
     print("file     : %s" % os.path.abspath(args.file))
     print("manifest : %s" % os.path.abspath(args.manifest))
@@ -422,7 +503,7 @@ def main():
     year = str(M.YEAR)
     all_dates = sorted({m.group(0) for m in re.finditer(
         r"(?<![0-9])(?:19|20)[0-9]{6}(?![0-9])", raw)})
-    dobs = list(profile.dob_exceptions)
+    dobs = list(profile.dob_exceptions) + declared_dobs(declared)
     outside = [d for d in all_dates
                if not d.startswith(year) and d not in dobs]
     if outside:
@@ -462,12 +543,14 @@ def main():
              "dates inside %s" % (year, len(dobs), man["statement"]),
           ok, "; ".join(detail) or "ok")
 
-    # 9 - payload byte-identity against the SEED
+    # 9 - payload byte-identity against the SEED, plus what was DECLARED
     ok, detail = True, []
     for i, b in enumerate(blocks):
         n = i + 1
-        restored = list(b)
-        for lit, must_occur, original in reverse_pairs(profile, man, n):
+        expected = expected_blocks[i]
+        restored = restore_declared(profile, declared, expected, list(b), n)
+        for lit, must_occur, original in reverse_pairs(
+                profile, man, n, declared, len(expected)):
             hits = [j for j, s in enumerate(restored) if s == lit]
             if len(hits) != must_occur:
                 ok = False
@@ -478,7 +561,6 @@ def main():
                 restored[j] = original
         for gen_seg, src_seg in _service_date_pairs(profile, man):
             restored = [src_seg if s == gen_seg else s for s in restored]
-        expected = seed_blocks[G.source_index(n, profile) - 1]
         if restored != expected:
             ok = False
             diff = [(a, c) for a, c in zip(restored, expected) if a != c]
@@ -488,8 +570,7 @@ def main():
              "the declared edits are reversed", ok, "; ".join(detail) or "ok")
 
     # 10 - coverage
-    expected_lens = [len(b) for b in
-                     declared_blocks(profile, man, seed_blocks, claims)]
+    expected_lens = [len(b) for b in expected_blocks]
     check(10, "%d payload units whose shapes cycle the seed blocks" % claims,
           [len(b) for b in blocks] == expected_lens,
           "got %s expected %s" % ([len(b) for b in blocks][:12],
@@ -500,10 +581,11 @@ def main():
     ok, detail = fn(blocks, profile)
     check(11, label, ok, "; ".join(detail[:4]) or "ok")
 
-    # 12 - frozen identity
+    # 12 - frozen identity, as declared
     ok, missing = True, []
     for i, b in enumerate(blocks):
-        for seg in profile.frozen:
+        seed_block = seed_blocks[G.source_index(i + 1, profile) - 1]
+        for seg in expected_identity(profile, declared, seed_block):
             if seg not in b:
                 ok = False
                 missing.append("claim %d missing %r" % (i + 1, seg))

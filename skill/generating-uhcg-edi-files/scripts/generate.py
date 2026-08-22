@@ -192,6 +192,20 @@ def diagnosis_edits(profile, ov, payload, n):
     raise BuildError("claim %d: seed block has no ABK principal diagnosis" % n)
 
 
+def record_overrides(record, raw_doc):
+    """Attach the submitted override document to a manifest record.
+
+    The document is recorded exactly as submitted, because it is what the
+    validator checks the output against: a change the manifest does not
+    declare has no reversal and still fails check 9. An empty or absent
+    document adds no key, so an unedited batch's manifest keeps the shape it
+    has always had.
+    """
+    if raw_doc:
+        record["overrides"] = raw_doc
+    return record
+
+
 def _line_loops(profile, payload, n):
     """Split a block into (head, [loop, ...], tail) around its LX loops.
 
@@ -537,6 +551,7 @@ def main():
     args = ap.parse_args()
 
     repo = os.path.abspath(args.repo)
+    raw_override_doc = None
     pinned = None
     if args.pin:
         with io.open(args.pin, encoding="utf-8") as fh:
@@ -595,6 +610,9 @@ def main():
         profile.code, claims,
         os.path.relpath(outp, repo).replace("\\", "/"),
         sha, profile.rel_path, seed_sha)
+    # No override document reaches the CLI yet; --data is Task 8, and it
+    # passes what it read straight through here.
+    record_overrides(record, raw_override_doc)
     if pinned:
         record["timestamp"] = pinned.get("timestamp", record["timestamp"])
 

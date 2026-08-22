@@ -270,14 +270,11 @@ class TestServiceDatesOnAddedLines(unittest.TestCase):
 
 
 class TestWholeFileValidationStatus(unittest.TestCase):
-    """Characterisation, not aspiration.
+    """A splice must reach the file only when the manifest declares it.
 
-    validate.py check 9 reverses the declared edits and compares the payload
-    to the raw seed block. Every content override - identity, diagnosis,
-    amounts and now line counts - is invisible to it until Task 6 records the
-    declaration in the manifest and teaches the check to read it. This test
-    pins the blast radius: check 9 is the only one a splice disturbs, and it
-    must be updated by Task 6.
+    Task 6 taught check 9 to reverse the declared overrides, so a declared
+    splice now passes the whole validator. An undeclared one still fails: the
+    expected shape is rebuilt from the declaration, never read off the file.
     """
 
     def _validate(self, doc, claims, profile, alloc, declare=False):
@@ -314,14 +311,14 @@ class TestWholeFileValidationStatus(unittest.TestCase):
                 failed = json.loads(line.split(":", 1)[1].strip())
         return failed, out
 
-    def test_a_declared_splice_passes_the_block_length_check(self):
+    def test_a_declared_splice_passes_the_whole_validator(self):
         doc = {"claims": [{"n": 1, "lines": _i_lines(3, "100.00")}]}
         failed, out = self._validate(doc, 1, I, fake_alloc(1), declare=True)
         # 7 is a fixture artefact: fake_alloc reuses identifiers that exist
-        # on disk. 9 is the declaration-aware check Task 6 rewrites. 10 is
-        # Task 5's and must now pass.
+        # on disk. Every other check passes now that Task 6 made 9 read the
+        # declaration.
         self.assertNotIn(10, failed, out)
-        self.assertEqual([c for c in failed if c != 7], [9], out)
+        self.assertEqual([c for c in failed if c != 7], [], out)
 
     def test_an_undeclared_splice_still_fails_the_block_length_check(self):
         doc = {"claims": [{"n": 1, "lines": _i_lines(3, "100.00")}]}
