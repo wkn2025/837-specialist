@@ -1,0 +1,29 @@
+Fresh post-generation verification on 2026-08-22
+
+Python generator suite
+command: EDI_REPO=<this worktree> .venv/Scripts/python.exe -m pytest skill/generating-uhcg-edi-files/tests/ -q
+result : 261 passed in 29.84s
+
+Frontend tests
+command: npx vitest run
+result : 2 files passed; 27 tests passed
+
+TypeScript
+command: npx tsc --noEmit
+result : exit 0
+
+Production build
+command: npm run build
+result : exit 0; 30 modules transformed; built in 412ms
+
+Mutation suite
+command: .venv/Scripts/python.exe skill/generating-uhcg-edi-files/scripts/mutations.py --repo .
+result : exit 0; every mutation was caught by the check that owns it
+
+Batch 6 validator
+result : exit 0; all 15 checks passed
+
+Claim summary DOCX
+zip integrity: testzip returned None
+entries      : 17
+document XML : present
