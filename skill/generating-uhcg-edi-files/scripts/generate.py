@@ -538,7 +538,15 @@ def _default_output(repo, code, claims):
                         "fromUHCG-837%s-WKN_%dclaims.x12" % (code, claims))
 
 
-def main():
+def _read_override_doc(source):
+    """Load the override document named by --data ('-' means stdin)."""
+    if source == "-":
+        return json.load(sys.stdin)
+    with io.open(source, encoding="utf-8") as fh:
+        return json.load(fh)
+
+
+def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("--repo", required=True)
     ap.add_argument("--type")
@@ -546,17 +554,27 @@ def main():
     ap.add_argument("--pin", help="replay the allocation in this manifest")
     ap.add_argument("--output")
     ap.add_argument("--force", action="store_true")
+    ap.add_argument("--data",
+                    help="override document (JSON file, or - for stdin)")
+    ap.add_argument("--print-defaults", action="store_true",
+                    help="emit the seed's values as an override document")
     ap.add_argument("--fail-after-validate", action="store_true",
                     help=argparse.SUPPRESS)
-    args = ap.parse_args()
+    # argv is None under the CLI, which is argparse's own "read sys.argv".
+    args = ap.parse_args(argv)
 
     repo = os.path.abspath(args.repo)
-    raw_override_doc = None
     pinned = None
     if args.pin:
         with io.open(args.pin, encoding="utf-8") as fh:
             pinned = json.loads(fh.read())
         code, claims = pinned["type"], pinned["claims"]
+    elif args.print_defaults:
+        # Introspection needs no claim count: it reports the seed as it is.
+        if not args.type:
+            sys.stderr.write("--type is required with --print-defaults\n")
+            return 1
+        code, claims = args.type, None
     else:
         if not args.type or args.claims is None:
             sys.stderr.write("--type and --claims are required "
@@ -573,6 +591,18 @@ def main():
             % (code, code.upper()))
         return 1
 
+    # Read-only, and deliberately before anything touches the masterfile:
+    # printing the defaults allocates nothing.
+    if args.print_defaults:
+        try:
+            defaults = seed_introspect.defaults_for(profile, repo)
+        except (seeds.SeedMismatch, seed_introspect.SeedShapeError) as exc:
+            sys.stderr.write("%s\n" % exc)
+            return 1
+        json.dump(defaults, sys.stdout)
+        sys.stdout.write("\n")
+        return 0
+
     # An out-of-range claim count is an argument error, so it is refused here
     # rather than inside allocate() - otherwise a repo with no masterfile yet
     # reports the missing masterfile instead of the bad count. allocate()
@@ -582,6 +612,30 @@ def main():
         sys.stderr.write("claim count must be between 1 and %d, got %r\n"
                          % (M.MAX_CLAIMS, claims))
         return 1
+
+    # One document, read once. The same object is parsed into the overrides
+    # build() applies and recorded verbatim in the manifest the validator
+    # checks against, so the two can never describe different things.
+    raw_override_doc = pinned.get("overrides") if pinned else None
+    if args.data:
+        if pinned:
+            sys.stderr.write("--data cannot be combined with --pin; a pinned "
+                             "manifest already carries its declaration\n")
+            return 2
+        try:
+            raw_override_doc = _read_override_doc(args.data)
+        except (IOError, OSError, ValueError) as exc:
+            sys.stderr.write("--data %s could not be read as JSON: %s\n"
+                             % (args.data, exc))
+            return 2
+
+    # Parsed before the masterfile is opened, so a document the generator
+    # cannot honour costs no identifier.
+    try:
+        ov = overrides.parse(raw_override_doc, profile, claims)
+    except overrides.OverrideError as exc:
+        sys.stderr.write("%s\n" % exc)
+        return 2
 
     outp = os.path.abspath(args.output or _default_output(repo, profile.code,
                                                           claims))
@@ -598,7 +652,7 @@ def main():
         else:
             mf = M.load(repo)
             alloc = M.allocate(mf, repo, profile, claims)
-        text = render(build(seed_segs, profile, alloc, claims))
+        text = render(build(seed_segs, profile, alloc, claims, ov))
     except (seeds.SeedMismatch, M.MasterfileError, BuildError) as exc:
         sys.stderr.write("%s\n" % exc)
         return 1
@@ -610,8 +664,6 @@ def main():
         profile.code, claims,
         os.path.relpath(outp, repo).replace("\\", "/"),
         sha, profile.rel_path, seed_sha)
-    # No override document reaches the CLI yet; --data is Task 8, and it
-    # passes what it read straight through here.
     record_overrides(record, raw_override_doc)
     if pinned:
         record["timestamp"] = pinned.get("timestamp", record["timestamp"])
