@@ -7,8 +7,8 @@ writing payload by hand.
 from __future__ import annotations
 import hashlib
 import os
-from dataclasses import dataclass
-from typing import List, Optional
+from dataclasses import dataclass, field
+from typing import Dict, List, Optional
 
 import x12_parse as X
 
@@ -46,6 +46,23 @@ class SeedProfile:
     isa08: str
     isa15: str                           # what a GENERATED file carries
     dob_exceptions: List[str]            # dates allowed outside the year
+
+    # Element index of each overridable field, by segment prefix. The field
+    # NAMES are owned by overrides.IDENTITY_FIELDS - the document's contract;
+    # the addresses live here so a companion-guide change is a one-line edit
+    # in the registry rather than a code change in the generator.
+    #   NM1*IL*1*NISHIMURA*WILLIAM****MI*909001333969   3 / 4 / 9
+    #   NM1*85*2*JFK JOHNSON REHAB INSTITUTE*****XX*1114932548   3 / 9
+    #   DMG*D8*19941217*F                               2
+    #   REF*EI*B03000684                                2
+    override_addrs: Dict[str, Dict[str, int]] = field(
+        default_factory=lambda: {
+            "NM1*IL*": {"last": 3, "first": 4, "memberId": 9},
+            "NM1*85*": {"name": 3, "npi": 9},
+            "NM1*71*": {"last": 3, "first": 4, "npi": 9},
+            "DMG*D8*": {"dob": 2},
+            "REF*EI*": {"taxId": 2},
+        })
 
     @property
     def src_clm01(self):

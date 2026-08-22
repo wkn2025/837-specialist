@@ -1,12 +1,16 @@
 """Build a UHCG outbound 837 file by slicing claim payload from a seed.
 
-Every claim byte comes from the seed. Only identifier and date segments are
-substituted, each one declared as a literal that must occur an exact number of
+Every claim byte comes from the seed unless an override document declares
+otherwise. Identifier, date and declared-override segments are substituted,
+each one named as a whole-segment literal that must occur an exact number of
 times - a literal that has drifted is a hard failure, never a silent no-op.
+Anything the document does not declare must still come out of the seed
+unchanged, which _assert_seed_fidelity checks before any edit is applied.
 """
 from __future__ import annotations
 
 import claim_summary
+import overrides
 import seeds
 import x12_parse as X
 
@@ -98,6 +102,99 @@ def _date_edits(payload, profile, alloc):
     return ed
 
 
+# The segment each identity group of the override document lives in. The
+# fields inside a group come from overrides.IDENTITY_FIELDS and their element
+# indices from profile.override_addrs, so a name is never spelled twice.
+IDENTITY_SEGMENTS = {
+    "subscriber": "NM1*IL*",
+    "billingProvider": "NM1*85*",
+    "attendingProvider": "NM1*71*",
+    "taxId": "REF*EI*",
+}
+
+# Date of birth is a subscriber field in the document but lives in its own
+# segment, not in the subscriber NM1.
+DOB_SEGMENT = "DMG*D8*"
+
+
+def identity_edits(profile, ov, payload):
+    """Element swaps for the identity segments this override declares.
+
+    The whole seed segment is the literal, so a segment that has drifted from
+    the profile still fails the exact-count check in apply_edits. A field set
+    to the value the seed already carries produces no edit at all - emitting
+    one would put two tuples on the same literal and break that check.
+    """
+    if not ov or not ov.identity:
+        return []
+
+    ed = []
+
+    def swap(prefix, values):
+        if not values:
+            return
+        src = next((s for s in payload if s.startswith(prefix)), None)
+        if src is None:
+            raise BuildError(
+                "override names %s but the seed block has no %s segment"
+                % (prefix, prefix))
+        addrs = profile.override_addrs[prefix]
+        out = src
+        for name, value in values.items():
+            out = set_elem(out, addrs[name], value)
+        if out != src:
+            ed.append((src, 1, 1, out))
+
+    for group, prefix in IDENTITY_SEGMENTS.items():
+        if group not in ov.identity:
+            continue
+        value = ov.identity[group]
+        if group in overrides.SCALAR_IDENTITY:
+            swap(prefix, {group: value})
+            continue
+        swap(prefix, {k: v for k, v in value.items() if k != "dob"})
+        if "dob" in value:
+            swap(DOB_SEGMENT, {"dob": value["dob"]})
+    return ed
+
+
+def diagnosis_edits(profile, ov, payload, n):
+    """Replace the ABK principal-diagnosis code, leaving ABF alone.
+
+    ABK may be the first composite of its own HI segment (837I) or share one
+    with the ABF secondaries (837P), so every composite is considered - the
+    same scan seed_introspect uses to read the default back out.
+    """
+    c = ov.claim(n) if ov else None
+    if not c or not c.get("principalDiagnosis"):
+        return []
+    for s in payload:
+        if not s.startswith("HI*"):
+            continue
+        for k, comp in enumerate(X.elems(s)[1:], 1):
+            if not comp.startswith("ABK:"):
+                continue
+            parts = comp.split(":")
+            parts[1] = c["principalDiagnosis"]
+            new = set_elem(s, k, ":".join(parts))
+            return [] if new == s else [(s, 1, 1, new)]
+    raise BuildError("claim %d: seed block has no ABK principal diagnosis" % n)
+
+
+def _assert_seed_fidelity(profile, payload, n):
+    """Every frozen segment must still be in the seed block.
+
+    An override changes the output, never the input, so this runs whatever
+    the document declares. It is what keeps "seed bytes are frozen unless the
+    override is declared" true once build() is allowed to rewrite content.
+    """
+    for literal in profile.frozen:
+        if literal not in payload:
+            raise BuildError(
+                "claim %d: seed block is missing the frozen segment %r"
+                % (n, literal))
+
+
 def apply_edits(payload, edits, key):
     segs = list(payload)
     for literal, must_occur, replace_n, replacement in edits:
@@ -122,7 +219,7 @@ def renumber_se(segs, key):
     return segs[:-1] + ["SE*%d*%s" % (len(segs), st02)]
 
 
-def build(seed_segs, profile, alloc, claims):
+def build(seed_segs, profile, alloc, claims, ov=None):
     if not seed_segs or not seed_segs[0].startswith("ISA*"):
         raise BuildError("first seed segment is not ISA")
     if len(seed_segs) < 2 or not seed_segs[1].startswith("GS*"):
@@ -157,8 +254,11 @@ def build(seed_segs, profile, alloc, claims):
                 "claim %d: seed block is %d segments, profile declares %d"
                 % (n, len(payload),
                    profile.block_lens[source_index(n, profile) - 1]))
-        edits = edits_for(profile, alloc, n) + _date_edits(payload, profile,
-                                                           alloc)
+        _assert_seed_fidelity(profile, payload, n)
+        edits = (edits_for(profile, alloc, n)
+                 + _date_edits(payload, profile, alloc)
+                 + identity_edits(profile, ov, payload)
+                 + diagnosis_edits(profile, ov, payload, n))
         body.extend(renumber_se(apply_edits(payload, edits, str(n)), str(n)))
 
     return ([isa, gs] + body
