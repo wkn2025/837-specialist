@@ -3,7 +3,8 @@
  * only thing here that knows why a batch was refused.
  */
 import type {
-  Allocation, GeneratedBatch, HistoryRow, OverrideDoc, TxType,
+  Allocation, Edi2ValidationResult, GeneratedBatch, HistoryRow, OverrideDoc,
+  TxType,
 } from './types';
 
 async function get<T>(url: string): Promise<T> {
@@ -36,6 +37,20 @@ export async function generateBatch(
 
 export function downloadUrl(batchId: number, kind: 'x12' | 'docx') {
   return `/api/download/${batchId}/${kind}`;
+}
+
+export async function validateEdi2(file: File): Promise<Edi2ValidationResult> {
+  const res = await fetch('/api/edi2/validate', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/octet-stream',
+      'x-edi-filename': file.name,
+    },
+    body: file,
+  });
+  const body = await res.json();
+  if (!res.ok) throw new Error(body?.error ?? res.statusText);
+  return body as Edi2ValidationResult;
 }
 
 /** The generator writes the path; the UI only ever shows its last segment. */

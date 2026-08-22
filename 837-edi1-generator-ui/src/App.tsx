@@ -17,13 +17,14 @@ import { IdentifierTiles } from '@/components/IdentifierTiles';
 import { IdentityCards } from '@/components/IdentityCards';
 import { Section } from '@/components/Section';
 import { TransactionTypeCards } from '@/components/TransactionTypeCard';
+import { Edi2Validator } from '@/features/edi2/Edi2Validator';
 import { useBatchForm } from '@/hooks/useBatchForm';
 import { useBatchHistory } from '@/hooks/useBatchHistory';
 import { useMasterfile } from '@/hooks/useMasterfile';
 import '@/styles/app.css';
 
 export default function App() {
-  const [view, setView] = useState<'gen' | 'hist'>('gen');
+  const [view, setView] = useState<'gen' | 'hist' | 'edi2'>('gen');
   const [working, setWorking] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const f = useBatchForm();
@@ -55,7 +56,7 @@ export default function App() {
                height={48} />
           <div>
             <div className="header__eyebrow">UHCG Claims EDI Toolkit</div>
-            <div className="header__title">837 Test File Generator</div>
+            <div className="header__title">837 Claims EDI Toolkit</div>
           </div>
         </div>
         <div className="env">
@@ -73,9 +74,15 @@ export default function App() {
                 aria-selected={view === 'hist'} onClick={() => setView('hist')}>
           Batch History
         </button>
+        <button type="button" role="tab" className="tab"
+                aria-selected={view === 'edi2'} onClick={() => setView('edi2')}>
+          EDI2 Validator
+        </button>
       </div>
 
-      {view === 'hist' ? (
+      {view === 'edi2' ? (
+        <Edi2Validator />
+      ) : view === 'hist' ? (
         <BatchHistory rows={history.rows} error={history.error} />
       ) : (
         <main className="page">

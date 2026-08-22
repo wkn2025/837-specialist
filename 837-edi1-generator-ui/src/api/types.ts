@@ -95,3 +95,185 @@ export interface HistoryRow {
   timestamp: string;
   sha256?: string;
 }
+
+/** POST /api/edi2/validate response. Amounts remain exact X12 strings. */
+export type Edi2Status =
+  | 'valid' | 'invalid' | 'indeterminate' | 'unparseable' | 'error';
+export type Edi2Workflow = 'I' | 'P' | 'unknown';
+export type CheckStatus = 'pass' | 'fail' | 'warning' | 'skipped';
+
+export interface Edi2Trace {
+  id: string;
+  segmentIndex: number;
+  transactionIndex: number | null;
+  claimIndex: number | null;
+  lineNumber: number | null;
+  loopId: string | null;
+  segmentId: string;
+  elementPath: string | null;
+  rawSegment: string;
+  charStart: number;
+  charEnd: number;
+}
+
+export interface Observed<T = string> {
+  value: T | null;
+  presence: 'present' | 'missing' | 'not-applicable' | 'derived';
+  traceIds: string[];
+  derivation?: string;
+}
+
+export interface Edi2Reference {
+  qualifier: string;
+  value: string;
+  traceIds: string[];
+}
+
+export interface Edi2Cas {
+  groupCode: string;
+  reasonCode: string;
+  amount: string | null;
+  quantity: string | null;
+  repetition: number;
+  traceIds: string[];
+}
+
+export interface Edi2Amt {
+  qualifier: string;
+  amount: string | null;
+  traceIds: string[];
+}
+
+export interface Edi2Note {
+  qualifier: string;
+  text: string;
+  remarkCode: string | null;
+  traceIds: string[];
+}
+
+export interface Edi2Amounts {
+  billed: Observed;
+  allowed: Observed;
+  repricedSavings: Observed;
+  deductible: Observed;
+  coinsurance: Observed;
+  copay: Observed;
+  notCovered: Observed;
+  netPaid: Observed;
+  coveragePercentage: Observed;
+  patientResponsibility?: Observed;
+}
+
+export interface Edi2Line {
+  lineNumber: number | null;
+  service: {
+    kind: 'institutional' | 'professional';
+    procedure: Observed;
+    revenueCode: Observed;
+    units: Observed;
+    placeOfService?: Observed;
+  };
+  serviceDate: Observed;
+  benefitDecision: Observed<{ code: string; label: string }>;
+  reductionIndicators: Array<{ value: string; traceIds: string[] }>;
+  financialOutcome: Observed;
+  amounts: Edi2Amounts;
+  cas: Edi2Cas[];
+  amts: Edi2Amt[];
+  notes: Edi2Note[];
+  references: Edi2Reference[];
+}
+
+export interface Edi2Claim {
+  claimIndex: number;
+  transactionControl: Observed;
+  claimIdentifier: Observed;
+  identifiers: {
+    ccn: Observed;
+    uhapClaimId: Observed;
+    clientClaimId: Observed;
+    originalUhapClaimId: Observed;
+    all: Edi2Reference[];
+  };
+  benefitDecision: Observed<{ code: string; label: string }>;
+  reductionIndicators: Array<{ value: string; traceIds: string[] }>;
+  adjustment: { clm20: Observed; frequencyCode: Observed };
+  amounts: Edi2Amounts;
+  cas: Edi2Cas[];
+  amts: Edi2Amt[];
+  notes: Edi2Note[];
+  references: Edi2Reference[];
+  otherPayers: Array<{ sbr: string; traceIds: string[] }>;
+  lines: Edi2Line[];
+}
+
+export interface Edi2Finding {
+  ruleId: string;
+  severity: 'blocker' | 'advisory';
+  message: string;
+  citation: string;
+  claim: string | null;
+  lineNumber: number | null;
+  segmentIndex: number | null;
+  traceIds: string[];
+}
+
+export interface Edi2Check {
+  id: string;
+  family: string;
+  label: string;
+  workflow: string;
+  status: CheckStatus;
+  severity: 'blocker' | 'advisory';
+  citation: string;
+  findings: Edi2Finding[];
+  skippedReason: string;
+}
+
+export interface Edi2ValidationResult {
+  schemaVersion: '1.0';
+  status: Edi2Status;
+  file: { filename: string; sizeBytes: number };
+  workflow: {
+    workflow: Edi2Workflow;
+    version: string;
+    confidence: string;
+    evidence: Array<{
+      source: string;
+      value: string;
+      segmentIndex: number | null;
+    }>;
+    conflicts: string[];
+  } | null;
+  summary: {
+    claims: number;
+    lines: number;
+    checks: number;
+    passed: number;
+    failed: number;
+    warnings: number;
+    skipped: number;
+    blockers: number;
+    advisories: number;
+  };
+  coverage: {
+    standaloneValidation: 'performed' | 'not-performed';
+    sourceComparison: 'skipped';
+    original837Comparison: 'not-performed';
+    professionalGolden: 'not-performed' | 'not-applicable';
+  };
+  limitations: string[];
+  checks: Edi2Check[];
+  adjudication: {
+    envelope: {
+      sender: Observed;
+      receiver: Observed;
+      interchangeControl: Observed;
+      groupControl: Observed;
+      transactionCount: number;
+    };
+    claims: Edi2Claim[];
+    traces: Record<string, Edi2Trace>;
+  } | null;
+  parseError?: { message: string; offset: number; context: string };
+}
