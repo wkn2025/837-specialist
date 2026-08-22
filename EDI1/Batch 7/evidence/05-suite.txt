@@ -1,0 +1,34 @@
+Fresh post-generation verification on 2026-08-22
+
+Python generator suite
+command: EDI_REPO=<this worktree> .venv/Scripts/python.exe -m pytest skill/generating-uhcg-edi-files/tests/ -q
+result : 282 passed in 38.01s
+note   : an earlier full run had one transient Windows WinError 5 in a disposable atomic-replace test; the test then passed once alone, five concurrent repetitions, and this complete fresh rerun. No code or production state was changed in response.
+
+Frontend tests
+command: npx vitest run
+result : 2 files passed; 27 tests passed
+
+TypeScript
+command: npx tsc --noEmit
+result : exit 0
+
+Production build
+command: npm run build
+result : exit 0; 30 modules transformed; built in 471ms
+
+Mutation suite
+command: .venv/Scripts/python.exe skill/generating-uhcg-edi-files/scripts/mutations.py --repo .
+result : exit 0; every mutation was caught by the check that owns it
+
+Concurrency stress
+command: simultaneous two-process generation regression, repeated five times against disposable repositories
+result : 5/5 passed; no identifier overlap
+
+Batch 7 independent validator
+result : exit 0; all 15 checks passed
+
+Claim summary DOCX
+zip integrity: testzip returned None
+entries      : 17
+document XML : present

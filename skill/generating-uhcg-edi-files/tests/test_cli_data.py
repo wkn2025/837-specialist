@@ -7,12 +7,15 @@ EDI1/masterfile.json. --print-defaults allocates nothing and reads the real
 repo directly.
 """
 from __future__ import annotations
+import glob
 import io
 import json
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
+import textwrap
 
 import pytest
 
@@ -68,6 +71,92 @@ def _doc(work, obj):
 def _read(path):
     with io.open(path, encoding="ascii") as fh:
         return fh.read()
+
+
+def _tree(root):
+    """Relative directory/file names, including empty directories."""
+    found = []
+    for parent, directories, files in os.walk(root):
+        for name in directories:
+            found.append(("d", os.path.relpath(
+                os.path.join(parent, name), root)))
+        for name in files:
+            found.append(("f", os.path.relpath(
+                os.path.join(parent, name), root)))
+    return sorted(found)
+
+
+def _write_concurrency_wrapper(work):
+    """CLI wrapper whose post-allocation barrier makes the old race exact."""
+    gate = os.path.join(work, "gate")
+    os.makedirs(gate)
+    wrapper = os.path.join(work, "concurrent_generate.py")
+    source = textwrap.dedent("""
+        import glob
+        import os
+        import sys
+        import time
+
+        sys.path.insert(0, {scripts!r})
+        import generate
+
+        real_allocate = generate.M.allocate
+
+        def allocate_together(*args, **kwargs):
+            allocation = real_allocate(*args, **kwargs)
+            marker = os.path.join({gate!r}, str(os.getpid()))
+            with open(marker, "w") as fh:
+                fh.write("ready")
+            deadline = time.monotonic() + 1.5
+            while len(glob.glob(os.path.join({gate!r}, "*"))) < 2:
+                if time.monotonic() >= deadline:
+                    break
+                time.sleep(0.01)
+            return allocation
+
+        generate.M.allocate = allocate_together
+        generate.claim_summary.build = lambda *args, **kwargs: None
+        raise SystemExit(generate.main())
+    """).format(scripts=os.path.abspath(SCRIPTS), gate=gate)
+    with io.open(wrapper, "w", encoding="utf-8", newline="\n") as fh:
+        fh.write(source)
+    return wrapper
+
+
+def _write_pinned_concurrency_wrapper(work):
+    """Make two pinned publishers pass the old unlocked existence check."""
+    gate = os.path.join(work, "pin-gate")
+    os.makedirs(gate)
+    wrapper = os.path.join(work, "concurrent_pin.py")
+    source = textwrap.dedent("""
+        import glob
+        import os
+        import sys
+        import time
+
+        sys.path.insert(0, {scripts!r})
+        import generate
+
+        real_load_seed = generate.seeds.load_seed
+
+        def load_together(*args, **kwargs):
+            marker = os.path.join({gate!r}, str(os.getpid()))
+            with open(marker, "w") as fh:
+                fh.write("ready")
+            deadline = time.monotonic() + 1.5
+            while len(glob.glob(os.path.join({gate!r}, "*"))) < 2:
+                if time.monotonic() >= deadline:
+                    break
+                time.sleep(0.01)
+            return real_load_seed(*args, **kwargs)
+
+        generate.seeds.load_seed = load_together
+        generate.claim_summary.build = lambda *args, **kwargs: None
+        raise SystemExit(generate.main())
+    """).format(scripts=os.path.abspath(SCRIPTS), gate=gate)
+    with io.open(wrapper, "w", encoding="utf-8", newline="\n") as fh:
+        fh.write(source)
+    return wrapper
 
 
 # --------------------------------------------------------------------------
@@ -209,6 +298,226 @@ def test_print_allocation_needs_a_claim_count(scratch, capsys):
                         "--print-allocation"])
     assert rc != 0
     assert "--type and --claims are required" in capsys.readouterr().err
+
+
+def test_simultaneous_generation_transactions_never_overlap_identifiers(
+        scratch, work):
+    wrapper = _write_concurrency_wrapper(work)
+    argv = [sys.executable, wrapper, "--repo", scratch, "--type", "I",
+            "--claims", "1", "--json"]
+    processes = [subprocess.Popen(argv, stdout=subprocess.PIPE,
+                                  stderr=subprocess.PIPE)
+                 for _ in range(2)]
+    results = [p.communicate(timeout=30) for p in processes]
+    payloads = []
+    for p, (stdout, stderr) in zip(processes, results):
+        assert p.returncode == 0, stderr.decode("utf-8", "replace")
+        payloads.append(json.loads(stdout.decode("utf-8")))
+    assert {payload["batchId"] for payload in payloads} == {2, 3}
+
+    manifests = []
+    for batch in (2, 3):
+        path = os.path.join(
+            scratch, "EDI1", "Batch %d" % batch,
+            "fromUHCG-837I-WKN_1claims.manifest.json")
+        with io.open(path, encoding="utf-8") as fh:
+            manifests.append(json.loads(fh.read()))
+
+    for key in M.KEYS:
+        left = manifests[0][key]
+        right = manifests[1][key]
+        left = set(left if isinstance(left, list) else [left])
+        right = set(right if isinstance(right, list) else [right])
+        assert left.isdisjoint(right), (key, left & right)
+    assert len(M.load(scratch)["runs"]) == 3
+
+
+def test_simultaneous_pinned_publishers_cannot_both_claim_one_output(
+        scratch, work):
+    source = os.path.join(work, "source.x12")
+    assert generate.main(["--repo", scratch, "--type", "I", "--claims", "1",
+                          "--output", source]) == 0
+    pin = source[:-4] + ".manifest.json"
+    target = os.path.join(work, "pinned.x12")
+    wrapper = _write_pinned_concurrency_wrapper(work)
+    argv = [sys.executable, wrapper, "--repo", scratch, "--pin", pin,
+            "--output", target]
+    processes = [subprocess.Popen(argv, stdout=subprocess.PIPE,
+                                  stderr=subprocess.PIPE)
+                 for _ in range(2)]
+    results = [p.communicate(timeout=30) for p in processes]
+    assert sorted(p.returncode for p in processes) == [0, 1]
+    refusal = [stderr.decode("utf-8", "replace")
+               for p, (_stdout, stderr) in zip(processes, results)
+               if p.returncode == 1]
+    assert len(refusal) == 1
+    assert "exists; pass --force to overwrite" in refusal[0]
+    assert os.path.exists(target)
+    assert len(M.load(scratch)["runs"]) == 2
+
+
+def test_append_failure_rolls_back_artifacts_and_releases_lock(
+        scratch, work, monkeypatch, capsys):
+    out = os.path.join(work, "failed.x12")
+
+    def fail_append(*_args, **_kwargs):
+        raise OSError("atomic append failed")
+
+    monkeypatch.setattr(M, "append_run", fail_append)
+    rc = generate.main(["--repo", scratch, "--type", "I", "--claims", "1",
+                        "--output", out])
+    assert rc != 0
+    assert "atomic append failed" in capsys.readouterr().err
+    assert not os.path.exists(out)
+    assert not os.path.exists(out[:-4] + ".manifest.json")
+    assert len(M.load(scratch)["runs"]) == 1
+
+    monkeypatch.undo()
+    retry = os.path.join(work, "retry.x12")
+    assert generate.main(["--repo", scratch, "--type", "I", "--claims", "1",
+                          "--output", retry]) == 0
+    assert os.path.exists(retry)
+    assert len(M.load(scratch)["runs"]) == 2
+
+
+def test_default_output_failure_removes_the_new_empty_batch_directory(
+        scratch, monkeypatch, capsys):
+    # The stable advisory sidecar is intentionally persistent operational
+    # state, so establish it before comparing the repository tree.
+    with M.generation_lock(scratch):
+        pass
+    before_tree = _tree(scratch)
+    with open(M.path(scratch), "rb") as fh:
+        before_masterfile = fh.read()
+
+    def fail_append(*_args, **_kwargs):
+        raise OSError("atomic append failed")
+
+    monkeypatch.setattr(M, "append_run", fail_append)
+    rc = generate.main(["--repo", scratch, "--type", "I", "--claims", "1"])
+    assert rc != 0
+    assert "atomic append failed" in capsys.readouterr().err
+    assert _tree(scratch) == before_tree
+    with open(M.path(scratch), "rb") as fh:
+        assert fh.read() == before_masterfile
+
+
+def test_second_backup_failure_never_loses_an_existing_output_pair(
+        scratch, work, monkeypatch, capsys):
+    out = os.path.join(work, "existing.x12")
+    man = out[:-4] + ".manifest.json"
+    with open(out, "wb") as fh:
+        fh.write(b"original x12")
+    with open(man, "wb") as fh:
+        fh.write(b"original manifest")
+
+    real_replace = os.replace
+    calls = []
+
+    def fail_second_replace(source, destination):
+        calls.append((source, destination))
+        if len(calls) == 2:
+            raise OSError("second backup failed")
+        return real_replace(source, destination)
+
+    monkeypatch.setattr(generate.os, "replace", fail_second_replace)
+    rc = generate.main(["--repo", scratch, "--type", "I", "--claims", "1",
+                        "--output", out, "--force"])
+    assert rc != 0
+    assert "second backup failed" in capsys.readouterr().err
+    with open(out, "rb") as fh:
+        assert fh.read() == b"original x12"
+    with open(man, "rb") as fh:
+        assert fh.read() == b"original manifest"
+    assert len(M.load(scratch)["runs"]) == 1
+
+
+def test_restore_failure_leaves_the_original_in_a_recoverable_sidecar(
+        scratch, work, monkeypatch, capsys):
+    out = os.path.join(work, "existing.x12")
+    man = out[:-4] + ".manifest.json"
+    with open(out, "wb") as fh:
+        fh.write(b"original x12")
+    with open(man, "wb") as fh:
+        fh.write(b"original manifest")
+
+    real_replace = os.replace
+
+    def fail_manifest_restore(source, destination):
+        if source.startswith(man + ".previous-") and destination == man:
+            raise OSError("manifest restore failed")
+        return real_replace(source, destination)
+
+    def fail_append(*_args, **_kwargs):
+        raise OSError("atomic append failed")
+
+    monkeypatch.setattr(generate.os, "replace", fail_manifest_restore)
+    monkeypatch.setattr(M, "append_run", fail_append)
+    rc = generate.main(["--repo", scratch, "--type", "I", "--claims", "1",
+                        "--output", out, "--force"])
+    assert rc != 0
+    error = capsys.readouterr().err
+    assert "artifact restore failed" in error
+    assert "manifest restore failed" in error
+    with open(out, "rb") as fh:
+        assert fh.read() == b"original x12"
+    assert not os.path.exists(man)
+    recoverable = glob.glob(man + ".previous-*")
+    assert len(recoverable) == 1
+    with open(recoverable[0], "rb") as fh:
+        assert fh.read() == b"original manifest"
+    assert len(M.load(scratch)["runs"]) == 1
+
+
+@pytest.mark.parametrize("failed_artifact", ["x12", "manifest"])
+def test_atomic_publication_failure_leaves_no_partial_artifact(
+        failed_artifact, scratch, monkeypatch, capsys):
+    # Use the default path so the assertion also covers cleanup of the newly
+    # selected Batch directory.
+    out = os.path.join(
+        scratch, "EDI1", "Batch 2", "fromUHCG-837I-WKN_1claims.x12")
+    man = out[:-4] + ".manifest.json"
+    failed_destination = out if failed_artifact == "x12" else man
+    real_replace = os.replace
+
+    def fail_publication(source, destination):
+        if destination == failed_destination and ".edi_gen_" in source:
+            raise OSError("%s publication failed" % failed_artifact)
+        return real_replace(source, destination)
+
+    monkeypatch.setattr(generate.os, "replace", fail_publication)
+    rc = generate.main(["--repo", scratch, "--type", "I", "--claims", "1"])
+    assert rc != 0
+    assert "%s publication failed" % failed_artifact in capsys.readouterr().err
+    assert not os.path.exists(out)
+    assert not os.path.exists(man)
+    assert not os.path.exists(os.path.dirname(out))
+    assert len(M.load(scratch)["runs"]) == 1
+
+
+def test_failed_published_file_cleanup_is_reported(
+        scratch, work, monkeypatch, capsys):
+    out = os.path.join(work, "unrecorded.x12")
+    real_unlink = os.unlink
+
+    def fail_output_cleanup(path):
+        if path == out:
+            raise OSError("output cleanup failed")
+        return real_unlink(path)
+
+    def fail_append(*_args, **_kwargs):
+        raise OSError("atomic append failed")
+
+    monkeypatch.setattr(generate.os, "unlink", fail_output_cleanup)
+    monkeypatch.setattr(M, "append_run", fail_append)
+    rc = generate.main(["--repo", scratch, "--type", "I", "--claims", "1",
+                        "--output", out])
+    assert rc != 0
+    error = capsys.readouterr().err
+    assert "artifact cleanup failed" in error
+    assert "output cleanup failed" in error
+    assert os.path.exists(out)
+    assert len(M.load(scratch)["runs"]) == 1
 
 
 # --------------------------------------------------------------------------

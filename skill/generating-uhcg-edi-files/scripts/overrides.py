@@ -7,6 +7,7 @@ byte for byte.
 """
 from __future__ import annotations
 
+from datetime import date as calendar_date, datetime
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
 # Segments carrying allocated identifiers. Overriding one would collide with
@@ -210,6 +211,15 @@ def parse(doc, profile, claims):
             if len(date) != 8 or not date.isdigit():
                 raise OverrideError(
                     "claim %d: date %r is not CCYYMMDD" % (n, date))
+            try:
+                parsed_date = datetime.strptime(date, "%Y%m%d").date()
+            except ValueError:
+                raise OverrideError(
+                    "claim %d: date %r is not a calendar date"
+                    % (n, date))
+            if parsed_date > calendar_date.today():
+                raise OverrideError(
+                    "claim %d: date %r is in the future" % (n, date))
             lines.append({"date": date, "billed": billed, "savings": savings})
 
         pdx = entry.get("principalDiagnosis")

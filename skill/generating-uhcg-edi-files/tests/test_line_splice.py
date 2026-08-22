@@ -11,8 +11,9 @@ make that dangerous:
      DTP and the HCP, fourth of that loop's five segments. Any edit
      builder that still addresses a segment by whole-segment literal breaks
      the moment two loops share that literal. money_edits is the one this
-     task must fix (Ruling T5-a); _date_edits is not, and a couple of the
-     tests below exist specifically to demonstrate why not.
+     task first fixed (Ruling T5-a); declared service dates need the same
+     positional treatment so identical copied DTP literals can receive
+     different dates.
 
 conftest.py has no fake-allocation or on-disk-build helpers (and is off
 limits to edit for this task), so this file carries its own, mirroring the
@@ -171,23 +172,49 @@ def test_removing_a_line_drops_the_loop(repo):
         ["SV2*0430*HC:97530*75.00*UN*3"]
 
 
-def test_duplicate_dtp_literal_after_a_splice_still_gets_rewritten(repo):
-    # Note T5-c/hazard callout: two spliced lines sharing the seed's original
-    # date produce two byte-identical DTP*472* segments before edits run.
-    # _date_edits counts occurrences off the (already spliced) payload
-    # itself, so it needs no change - both copies land on the same allocated
-    # service date. This test is the proof that still holds after a splice,
-    # not just on the seed's own un-spliced repeats (claims 8/9 in the
-    # docstring at generate._date_edits).
+def test_declared_dates_map_positionally_after_a_line_splice(repo):
+    # The two loops are identical copies before edits. Literal-addressed date
+    # replacement gives both the same allocated day; the declaration requires
+    # each line position to keep its own service date.
     doc = {"claims": [{"n": 1, "lines": [
         {"date": "20241121", "billed": "10.00"},
-        {"date": "20241121", "billed": "20.00"}]}]}
+        {"date": "20241122", "billed": "20.00"}]}]}
     out = _build_I(repo, doc, claims=1)
     claim1 = _blocks(out)[0]
     dtps = [s for s in claim1 if s.startswith("DTP*472*")]
-    # profile.src_dates[0] == "20241121" -> alloc.service_dates[0] ==
-    # "20240101" under _fake_alloc_i above.
-    assert dtps == ["DTP*472*D8*20240101", "DTP*472*D8*20240101"]
+    assert dtps == ["DTP*472*D8*20241121", "DTP*472*D8*20241122"]
+
+
+def test_batch_6_declared_dates_map_to_claim_2_line_positions(repo):
+    doc = {"claims": [{"n": 2, "lines": [
+        {"date": "20241121", "billed": "700.00"},
+        {"date": "20241122", "billed": "384.00"},
+        {"date": "20241122", "billed": "100.00"}]}]}
+    claim2 = _blocks(_build_I(repo, doc, claims=2))[1]
+    assert [s for s in claim2 if s.startswith("DTP*472*")] == [
+        "DTP*472*D8*20241121",
+        "DTP*472*D8*20241122",
+        "DTP*472*D8*20241122",
+    ]
+
+
+def test_no_line_declaration_keeps_allocation_based_service_dates(repo):
+    claim2 = _blocks(_build_I(repo, {}, claims=2))[1]
+    assert [s for s in claim2 if s.startswith("DTP*472*")] == [
+        "DTP*472*D8*20240101",
+        "DTP*472*D8*20240102",
+    ]
+
+
+def test_professional_declared_dates_keep_same_day_rd8_shape(repo):
+    doc = {"claims": [{"n": 1, "lines": [
+        {"date": "20260130", "billed": "10.00", "savings": "1.00"},
+        {"date": "20260131", "billed": "20.00", "savings": "2.00"}]}]}
+    claim1 = _blocks(_build_P(repo, doc, claims=1))[0]
+    assert [s for s in claim1 if s.startswith("DTP*472*")] == [
+        "DTP*472*RD8*20260130-20260130",
+        "DTP*472*RD8*20260131-20260131",
+    ]
 
 
 def test_institutional_line_splice_grows_round_robin_not_always_the_last(repo):

@@ -1,0 +1,51 @@
+date    : 2026-08-22
+browser : Google Chrome
+backend : extension
+url     : http://localhost:3000/
+
+Generation count: exactly one. No retry, second click, or non-browser generation path was used.
+
+Preflight:
+- linked worktree: C:/Users/wkn/837-specialist/.claude/worktrees/837-generator-ui
+- branch: feat/837-generator-ui
+- exactly 12 reviewed remediation files modified; no unrelated changes
+- UI :3000 and bridge :5000 reachable and matched this worktree's CLI defaults/preview
+- asynchronous defaults loaded; Last Name input value was NISHIMURA
+- Batch 7 absent and Batch 8 absent
+- pre-generation masterfile SHA-256: 7CE1CC5F72A5580AAC7FDE5BA78B6EBB7CF2149CCE881442E452EBE11C03926C
+- CLI, direct bridge and Vite-proxied three-claim previews matched and consumed nothing
+
+Three-claim selection:
+- focused the React-controlled slider with keyboard input
+- pressed Home, ArrowRight, ArrowRight
+- slider value: 3
+- .claim element count: 3
+- unique header aria-controls="claim-3-body"
+- exact header text: Claim 3 of 3
+
+Golden-path declaration verified before generation:
+- transaction type: 837I
+- subscriber last name: DOE
+- claim 2 diagnosis: E119
+- claim 2 line 1: date 11/21/2024, billed 700.00
+- claim 2 line 2: date 11/22/2024, billed 384.00
+- added claim 2 line 3: date 11/22/2024, billed 100.00
+- derived savings: 105.00, 57.60, 15.00 (all read-only)
+- totals: billed 1184.00, savings 177.60, allowed 1006.40
+- Generate File was enabled; browser console errors: none
+
+Success behavior:
+- Generate was clicked exactly once
+- button reached disabled state: ✓ File Generated
+- UI exposed .x12 and Claim Detail Report download links for batchId 6
+- Batch History prepended B6 and displayed filesystem output EDI1/Batch 7/fromUHCG-837I-WKN_3claims.x12 as Recorded
+- browser console errors: none
+
+Positional service-date evidence from generated X12:
+- claim 1 line 1: DTP*472*D8*20240115 (undeclared allocator mapping retained)
+- claim 2 line 1: DTP*472*D8*20241121
+- claim 2 line 2: DTP*472*D8*20241122
+- claim 2 line 3: DTP*472*D8*20241122
+- claim 3 lines 1-3: 20240115, 20240116, 20240117 (undeclared allocator mapping retained)
+
+Batch 6 was not modified and Batch 8 was not created.

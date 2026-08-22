@@ -233,6 +233,21 @@ def test_a_date_with_non_digit_characters_is_rejected():
         overrides.parse(doc, I, claims=1)
 
 
+@pytest.mark.parametrize("bad", ["20240230", "20241301"])
+def test_a_non_calendar_service_date_is_rejected(bad):
+    doc = {"claims": [{"n": 1, "lines":
+           [{"date": bad, "billed": "10.00"}]}]}
+    with pytest.raises(overrides.OverrideError, match="calendar date"):
+        overrides.parse(doc, I, claims=1)
+
+
+def test_a_future_service_date_is_rejected():
+    doc = {"claims": [{"n": 1, "lines":
+           [{"date": "20991231", "billed": "10.00"}]}]}
+    with pytest.raises(overrides.OverrideError, match="future"):
+        overrides.parse(doc, I, claims=1)
+
+
 # Fix round 1 review, Important 2: the gate validated the CONTENTS of each
 # container but never the containers themselves, so a wrong-shaped one
 # reached an attribute access and escaped as a bare AttributeError rather

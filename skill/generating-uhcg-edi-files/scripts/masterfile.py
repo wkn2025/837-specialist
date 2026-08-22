@@ -6,11 +6,15 @@ a restored-from-backup masterfile, or a file that arrived from outside cannot
 cause a silent duplicate.
 """
 from __future__ import annotations
+from contextlib import contextmanager
+import errno
 import glob
 import hashlib
 import io
 import json
 import os
+import tempfile
+import time
 
 import x12_parse as X
 
@@ -26,6 +30,62 @@ class MasterfileError(Exception):
 
 def path(repo):
     return os.path.join(repo, *MASTERFILE_REL.split("/"))
+
+
+def _generation_lock_path(repo):
+    return path(repo) + ".lock"
+
+
+@contextmanager
+def generation_lock(repo):
+    """Cross-process exclusive lock for one repository's generation state.
+
+    The stable lock file is never unlinked: deleting it while another process
+    waits could split contenders across two file identities. The operating
+    system owns the lock itself and releases it when the descriptor closes or
+    the process exits, including an abrupt crash.
+    """
+    lock_path = _generation_lock_path(repo)
+    lock_dir = os.path.dirname(lock_path)
+    if lock_dir and not os.path.isdir(lock_dir):
+        os.makedirs(lock_dir, exist_ok=True)
+    fh = open(lock_path, "a+b")
+    locked = False
+    try:
+        fh.seek(0, os.SEEK_END)
+        if fh.tell() == 0:
+            fh.write(b"\0")
+            fh.flush()
+        fh.seek(0)
+        if os.name == "nt":
+            import msvcrt
+            while True:
+                try:
+                    msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)
+                    locked = True
+                    break
+                except OSError as exc:
+                    if exc.errno not in (errno.EACCES, errno.EAGAIN,
+                                         errno.EDEADLK):
+                        raise
+                    time.sleep(0.05)
+        else:
+            import fcntl
+            fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+            locked = True
+        yield
+    finally:
+        try:
+            if locked:
+                fh.seek(0)
+                if os.name == "nt":
+                    import msvcrt
+                    msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, 1)
+                else:
+                    import fcntl
+                    fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+        finally:
+            fh.close()
 
 
 def scan_disk(repo):
@@ -99,8 +159,19 @@ def _write(repo, mf):
     d = os.path.dirname(p)
     if d and not os.path.isdir(d):
         os.makedirs(d)
-    with io.open(p, "w", encoding="utf-8", newline="\n") as fh:
-        fh.write(json.dumps(mf, indent=2, sort_keys=True) + "\n")
+    fd, tmp = tempfile.mkstemp(prefix=".masterfile-", suffix=".tmp", dir=d)
+    try:
+        with io.open(fd, "w", encoding="utf-8", newline="\n") as fh:
+            fh.write(json.dumps(mf, indent=2, sort_keys=True) + "\n")
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(tmp, p)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
 
 
 def bootstrap(repo):

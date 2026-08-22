@@ -370,6 +370,42 @@ def test_an_undeclared_diagnosis_change_is_caught(repo):
 # B6 - money under a declaration (verified, not assumed)
 # --------------------------------------------------------------------------
 
+def test_declared_service_dates_are_emitted_and_pass_every_check(repo):
+    doc = {"claims": [{"n": 2, "lines": [
+        {"date": "20241121", "billed": "700.00"},
+        {"date": "20241122", "billed": "384.00"},
+        {"date": "20241122", "billed": "100.00"}]}]}
+    case = _case(repo, "I", 2, doc)
+    try:
+        claim2 = _blocks(X.read_segments(case.x12)[1])[1]
+        assert [s for s in claim2 if s.startswith("DTP*472*")] == [
+            "DTP*472*D8*20241121",
+            "DTP*472*D8*20241122",
+            "DTP*472*D8*20241122",
+        ]
+        rc, failed, out = case.validate(skip_producer=False)
+        assert rc == 0, out
+        assert failed == []
+    finally:
+        case.close()
+
+
+def test_validator_rejects_a_generated_date_that_differs_from_declaration(repo):
+    # Build a normal allocation-dated file, then give its manifest a line
+    # declaration whose billed amount is unchanged but whose date differs.
+    # This isolates the validator: generator code is not used to produce the
+    # expected declared date.
+    case = _case(repo, "I", 1, {})
+    try:
+        case.record["overrides"] = {"claims": [{"n": 1, "lines": [
+            {"date": "20241121", "billed": "420.00"}]}]}
+        case._write()
+        rc, failed, out = case.validate()
+        assert rc != 0, out
+        assert 9 in failed, out
+    finally:
+        case.close()
+
 def test_declared_line_amounts_pass_every_check_837i(repo):
     doc = {"claims": [{"n": 1, "lines":
            [{"date": "20241121", "billed": "800.00"}]}]}

@@ -85,13 +85,45 @@ def _service_date_forms(profile):
                      % profile.service_date_shape)
 
 
-def _date_edits(payload, profile, alloc):
+def _date_edits(payload, profile, alloc, ov=None, claim_no=None):
     """DTP*472 edits for one block, counted from the block itself.
 
-    The counts are read off the block, so a block that repeats a date (seed
-    claims 8 and 9 of the institutional seed do) needs no hand-kept table.
+    A declared line set owns its service dates positionally. Without one,
+    preserve the original allocator-driven seed-date mapping.
     """
     prefix, form = _service_date_forms(profile)
+    claim = ov.claim(claim_no) if ov and claim_no is not None else None
+    lines = (claim or {}).get("lines") or []
+    if lines:
+        bounds = _loop_bounds(payload)
+        if len(bounds) != len(lines):
+            raise BuildError(
+                "claim %d: override has %d line(s) but payload has %d LX "
+                "loop(s)" % (claim_no, len(lines), len(bounds)))
+        edits = []
+        for line_no, ((start, end), line) in enumerate(
+                zip(bounds, lines), start=1):
+            positions = [i for i in range(start, end)
+                         if payload[i].startswith(prefix)]
+            if len(positions) != 1:
+                raise BuildError(
+                    "claim %d line %d: expected one DTP*472, found %d"
+                    % (claim_no, line_no, len(positions)))
+            i = positions[0]
+            src = payload[i]
+            body = src[len(prefix):]
+            day = body.split("-")[0]
+            if body != form(day):
+                raise BuildError("service date %r is not the declared %s shape"
+                                 % (body, profile.service_date_shape))
+            if day not in profile.src_dates:
+                raise BuildError("service date %r is not one the profile "
+                                 "declares" % day)
+            replacement = prefix + form(line["date"])
+            if replacement != src:
+                edits.append((i, src, replacement))
+        return edits
+
     counts = {}
     for s in payload:
         if not s.startswith(prefix):
@@ -633,7 +665,7 @@ def build(seed_segs, profile, alloc, claims, ov=None):
         check_identity_targets(profile, ov, payload, n)
         check_frozen_segments(profile, payload, n)
         edits = (edits_for(profile, alloc, n, ov)
-                 + _date_edits(payload, profile, alloc)
+                 + _date_edits(payload, profile, alloc, ov, n)
                  + identity_edits(profile, ov, payload)
                  + diagnosis_edits(profile, ov, payload, n)
                  + money_edits(profile, ov, payload, n))
@@ -662,6 +694,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import uuid
 
 import masterfile as M
 import overrides
@@ -847,87 +880,169 @@ def main(argv=None):
         sys.stderr.write("%s cannot be read: %s\n" % (args.data, exc))
         return 1
 
-    outp = os.path.abspath(args.output or _default_output(repo, profile.code,
-                                                          claims))
-    manp = outp[:-4] + ".manifest.json" if outp.endswith(".x12") \
-        else outp + ".manifest.json"
-    if os.path.exists(outp) and not args.force:
-        sys.stderr.write("%s exists; pass --force to overwrite\n" % outp)
-        return 1
+    # Every publisher holds one repository-scoped OS lock from output
+    # selection through publication. An unpinned run keeps it through the
+    # atomic masterfile append as well, so two processes cannot observe the
+    # same available batch path or identifier set. Pinned replays do not
+    # allocate, but share the lock so their output existence check cannot
+    # race another publisher targeting the same path.
+    with M.generation_lock(repo):
+        outp = os.path.abspath(args.output or _default_output(
+            repo, profile.code, claims))
+        manp = outp[:-4] + ".manifest.json" if outp.endswith(".x12") \
+            else outp + ".manifest.json"
+        if os.path.exists(outp) and not args.force:
+            sys.stderr.write("%s exists; pass --force to overwrite\n" % outp)
+            return 1
 
-    try:
-        seed_segs = seeds.load_seed(profile, repo)
+        try:
+            seed_segs = seeds.load_seed(profile, repo)
+            if pinned:
+                alloc = _alloc_from_manifest(pinned)
+                # A pinned replay must reproduce the DECLARATION as well as
+                # the allocation, or check 14 fails on every overridden file.
+                ov = _ov_from_manifest(pinned, profile)
+                raw_doc = pinned.get("overrides") or {}
+            else:
+                mf = M.load(repo)
+                alloc = M.allocate(mf, repo, profile, claims)
+                # A run without --data declares nothing, and manifest_record
+                # writes an empty declaration rather than omitting the key.
+                raw_doc = raw_doc or {}
+                ov = overrides.parse(raw_doc, profile, claims)
+            text = render(build(seed_segs, profile, alloc, claims, ov))
+        except (seeds.SeedMismatch, M.MasterfileError, BuildError,
+                overrides.OverrideError) as exc:
+            sys.stderr.write("%s\n" % exc)
+            return 1
+
+        with open(seeds.seed_path(profile, repo), "rb") as fh:
+            seed_sha = hashlib.sha256(fh.read()).hexdigest()
+        sha = hashlib.sha256(text.encode("ascii")).hexdigest()
+        record = manifest_record(
+            alloc, profile, claims,
+            os.path.relpath(outp, repo).replace("\\", "/"),
+            sha, seed_sha, raw_doc)
         if pinned:
-            alloc = _alloc_from_manifest(pinned)
-            # A pinned replay must reproduce the DECLARATION as well as the
-            # allocation, or check 14 fails on every overridden file.
-            ov = _ov_from_manifest(pinned, profile)
-            raw_doc = pinned.get("overrides") or {}
-        else:
-            mf = M.load(repo)
-            alloc = M.allocate(mf, repo, profile, claims)
-            # A run without --data declares nothing, and manifest_record
-            # writes an empty declaration rather than omitting the key.
-            raw_doc = raw_doc or {}
-            ov = overrides.parse(raw_doc, profile, claims)
-        text = render(build(seed_segs, profile, alloc, claims, ov))
-    except (seeds.SeedMismatch, M.MasterfileError, BuildError,
-            overrides.OverrideError) as exc:
-        sys.stderr.write("%s\n" % exc)
-        return 1
+            record["timestamp"] = pinned.get("timestamp",
+                                               record["timestamp"])
 
-    with open(seeds.seed_path(profile, repo), "rb") as fh:
-        seed_sha = hashlib.sha256(fh.read()).hexdigest()
-    sha = hashlib.sha256(text.encode("ascii")).hexdigest()
-    record = manifest_record(
-        alloc, profile, claims,
-        os.path.relpath(outp, repo).replace("\\", "/"),
-        sha, seed_sha, raw_doc)
-    if pinned:
-        record["timestamp"] = pinned.get("timestamp", record["timestamp"])
-
-    tmp = tempfile.mkdtemp(prefix="edi_gen_")
-    try:
-        tmp_out = os.path.join(tmp, os.path.basename(outp))
-        tmp_man = tmp_out[:-4] + ".manifest.json"
-        with io.open(tmp_out, "w", encoding="ascii", newline="") as fh:
-            fh.write(text)
-        with io.open(tmp_man, "w", encoding="utf-8", newline="\n") as fh:
-            fh.write(json.dumps(record, indent=2, sort_keys=True) + "\n")
-        proc = subprocess.run(
-            [sys.executable, os.path.join(HERE, "validate.py"),
-             "--file", tmp_out, "--manifest", tmp_man, "--repo", repo,
-             "--skip-producer"],
-            stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-        out_text = proc.stdout.decode("utf-8", "replace")
-        if proc.returncode != 0:
-            sys.stderr.write(out_text)
-            sys.stderr.write("validation failed; nothing was written\n")
-            return 1
-        if args.fail_after_validate:
-            sys.stderr.write("forced failure after validation\n")
-            return 1
         d = os.path.dirname(outp)
-        if d and not os.path.isdir(d):
-            os.makedirs(d)
-        shutil.move(tmp_out, outp)
-        shutil.move(tmp_man, manp)
-    finally:
-        shutil.rmtree(tmp, ignore_errors=True)
+        created_dirs = []
+        try:
+            if d and not os.path.isdir(d):
+                cursor = d
+                while cursor and not os.path.exists(cursor):
+                    created_dirs.append(cursor)
+                    parent = os.path.dirname(cursor)
+                    if parent == cursor:
+                        break
+                    cursor = parent
+                os.makedirs(d)
+            # Validation and publication staging must share the destination's
+            # filesystem. os.replace below is then atomic rather than
+            # shutil.move's possible cross-filesystem copy-and-delete.
+            tmp = tempfile.mkdtemp(prefix=".edi_gen_", dir=d or None)
+        except OSError as exc:
+            for created in created_dirs:
+                try:
+                    os.rmdir(created)
+                except OSError:
+                    pass
+            sys.stderr.write("generation staging failed: %s\n" % exc)
+            return 1
+        published = []
+        backups = []
+        committed = False
+        try:
+            tmp_out = os.path.join(tmp, os.path.basename(outp))
+            tmp_man = tmp_out[:-4] + ".manifest.json"
+            with io.open(tmp_out, "w", encoding="ascii", newline="") as fh:
+                fh.write(text)
+            with io.open(tmp_man, "w", encoding="utf-8",
+                         newline="\n") as fh:
+                fh.write(json.dumps(record, indent=2, sort_keys=True) + "\n")
+            proc = subprocess.run(
+                [sys.executable, os.path.join(HERE, "validate.py"),
+                 "--file", tmp_out, "--manifest", tmp_man, "--repo", repo,
+                 "--skip-producer"],
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+            out_text = proc.stdout.decode("utf-8", "replace")
+            if proc.returncode != 0:
+                sys.stderr.write(out_text)
+                sys.stderr.write("validation failed; nothing was written\n")
+                return 1
+            if args.fail_after_validate:
+                sys.stderr.write("forced failure after validation\n")
+                return 1
+            try:
+                # Backups live beside their originals, outside the disposable
+                # generation directory. If restoring one ever fails, the
+                # only surviving copy therefore remains recoverable after
+                # this function cleans its temporary validation files.
+                for destination in (outp, manp):
+                    if os.path.exists(destination):
+                        backup = "%s.previous-%s" % (
+                            destination, uuid.uuid4().hex)
+                        os.replace(destination, backup)
+                        backups.append((backup, destination))
 
-    batch_id = None
-    if not pinned:
-        M.append_run(repo, record)
-        # The 1-based index of this run in the masterfile: the only stable
-        # handle the UI can use to fetch the file back. A --pin replay appends
-        # nothing, so it has no batch of its own to name.
-        #
-        # The index counts runs[0], the "imported" pseudo-run bootstrap writes
-        # for the identifiers already on disk, so the first generated batch in
-        # a fresh repo is batch 2. That is deliberate: the id has to index the
-        # array a reader can actually fetch, and a reader listing history
-        # filters on type != "imported" rather than re-basing the numbering.
-        batch_id = len(M.load(repo)["runs"])
+                published.append(outp)
+                os.replace(tmp_out, outp)
+                published.append(manp)
+                os.replace(tmp_man, manp)
+
+                batch_id = None
+                if not pinned:
+                    M.append_run(repo, record)
+                    # 1-based index in the append-only history, including the
+                    # imported bootstrap run.
+                    batch_id = len(mf["runs"]) + 1
+                committed = True
+            except (IOError, OSError, M.MasterfileError) as exc:
+                cleanup_errors = []
+                for published_path in reversed(published):
+                    try:
+                        os.unlink(published_path)
+                    except FileNotFoundError:
+                        pass
+                    except OSError as cleanup_exc:
+                        cleanup_errors.append(
+                            "%s (%s)" % (published_path, cleanup_exc))
+                restore_errors = []
+                for backup, destination in reversed(backups):
+                    try:
+                        os.replace(backup, destination)
+                    except OSError as restore_exc:
+                        restore_errors.append(
+                            "%s remains at %s (%s)"
+                            % (destination, backup, restore_exc))
+                sys.stderr.write("generation transaction failed: %s\n" % exc)
+                if cleanup_errors:
+                    sys.stderr.write("artifact cleanup failed; "
+                                     + "; ".join(cleanup_errors) + "\n")
+                if restore_errors:
+                    sys.stderr.write("artifact restore failed; "
+                                     + "; ".join(restore_errors) + "\n")
+                return 1
+            for backup, _destination in backups:
+                try:
+                    os.unlink(backup)
+                except OSError as exc:
+                    sys.stderr.write("stale artifact backup remains at %s: "
+                                     "%s\n" % (backup, exc))
+        finally:
+            try:
+                shutil.rmtree(tmp)
+            except OSError as exc:
+                sys.stderr.write("generation staging cleanup failed at %s: "
+                                 "%s\n" % (tmp, exc))
+            if not committed:
+                for created in created_dirs:
+                    try:
+                        os.rmdir(created)
+                    except OSError:
+                        pass
 
     # The reference .docx is the last thing built, outside the
     # allocate->validate->move->append sequence. The file and its

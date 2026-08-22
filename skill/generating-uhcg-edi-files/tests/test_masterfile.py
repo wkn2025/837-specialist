@@ -2,9 +2,12 @@ import io
 import json
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
+import errno
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                 "..", "scripts"))
@@ -14,6 +17,8 @@ import seeds
 REPO = os.environ.get("EDI_REPO", r"C:\Users\wkn\837-specialist")
 PROFILE_I = seeds.get("I")
 PROFILE_P = seeds.get("P")
+SCRIPTS = os.path.abspath(os.path.join(os.path.dirname(__file__), "..",
+                                       "scripts"))
 
 MINI = (
     "ISA*00*          *00*          *ZZ*UHCG           *ZZ*ECUSA          "
@@ -147,6 +152,60 @@ class TestUsed(unittest.TestCase):
                                  "envelope_date": "20241204",
                                  "statement": "20240408-20240414"})
         self.assertEqual(len(M.load(self.root)["runs"]), before + 1)
+
+
+class TestTransactionSafety(unittest.TestCase):
+    def setUp(self):
+        self.root = make_repo()
+        M.bootstrap(self.root)
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def test_masterfile_replace_failure_preserves_the_previous_document(self):
+        with open(M.path(self.root), "rb") as fh:
+            before = fh.read()
+        with mock.patch.object(M.os, "replace",
+                               side_effect=OSError("replace failed")):
+            with self.assertRaisesRegex(OSError, "replace failed"):
+                M.append_run(self.root, _run(isa13="900000501"))
+        with open(M.path(self.root), "rb") as fh:
+            self.assertEqual(fh.read(), before)
+        leftovers = [name for name in os.listdir(
+            os.path.dirname(M.path(self.root)))
+            if name.startswith(".masterfile-")]
+        self.assertEqual(leftovers, [])
+
+    def test_process_crash_releases_the_generation_lock(self):
+        code = (
+            "import os,sys; sys.path.insert(0, %r); import masterfile as M; "
+            "lock=M.generation_lock(%r); lock.__enter__(); "
+            "print('LOCKED', flush=True); os._exit(17)"
+            % (SCRIPTS, self.root))
+        proc = subprocess.Popen([sys.executable, "-c", code],
+                                stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE)
+        stdout, stderr = proc.communicate(timeout=10)
+        self.assertEqual(proc.returncode, 17,
+                         stderr.decode("utf-8", "replace"))
+        self.assertIn(b"LOCKED", stdout)
+        with M.generation_lock(self.root):
+            self.assertTrue(True)
+
+    def test_generation_lock_is_a_stable_masterfile_sidecar(self):
+        self.assertEqual(M._generation_lock_path(self.root),
+                         M.path(self.root) + ".lock")
+
+    @unittest.skipUnless(os.name == "nt", "Windows lock error semantics")
+    def test_unexpected_windows_lock_error_is_not_retried_forever(self):
+        import msvcrt
+        permanent = OSError(errno.EBADF, "bad lock descriptor")
+        with mock.patch.object(msvcrt, "locking", side_effect=permanent), \
+                mock.patch.object(M.time, "sleep",
+                                  side_effect=AssertionError("retried")):
+            with self.assertRaisesRegex(OSError, "bad lock descriptor"):
+                with M.generation_lock(self.root):
+                    pass
 
 
 class TestNextWindow(unittest.TestCase):

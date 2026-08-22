@@ -1,0 +1,26 @@
+command : .venv/Scripts/python.exe skill/generating-uhcg-edi-files/scripts/mutations.py --repo .
+exit    : 0
+
+837I baseline: all checks pass
+- checks 1 through 14 were independently driven red by their owning mutations
+- undeclared identity, member ID, diagnosis, line charge and duplicate-LX drift were caught
+
+837P baseline: all checks pass
+- checks 1 through 14 were independently driven red by their owning mutations
+- undeclared identity, member ID, diagnosis, line charge and duplicate-LX drift were caught
+
+decl baseline: all checks pass
+- reverting a declared member ID was caught by checks 9 and 12
+- altering undeclared identity was caught by checks 9 and 12
+- reverting the declared diagnosis was caught by check 9
+- altering the declared line charge was caught by checks 9 and 11
+- changing the committed fixture was caught by checks 9 and 14
+
+generator guards:
+- refused an unregistered transaction type
+- refused claim counts of zero and over 999
+- refused overwriting either fixture without --force
+- refused --type without --claims
+- both fixtures remained byte-identical after all refused runs
+
+every mutation was caught by the check that owns it

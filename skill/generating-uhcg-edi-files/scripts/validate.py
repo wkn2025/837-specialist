@@ -323,6 +323,46 @@ def _apply_money(profile, ov, block, problems, n):
     return out
 
 
+def _apply_dates(profile, man, ov, block, problems, n):
+    """Reconstruct service dates independently from the declaration.
+
+    Declared lines own their DTP*472 values by LX position. Claims without a
+    line declaration retain the allocator-to-seed-date mapping.
+    """
+    prefix, form = _date_form(profile)
+    lines = declared_lines(ov, n)
+    out = list(block)
+    if lines:
+        bounds = lx_bounds(out)
+        if len(bounds) != len(lines):
+            problems.append("claim %d: the declaration has %d line(s) but "
+                            "the block carries %d LX loop(s)"
+                            % (n, len(lines), len(bounds)))
+            return out
+        for line_no, ((start, end), line) in enumerate(
+                zip(bounds, lines), start=1):
+            positions = [i for i in range(start, end)
+                         if out[i].startswith(prefix)]
+            if len(positions) != 1:
+                problems.append("claim %d line %d: expected one DTP*472, "
+                                "found %d" % (n, line_no, len(positions)))
+                continue
+            out[positions[0]] = prefix + form(line["date"])
+        return out
+
+    for i, s in enumerate(out):
+        if not s.startswith(prefix):
+            continue
+        day = s[len(prefix):].split("-")[0]
+        if day not in profile.src_dates:
+            problems.append("claim %d: seed service date %r is not one the "
+                            "profile declares" % (n, day))
+            continue
+        out[i] = prefix + form(man["service_dates"][
+            profile.src_dates.index(day)])
+    return out
+
+
 def expected_block(profile, man, ov, n, seed_block, problems):
     """The seed block as the manifest and its declaration say it should be."""
     lines = declared_lines(ov, n)
@@ -335,21 +375,7 @@ def expected_block(profile, man, ov, n, seed_block, problems):
         out = _replace_exactly(out, literal, occurrences, replacement,
                                problems, n)
 
-    prefix, form = _date_form(profile)
-    dated = []
-    for s in out:
-        if not s.startswith(prefix):
-            dated.append(s)
-            continue
-        day = s[len(prefix):].split("-")[0]
-        if day not in profile.src_dates:
-            problems.append("claim %d: seed service date %r is not one the "
-                            "profile declares" % (n, day))
-            dated.append(s)
-            continue
-        k = profile.src_dates.index(day)
-        dated.append(prefix + form(man["service_dates"][k]))
-    out = dated
+    out = _apply_dates(profile, man, ov, out, problems, n)
 
     out = _apply_identity(profile, ov, out, problems, n)
     out = _apply_diagnosis(ov, out, problems, n)
@@ -729,8 +755,14 @@ def main():
     all_dates = sorted({m.group(0) for m in re.finditer(
         r"(?<![0-9])(?:19|20)[0-9]{6}(?![0-9])", raw)})
     dobs = list(profile.dob_exceptions)
+    declared_service_dates = {
+        line["date"]
+        for n in range(1, claims + 1)
+        for line in declared_lines(ov, n)
+    }
     outside = [d for d in all_dates
-               if not d.startswith(year) and d not in dobs]
+               if not d.startswith(year) and d not in dobs
+               and d not in declared_service_dates]
     if outside:
         ok = False
         detail.append("dates outside %s: %s" % (year, outside))
@@ -746,6 +778,7 @@ def main():
                 ok = False
                 detail.append("claim %d DTP*%s %s"
                               % (i + 1, profile.statement_qualifier, rd8))
+        declared = declared_lines(ov, i + 1)
         for s in b:
             if not s.startswith("DTP*472*"):
                 continue
@@ -760,13 +793,15 @@ def main():
                                   % (i + 1, body))
                     continue
             for d in days:
-                if not lo <= d <= hi:
+                if not declared and not lo <= d <= hi:
                     ok = False
                     detail.append("claim %d line date %s outside %s"
                                   % (i + 1, d, man["statement"]))
-    check(8, "every date is inside %s (%d declared DOB(s) excepted), line "
-             "dates inside %s" % (year, len(dobs), man["statement"]),
-          ok, "; ".join(detail) or "ok")
+    check(8, "every date is inside %s (%d declared DOB(s) and %d declared "
+              "service date(s) excepted), undeclared line dates inside %s"
+              % (year, len(dobs), len(declared_service_dates),
+                 man["statement"]),
+           ok, "; ".join(detail) or "ok")
 
     # 9 - payload identity against the SEED, as declared
     ok, detail = True, []

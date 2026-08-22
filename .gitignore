@@ -9,3 +9,6 @@ venv/
 node_modules/
 dist/
 .impeccable/hook.cache.json
+
+# Stable per-repository advisory generation lock (OS lock, no state data)
+EDI1/masterfile.json.lock
