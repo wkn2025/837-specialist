@@ -91,5 +91,35 @@ class InstitutionalInterpretation(unittest.TestCase):
         self.assertEqual(claim["adjustment"]["frequencyCode"]["value"], "7")
 
 
+class ProfessionalGuideDerivedInterpretation(unittest.TestCase):
+    def setUp(self):
+        fixture = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)),
+            "fixtures", "professional_good.x12")
+        self.edi = M.parse(fixture)
+        self.detection = workflow.detect(self.edi, os.path.basename(fixture))
+        self.result = adjudication.interpret(self.edi, self.detection)
+
+    def test_professional_service_and_line_decision_are_transmitted(self):
+        line = self.result["claims"][0]["lines"][0]
+
+        self.assertEqual(self.detection.workflow, "P")
+        self.assertEqual(line["service"]["kind"], "professional")
+        self.assertEqual(line["service"]["procedure"]["value"], "HC:97530")
+        self.assertEqual(line["service"]["units"]["value"], "2")
+        self.assertEqual(line["benefitDecision"]["value"], {
+            "code": "1", "label": "Covered"})
+        self.assertTrue(line["benefitDecision"]["traceIds"])
+
+    def test_professional_amounts_keep_exact_strings_and_traces(self):
+        line = self.result["claims"][0]["lines"][0]
+
+        self.assertEqual(line["amounts"]["billed"]["value"], "420.00")
+        self.assertEqual(line["amounts"]["allowed"]["value"], "357.00")
+        self.assertEqual(line["amounts"]["netPaid"]["value"], "357.00")
+        self.assertEqual(line["amounts"]["coveragePercentage"]["value"], "100")
+        self.assertTrue(line["amounts"]["netPaid"]["traceIds"])
+
+
 if __name__ == "__main__":
     unittest.main()

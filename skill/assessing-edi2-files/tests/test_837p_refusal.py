@@ -35,9 +35,8 @@ class ProfessionalIsRefused(unittest.TestCase):
 
 
 class ProfessionalStub(unittest.TestCase):
-    def test_stub_registry_refuses_to_load(self):
-        with self.assertRaises(NotImplementedError):
-            rules_837p.registry()
+    def test_professional_registry_is_available_for_the_new_validator(self):
+        self.assertTrue(rules_837p.registry())
 
 
 if __name__ == "__main__":
