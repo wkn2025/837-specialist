@@ -17,6 +17,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
+import { edi2Router, type Edi2Options } from './edi2.ts';
 
 const run = promisify(execFile);
 
@@ -57,9 +58,13 @@ function reason(e: unknown): string {
   return (err.stderr || err.message || 'the generator failed').trim();
 }
 
-async function python(args: string[]): Promise<string> {
+async function python(args: string[], options: {
+  maxBuffer?: number;
+  timeout?: number;
+} = {}): Promise<string> {
   const { stdout } = await run(interpreter(), args, {
-    maxBuffer: 32 * 1024 * 1024,   // a 200-claim defaults document is large
+    maxBuffer: options.maxBuffer ?? 32 * 1024 * 1024,
+    timeout: options.timeout,
   });
   return stdout;
 }
@@ -78,9 +83,16 @@ async function masterfileRuns(): Promise<Run[]> {
   return (JSON.parse(raw).runs ?? []) as Run[];
 }
 
-export function createApp() {
+export function createApp(options: { edi2?: Edi2Options } = {}) {
   const app = express();
   app.use(express.json({ limit: '32mb' }));
+  app.use('/api/edi2', edi2Router({
+    ...options.edi2,
+    runPython: options.edi2?.runPython ?? ((args) => python(args, {
+      timeout: 30_000,
+      maxBuffer: 64 * 1024 * 1024,
+    })),
+  }));
 
   // The seed's own values, as an override document the form can load.
   app.get('/api/defaults', async (req, res) => {

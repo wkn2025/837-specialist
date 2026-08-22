@@ -10,9 +10,22 @@
  */
 import { describe, expect, it } from 'vitest';
 import request from 'supertest';
-import { createApp } from './api';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import { createApp, REPO } from './api';
 
 const app = createApp();
+const BAD_I = path.join(
+  REPO, 'edi2', 'batch1', 'UHCG_ECUSA_I_20260817174931.x12');
+
+function upload(target: ReturnType<typeof createApp>, body: Buffer,
+                filename = 'UHCG_ECUSA_I_20260817174931.x12') {
+  return request(target).post('/api/edi2/validate')
+    .set('content-type', 'application/octet-stream')
+    .set('x-edi-filename', filename)
+    .send(body);
+}
 
 describe('argument refusals', () => {
   it('rejects a transaction type that is not I or P', async () => {
@@ -110,5 +123,79 @@ describe('reads that allocate nothing', () => {
     expect(res.status).toBe(200);
     expect(res.headers['content-disposition']).toContain('.x12');
     expect((res.body as Buffer).toString('ascii')).toContain('ISA*00*');
+  });
+});
+
+describe('read-only EDI2 uploads', () => {
+  it('returns an invalid analysis as HTTP 200', async () => {
+    const res = await upload(app, await fs.readFile(BAD_I));
+
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe('invalid');
+    expect(res.body.workflow.workflow).toBe('I');
+    expect(res.body.summary.blockers).toBeGreaterThan(0);
+  });
+
+  it('rejects empty files and NUL bytes before spawning Python', async () => {
+    expect((await upload(app, Buffer.alloc(0))).status).toBe(400);
+    const nul = await upload(app, Buffer.from('ISA*00*\0PRIVATE~'));
+    expect(nul.status).toBe(400);
+    expect(nul.body.error).toMatch(/NUL/);
+  });
+
+  it('enforces a configurable raw upload ceiling', async () => {
+    const small = createApp({ edi2: {
+      maxUploadBytes: 32,
+      runPython: async () => { throw new Error('must not spawn'); },
+    } });
+
+    const res = await upload(small, Buffer.alloc(33, 65));
+    expect(res.status).toBe(413);
+  });
+
+  it('uses exec argument metadata safely and removes its temp directory', async () => {
+    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'edi2-test-'));
+    let observedArgs: string[] = [];
+    const isolated = createApp({ edi2: {
+      tempRoot,
+      runPython: async (args) => {
+        observedArgs = args;
+        const input = args[args.indexOf('--file') + 1];
+        expect((await fs.stat(input)).isFile()).toBe(true);
+        return JSON.stringify({
+          status: 'valid',
+          file: { filename: args[args.indexOf('--filename') + 1] },
+        });
+      },
+    } });
+
+    try {
+      const res = await upload(
+        isolated, Buffer.from('ISA*00*SAFE~'), '..\\..\\patient.x12');
+      expect(res.status).toBe(200);
+      expect(res.body.file.filename).toBe('patient.x12');
+      expect(observedArgs[0]).toMatch(/validate_api\.py$/);
+      expect(observedArgs).toContain('--file');
+      expect(await fs.readdir(tempRoot)).toEqual([]);
+    } finally {
+      await fs.rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('does not expose filesystem details when upload staging fails', async () => {
+    const missingRoot = path.join(
+      os.tmpdir(), `edi2-missing-${process.pid}-${Date.now()}`);
+    const isolated = createApp({ edi2: {
+      tempRoot: missingRoot,
+      runPython: async () => { throw new Error('must not spawn'); },
+    } });
+
+    const res = await upload(isolated, Buffer.from('ISA*00*SAFE~'));
+    expect(res.status).toBe(500);
+    expect(res.type).toMatch(/json/);
+    expect(res.body).toEqual({
+      error: 'EDI2 validation could not be completed',
+    });
+    expect(res.text).not.toContain(missingRoot);
   });
 });
