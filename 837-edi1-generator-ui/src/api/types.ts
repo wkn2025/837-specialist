@@ -93,4 +93,5 @@ export interface HistoryRow {
   claims: number;
   output: string;
   timestamp: string;
+  sha256?: string;
 }
