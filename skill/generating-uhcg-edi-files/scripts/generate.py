@@ -9,8 +9,11 @@ unchanged, which _assert_seed_fidelity checks before any edit is applied.
 """
 from __future__ import annotations
 
+from decimal import Decimal
+
 import claim_summary
 import overrides
+import seed_introspect
 import seeds
 import x12_parse as X
 
@@ -32,10 +35,18 @@ def set_elem(seg, idx, val):
     return X.ELEM.join(e)
 
 
-def edits_for(profile, alloc, n):
-    """[(literal, must_occur, replace_n, replacement), ...] for claim n."""
+def edits_for(profile, alloc, n, clm02=None):
+    """[(literal, must_occur, replace_n, replacement), ...] for claim n.
+
+    CLM01 and CLM02 live in one segment, so a claim whose amounts are
+    overridden folds its new CLM02 into this single edit. Two tuples naming
+    the same CLM literal would fail the exact-count check in apply_edits.
+    """
     i = source_index(n, profile) - 1
     src_clm = profile.src_clm[i]
+    new_clm = set_elem(src_clm, 1, alloc.clm01[n - 1])
+    if clm02 is not None:
+        new_clm = set_elem(new_clm, 2, clm02)
     ed = [
         ("ST*837*%s*%s" % (profile.src_st02[i], profile.version), 1, 1,
          "ST*837*%s*%s" % (alloc.st02[n - 1], profile.version)),
@@ -45,10 +56,10 @@ def edits_for(profile, alloc, n):
          "BHT*0019*00*%s*%s*%s*CH" % (alloc.bht03[n - 1],
                                       alloc.envelope_date,
                                       alloc.envelope_time)),
-        # The whole CLM segment is the literal; only element 1 moves. That
-        # keeps every facility/frequency code the seed carried without the
-        # generator ever spelling one out.
-        (src_clm, 1, 1, set_elem(src_clm, 1, alloc.clm01[n - 1])),
+        # The whole CLM segment is the literal; only elements 1 and 2 move.
+        # That keeps every facility/frequency code the seed carried without
+        # the generator ever spelling one out.
+        (src_clm, 1, 1, new_clm),
         ("REF*F8*%s" % profile.src_ref_f8[i], 1, 1,
          "REF*F8*%s" % alloc.ref_f8[n - 1]),
         ("REF*9A*%s" % profile.src_ref_9a[i], 1, 1,
@@ -181,6 +192,128 @@ def diagnosis_edits(profile, ov, payload, n):
     raise BuildError("claim %d: seed block has no ABK principal diagnosis" % n)
 
 
+def _fmt(v):
+    return "%.2f" % v
+
+
+def claim_total(ov, n):
+    """CLM02 for a claim whose lines are overridden, or None.
+
+    Read by build() so the new total can be folded into the single CLM edit
+    that edits_for already owns.
+    """
+    c = ov.claim(n) if ov else None
+    if not c or not c["lines"]:
+        return None
+    return _fmt(sum(line["billed"] for line in c["lines"]))
+
+
+def _loop_segment(payload, start, end, prefix, n, what):
+    """Index of the one segment in [start, end) carrying this prefix."""
+    for j in range(start, end):
+        if payload[j].startswith(prefix):
+            return j
+    raise BuildError("claim %d: a service line has no %s (%s)"
+                     % (n, prefix, what))
+
+
+def money_edits(profile, ov, payload, n):
+    """Positional rewrites of the line charges and both HCP levels.
+
+    Returns (index, expected_literal, replacement) tuples rather than the
+    literal tuples apply_edits takes: a claim repeats its service lines
+    verbatim - the institutional seed's ninth block carries the same SV2 six
+    times - so a whole-segment literal cannot name one line. The expected
+    literal keeps drift a hard failure all the same.
+
+    CLM02 is not edited here. It belongs to the same segment as CLM01, which
+    edits_for already rewrites, so build() passes claim_total() to that one
+    edit instead.
+    """
+    c = ov.claim(n) if ov else None
+    if not c or not c["lines"]:
+        return []
+
+    bounds = seed_introspect.loop_bounds(payload)
+    if len(bounds) != len(c["lines"]):
+        raise BuildError(
+            "claim %d: override has %d service lines but the seed block has "
+            "%d" % (n, len(c["lines"]), len(bounds)))
+
+    charge_at = seed_introspect.CHARGE_ELEM[profile.line_id]
+    split = profile.money_rule == "split_85_15"
+    ed = []
+    total = Decimal("0.00")
+    sum_allowed = Decimal("0.00")
+    sum_savings = Decimal("0.00")
+
+    for (start, end), line in zip(bounds, c["lines"]):
+        billed, savings = line["billed"], line["savings"]
+        allowed = (overrides.derived_allowed(billed) if split
+                   else billed - savings)
+        total += billed
+        sum_allowed += allowed
+        sum_savings += savings
+
+        # The allocator owns the service window: _date_edits maps every seed
+        # date onto alloc.service_dates, so a line date that is not the
+        # seed's cannot be honoured. Refuse it rather than drop it silently.
+        j = _loop_segment(payload, start, end, "DTP*472*", n, "service date")
+        seed_date = X.elems(payload[j])[3].split("-")[0]
+        if line["date"] != seed_date:
+            raise BuildError(
+                "claim %d: service date %s cannot be overridden - the "
+                "generator remaps the seed's %s onto the allocated window, "
+                "so only the seed's own date may be submitted"
+                % (n, line["date"], seed_date))
+
+        j = _loop_segment(payload, start, end, profile.line_id + "*", n,
+                          "charge")
+        sv = payload[j]
+        new = set_elem(sv, charge_at, _fmt(billed))
+        if new != sv:
+            ed.append((j, sv, new))
+
+        j = _loop_segment(payload, start, end, "HCP*", n, "line repricing")
+        hcp = payload[j]
+        new = set_elem(set_elem(hcp, seed_introspect.HCP_ALLOWED,
+                                _fmt(allowed)),
+                       seed_introspect.HCP_SAVINGS, _fmt(savings))
+        if new != hcp:
+            ed.append((j, hcp, new))
+
+    # The claim-level HCP sits before the first LX, and the two money rules
+    # compute it differently: 837I is an 85/15 split of CLM02, while 837P is
+    # the sum of its line HCPs. validate.py enforces exactly that.
+    j = _loop_segment(payload, 0, bounds[0][0], "HCP*", n, "claim repricing")
+    chcp = payload[j]
+    ca, cs = ((overrides.derived_allowed(total), overrides.derived_savings(total))
+              if split else (sum_allowed, sum_savings))
+    new = set_elem(set_elem(chcp, seed_introspect.HCP_ALLOWED, _fmt(ca)),
+                   seed_introspect.HCP_SAVINGS, _fmt(cs))
+    if new != chcp:
+        ed.append((j, chcp, new))
+    return ed
+
+
+def apply_positional_edits(payload, edits, key):
+    """Rewrite segments by index, asserting each is the literal expected.
+
+    The literal check gives positional edits the same property apply_edits
+    has: a seed that has drifted is a hard failure, never a silent no-op.
+    """
+    segs = list(payload)
+    for idx, expected, replacement in edits:
+        if not 0 <= idx < len(segs):
+            raise BuildError("claim %s: segment index %d is outside the block"
+                             % (key, idx))
+        if segs[idx] != expected:
+            raise BuildError("claim %s: segment %d is %r, expected %r"
+                             % (key, idx, segs[idx], expected))
+        segs[idx] = replacement
+    return segs
+
+
 def _assert_seed_fidelity(profile, payload, n):
     """Every frozen segment must still be in the seed block.
 
@@ -255,11 +388,17 @@ def build(seed_segs, profile, alloc, claims, ov=None):
                 % (n, len(payload),
                    profile.block_lens[source_index(n, profile) - 1]))
         _assert_seed_fidelity(profile, payload, n)
-        edits = (edits_for(profile, alloc, n)
+        edits = (edits_for(profile, alloc, n, claim_total(ov, n))
                  + _date_edits(payload, profile, alloc)
                  + identity_edits(profile, ov, payload)
                  + diagnosis_edits(profile, ov, payload, n))
-        body.extend(renumber_se(apply_edits(payload, edits, str(n)), str(n)))
+        out = apply_edits(payload, edits, str(n))
+        # Positional edits are computed against the seed block and applied
+        # after the literal ones. No literal edit touches a charge or an HCP,
+        # so the expected-literal check below would catch any overlap.
+        out = apply_positional_edits(out, money_edits(profile, ov, payload, n),
+                                     str(n))
+        body.extend(renumber_se(out, str(n)))
 
     return ([isa, gs] + body
             + ["GE*%d*%s" % (claims, alloc.gs06),

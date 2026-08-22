@@ -19,11 +19,13 @@ import x12_parse as X
 #   SV1*HC:99222*293.00*UN*1*21...    -> element 2
 # UHCG_837I_Companion_Guide_FULL.csv (SV2 loop 2400) and
 # UHCG_837P_Companion_Guide_FULL.csv (SV1 loop 2400).
-_CHARGE_ELEM = {"SV2": 3, "SV1": 2}
+# Public: generate.py writes the charges this module reads, and the two must
+# never disagree about where a charge lives.
+CHARGE_ELEM = {"SV2": 3, "SV1": 2}
 
 # HCP03 is the savings (pricing reduction) at both claim and line level in
 # both companion guides; HCP02 is the allowed amount.
-_HCP_ALLOWED, _HCP_SAVINGS = 2, 3
+HCP_ALLOWED, HCP_SAVINGS = 2, 3
 
 
 class SeedShapeError(Exception):
@@ -82,18 +84,22 @@ def _principal_diagnosis(block):
     return None
 
 
-def _lines(block, profile):
-    """One entry per LX loop, in file order.
+def loop_bounds(block):
+    """[(start, end)] for each LX service-line loop; end is exclusive.
 
-    Each loop is bounded by the next LX so a loop missing its own DTP or HCP
-    raises instead of silently borrowing the following loop's values.
+    Each loop is bounded by the next LX, so a loop missing its own DTP or HCP
+    is caught instead of silently borrowing the following loop's values.
     """
     starts = [j for j, s in enumerate(block) if s.startswith("LX*")]
-    ends = starts[1:] + [len(block)]
-    charge_at = _CHARGE_ELEM[profile.line_id]
+    return list(zip(starts, starts[1:] + [len(block)]))
+
+
+def _lines(block, profile):
+    """One entry per LX loop, in file order."""
+    charge_at = CHARGE_ELEM[profile.line_id]
 
     out = []
-    for start, end in zip(starts, ends):
+    for start, end in loop_bounds(block):
         loop = block[start:end]
         sv = _require(loop, profile.line_id + "*", "service line charge")
         dtp = _require(loop, "DTP*472*", "service date")
@@ -102,7 +108,7 @@ def _lines(block, profile):
         date = X.elems(dtp)[3].split("-")[0]
         out.append({"date": date,
                     "billed": X.elems(sv)[charge_at],
-                    "savings": X.elems(hcp)[_HCP_SAVINGS]})
+                    "savings": X.elems(hcp)[HCP_SAVINGS]})
     return out
 
 

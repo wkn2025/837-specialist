@@ -102,6 +102,18 @@ def derived_savings(billed):
     return Decimal("%.2f" % round(float(billed) * 0.15, 2))
 
 
+def derived_allowed(billed):
+    """The 837I allowed amount: the 85% half of the fixed HCP split.
+
+    Computed the same way as derived_savings and for the same reason. Note
+    that allowed + savings need not equal billed - for 0.10 the split is
+    0.08/0.01 - because validate.py's _check_money_split compares each half
+    against the charge independently and never against their sum. Deriving
+    allowed as ``billed - savings`` would disagree with it.
+    """
+    return Decimal("%.2f" % round(float(billed) * 0.85, 2))
+
+
 class Overrides:
     def __init__(self, identity, claims):
         self.identity = identity
