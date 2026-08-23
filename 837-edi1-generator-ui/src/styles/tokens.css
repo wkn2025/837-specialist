@@ -26,3 +26,17 @@ html { scroll-behavior: smooth; }
 ::selection { background: var(--olive); color: var(--navy); }
 input:focus { outline: 2px solid var(--blue); outline-offset: 1px; }
 input[type=range] { accent-color: var(--blue); }
+
+/* Section 05: a claim body expands rather than snapping open. */
+@keyframes claim-expand {
+  from { grid-template-rows: 0fr; opacity: 0; }
+  to   { grid-template-rows: 1fr; opacity: 1; }
+}
+.claim-body {
+  display: grid;
+  grid-template-rows: 1fr;
+  animation: claim-expand .35s ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  .claim-body { animation: none; }
+}

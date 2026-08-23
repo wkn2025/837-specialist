@@ -69,6 +69,7 @@ export function useBatchForm(options: UseBatchFormOptions = {}) {
   // A slow response for a type the user has already switched away from must
   // not overwrite the newer one.
   const request = useRef(0);
+  const grownTo = useRef(0);
 
   const loadFor = useCallback((type: TxType, claims: number) => {
     const ticket = ++request.current;
@@ -87,6 +88,7 @@ export function useBatchForm(options: UseBatchFormOptions = {}) {
       }));
       setEditedGroups(new Set());
       setResult(null);
+      grownTo.current = claims;
       setLoading(false);
     }).catch((e: unknown) => {
       if (ticket !== request.current) return;
@@ -137,6 +139,10 @@ export function useBatchForm(options: UseBatchFormOptions = {}) {
   useEffect(() => {
     if (loading || error) return;
     if (form.claimDocs.length >= form.claims) return;
+    // One attempt per volume: a response that comes back short would
+    // otherwise re-trigger this effect forever.
+    if (grownTo.current === form.claims) return;
+    grownTo.current = form.claims;
     const ticket = ++request.current;
     let cancelled = false;
     fetchDefaults(form.type, form.claims).then((doc) => {
