@@ -1,0 +1,133 @@
+837I baseline: all checks pass
+
+caught  837I check  1  CLM01 does not match the manifest
+        checks that went red: [1, 9]
+caught  837I check  2  GE01 no longer counts the ST sets
+        checks that went red: [2]
+caught  837I check  3  ST03 is the professional guide identifier
+        checks that went red: [3, 9]
+caught  837I check  4  SE01 does not match the segment count
+        checks that went red: [4, 9]
+caught  837I check  5  BHT03 is 11 characters
+        checks that went red: [5, 9]
+caught  837I check  6  HL parent points at a non-existent level
+        checks that went red: [6, 9]
+caught  837I check  7  REF*F8 reuses a seed claim control number
+        checks that went red: [7, 9]
+caught  837I check  8  a service line date leaves 2024
+        checks that went red: [8, 9]
+caught  837I check  9  a payload address drifts from the seed
+        checks that went red: [9]
+caught  837I check 10  a payload segment is dropped
+        checks that went red: [4, 9, 10]
+caught  837I check 11  CLM02 no longer equals the sum of the service lines
+        checks that went red: [9, 11]
+caught  837I check 12  a frozen identity segment is altered in an undeclared batch
+        checks that went red: [9, 12]
+caught  837I check 13  the file gains a CR line ending
+        checks that went red: [13]
+caught  837I check 14  the committed fixture no longer matches its generator
+        checks that went red: [9, 14]
+837P baseline: all checks pass
+
+caught  837P check  1  CLM01 does not match the manifest
+        checks that went red: [1, 9]
+caught  837P check  2  ISA15 says the file is production
+        checks that went red: [2]
+caught  837P check  3  ST03 is the institutional guide identifier
+        checks that went red: [3, 9]
+caught  837P check  4  SE01 does not match the segment count
+        checks that went red: [4, 9]
+caught  837P check  5  BHT03 is 11 characters
+        checks that went red: [5, 9]
+caught  837P check  6  HL parent points at a non-existent level
+        checks that went red: [6, 9]
+caught  837P check  7  REF*F8 reuses a seed claim control number
+        checks that went red: [7, 9]
+caught  837P check  8  a service line date leaves the statement window
+        checks that went red: [8, 9]
+caught  837P check  8  a service line range stops being a single day
+        checks that went red: [8, 9]
+caught  837P check  8  a date of birth is not one the profile declares
+        checks that went red: [8, 9]
+caught  837P check  9  a payload address drifts from the seed
+        checks that went red: [9]
+caught  837P check 10  a payload segment is dropped
+        checks that went red: [4, 9, 10]
+caught  837P check 11  a line's allowed plus savings no longer equals its charge
+        checks that went red: [9, 11]
+caught  837P check 11  the claim HCP is not the sum of its lines
+        checks that went red: [9, 11]
+caught  837P check 12  a frozen identity segment is altered in an undeclared batch
+        checks that went red: [9, 12]
+caught  837P check 13  the file gains a CR line ending
+        checks that went red: [13]
+caught  837P check 14  the committed fixture no longer matches its generator
+        checks that went red: [9, 12, 14]
+
+declared-override mutations
+
+837I declared baseline: all checks pass
+
+caught  837I check 12  an identity segment is altered beyond what the manifest declared
+        checks that went red: [9, 12]
+caught  837I check 12  an undeclared member id is altered
+        checks that went red: [9, 12]
+caught  837I check 12  an undeclared tax id is altered beyond the declaration
+        checks that went red: [9, 12]
+caught  837I check  9  an undeclared principal diagnosis is altered
+        checks that went red: [9]
+caught  837I check  9  a declared diagnosis is altered beyond the declaration
+        checks that went red: [9]
+caught  837I check  9  a declared line charge is altered beyond the declaration
+        checks that went red: [9, 11]
+caught  837I check 11  a line charge no longer matches its HCP split
+        checks that went red: [9, 11]
+caught  837I check 11  the declared claim HCP is altered
+        checks that went red: [9, 11]
+caught  837I check 10  a declared service line is dropped from the file
+        checks that went red: [4, 9, 10, 11]
+caught  837I check  9  a spliced line keeps a duplicate LX number
+        checks that went red: [9]
+caught  837I check  9  the manifest declares a surname the file does not carry
+        checks that went red: [9, 12]
+caught  837I check  9  the manifest drops the declaration entirely
+        checks that went red: [9, 10, 12]
+caught  837I check 10  the manifest declares fewer service lines than the file carries
+        checks that went red: [9, 10]
+caught  837I check  9  the manifest declares amounts the file does not carry
+        checks that went red: [9]
+caught  837I check  9  the manifest declares an override the generator would refuse
+        checks that went red: [9, 10, 12]
+837P declared baseline: all checks pass
+
+caught  837P check  9  an identity segment is altered beyond what the manifest declared
+        checks that went red: [9]
+caught  837P check  9  an undeclared member id is altered
+        checks that went red: [9]
+caught  837P check  9  an undeclared principal diagnosis is altered
+        checks that went red: [9]
+caught  837P check  9  a declared line charge is altered beyond the declaration
+        checks that went red: [9, 11]
+caught  837P check 11  a line's allowed plus savings no longer equals its charge
+        checks that went red: [9, 11]
+caught  837P check 10  a declared service line is dropped from the file
+        checks that went red: [4, 9, 10, 11]
+caught  837P check  9  the manifest declares a surname the file does not carry
+        checks that went red: [9]
+caught  837P check  9  the manifest drops the declaration entirely
+        checks that went red: [9, 10]
+caught  837P check 10  the manifest declares fewer service lines than the file carries
+        checks that went red: [9, 10]
+
+generator guards
+
+caught           refuses an unregistered transaction type
+caught           refuses a claim count of zero
+caught           refuses a claim count over 999
+caught           refuses to overwrite the institutional fixture without --force
+caught           refuses to overwrite the professional fixture without --force
+caught           refuses --type without --claims
+caught           both fixtures are byte-identical after all refused runs
+
+every mutation was caught by the check that owns it

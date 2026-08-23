@@ -1,0 +1,22 @@
+file     : C:\Users\wkn\837-specialist\EDI1\Batch 6\fromUHCG-837I-WKN_3claims.x12
+manifest : C:\Users\wkn\837-specialist\EDI1\Batch 6\fromUHCG-837I-WKN_3claims.manifest.json
+seed     : .\EDI1\Batch 1\fromUHCG-837I-WKN_9claims.x12
+sha256   : 5eaf468a62bbfdecefd33eb60e68c9a82e362cb60ccb1b261ecdc1eb1c085453
+
+PASS   1  3 ST..SE sets, CLM01 matches the manifest in order
+PASS   2  one ISA/GS/GE/IEA, UHCG -> ECUSA, geometry and control numbers consistent
+PASS   3  GS08 and every ST03 are 005010X223A2
+PASS   4  SE01 = segment count, SE02 = ST02, ST02 matches the manifest
+PASS   5  BHT03 is <= 10 characters, unique, and matches the manifest; BHT04/BHT05 match the envelope stamp
+PASS   6  HL starts at 1, increments, parents resolve, no self-parent
+PASS   7  no identifier collides with another .x12 on disk or a prior masterfile run
+PASS   8  every date is inside 2024 (2 declared DOB(s) excepted), line dates inside 20240108-20240114
+PASS   9  every payload segment is byte-identical to its seed block once the declared edits are reversed
+PASS  10  3 payload units whose shapes cycle the seed blocks
+PASS  11  CLM02 equals the sum of its service lines and every HCP is an 85%/15% split
+PASS  12  the 9 frozen identity segments appear, exact bytes, in every claim
+PASS  13  ASCII, no BOM, LF only, one segment per line, trailing newline
+PASS  14  regenerating from the manifest reproduces the file byte for byte
+PASS  15  seed hash unchanged by this run
+
+all checks passed
