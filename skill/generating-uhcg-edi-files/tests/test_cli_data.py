@@ -326,5 +326,201 @@ class TestBackwardCompatibility(unittest.TestCase):
         self.assertIn("--type and --claims are required", err.getvalue())
 
 
+class TestPrintDefaultsFitsTheClaimCount(unittest.TestCase):
+    """Task 10: the UI asks for N claims; the seed carries however many it
+    carries. The generator already cycles seed blocks, so the defaults must
+    cycle the same way or the document it hands back will not round-trip."""
+
+    def _defaults(self, code, extra=()):
+        with captured() as (out, err):
+            rc = G.main(["--repo", REPO, "--type", code,
+                         "--print-defaults"] + list(extra))
+        self.assertEqual(rc, 0, err.getvalue())
+        return json.loads(out.getvalue())
+
+    def test_without_a_claim_count_the_whole_seed_is_reported(self):
+        self.assertEqual(len(self._defaults("I")["claims"]),
+                         len(I.block_lens))
+
+    def test_fewer_claims_than_the_seed_are_trimmed(self):
+        claims = self._defaults("I", ["--claims", "3"])["claims"]
+        self.assertEqual([c["n"] for c in claims], [1, 2, 3])
+
+    def test_more_claims_than_the_seed_cycle_the_seed_blocks(self):
+        want = len(I.block_lens) + 2
+        claims = self._defaults("I", ["--claims", str(want)])["claims"]
+        self.assertEqual([c["n"] for c in claims], list(range(1, want + 1)))
+        for claim in claims:
+            source = self._defaults("I")["claims"][
+                G.source_index(claim["n"], I) - 1]
+            self.assertEqual(claim["lines"], source["lines"], claim["n"])
+
+    def test_the_trimmed_document_is_accepted_by_the_generator(self):
+        with TempRepo() as repo:
+            with captured() as (out, _e):
+                G.main(["--repo", repo, "--type", "I", "--claims", "12",
+                        "--print-defaults"])
+            doc = write_doc(repo, json.loads(out.getvalue()))
+            o = os.path.join(repo, "o.x12")
+            with captured() as (_o, err):
+                rc = G.main(["--repo", repo, "--type", "I", "--claims", "12",
+                             "--data", doc, "--output", o])
+            self.assertEqual(rc, 0, err.getvalue())
+
+    def test_a_claim_count_out_of_range_is_still_refused(self):
+        with captured() as (_o, err):
+            rc = G.main(["--repo", REPO, "--type", "I", "--claims", "0",
+                         "--print-defaults"])
+        self.assertEqual(rc, 1)
+        self.assertIn("claim count", err.getvalue())
+
+
+class TestJsonOutput(unittest.TestCase):
+    """Task 10: --json makes stdout machine-readable for the HTTP bridge."""
+
+    def _generate(self, repo, extra=()):
+        out = os.path.join(repo, "EDI1", "Batch 9", "o.x12")
+        with captured() as (o, err):
+            rc = G.main(["--repo", repo, "--type", "I", "--claims", "3",
+                         "--output", out, "--json"] + list(extra))
+        self.assertEqual(rc, 0, err.getvalue())
+        return json.loads(o.getvalue()), out
+
+    def test_stdout_is_a_single_json_object(self):
+        with TempRepo() as repo:
+            payload, _out = self._generate(repo)
+            self.assertIsInstance(payload, dict)
+
+    def test_it_reports_the_paths_that_were_written(self):
+        with TempRepo() as repo:
+            payload, out = self._generate(repo)
+            self.assertTrue(os.path.exists(
+                os.path.join(repo, payload["x12"])))
+            self.assertTrue(os.path.exists(
+                os.path.join(repo, payload["manifest"])))
+            self.assertEqual(os.path.normpath(os.path.join(repo,
+                                                           payload["x12"])),
+                             os.path.normpath(out))
+
+    def test_paths_are_repo_relative_with_forward_slashes(self):
+        with TempRepo() as repo:
+            payload, _out = self._generate(repo)
+            for key in ("x12", "manifest"):
+                self.assertNotIn("\\", payload[key])
+                self.assertFalse(os.path.isabs(payload[key]), payload[key])
+
+    def test_the_batch_id_names_the_directory_the_batch_landed_in(self):
+        with TempRepo() as repo:
+            payload, _out = self._generate(repo)
+            self.assertEqual(payload["batchId"], "Batch 9")
+
+    def test_it_carries_the_identifiers_the_tiles_display(self):
+        with TempRepo() as repo:
+            payload, out = self._generate(repo)
+            with io.open(out[:-4] + ".manifest.json", encoding="utf-8") as fh:
+                man = json.loads(fh.read())
+            for key in ("isa13", "gs06", "statement", "sha256"):
+                self.assertEqual(payload[key], man[key], key)
+            self.assertEqual(payload["claims"], 3)
+            self.assertEqual(payload["type"], "I")
+            self.assertEqual(payload["clm01"], [man["clm01"][0],
+                                                man["clm01"][-1]])
+
+    def test_the_docx_path_is_reported_when_one_was_built(self):
+        with TempRepo() as repo:
+            payload, _out = self._generate(repo)
+            if payload["docx"] is not None:
+                self.assertTrue(os.path.exists(
+                    os.path.join(repo, payload["docx"])))
+                self.assertNotIn("\\", payload["docx"])
+
+    def test_a_declared_override_round_trips_through_json(self):
+        with TempRepo() as repo:
+            doc = write_doc(repo, DOC_I)
+            payload, _out = self._generate(repo, ["--data", doc])
+            with io.open(os.path.join(repo, payload["manifest"]),
+                         encoding="utf-8") as fh:
+                self.assertEqual(json.loads(fh.read())["overrides"], DOC_I)
+
+    def test_a_failure_keeps_stdout_empty_and_explains_on_stderr(self):
+        with TempRepo() as repo:
+            doc = write_doc(repo, {"claims": [{"n": 99}]})
+            with captured() as (o, err):
+                rc = G.main(["--repo", repo, "--type", "I", "--claims", "1",
+                             "--data", doc, "--output",
+                             os.path.join(repo, "o.x12"), "--json"])
+            self.assertEqual(rc, 2)
+            self.assertEqual(o.getvalue(), "")
+            self.assertIn("outside the batch", err.getvalue())
+
+    def test_json_changes_nothing_but_the_report(self):
+        """The bytes written must not depend on how stdout is formatted."""
+        with TempRepo() as repo:
+            plain = os.path.join(repo, "plain.x12")
+            with captured() as (_o, err):
+                rc = G.main(["--repo", repo, "--type", "I", "--claims", "2",
+                             "--output", plain])
+            self.assertEqual(rc, 0, err.getvalue())
+            with io.open(plain, encoding="ascii", newline="") as fh:
+                first = fh.read()
+            replay = os.path.join(repo, "replay.x12")
+            with captured() as (o, err):
+                rc = G.main(["--repo", repo, "--pin",
+                             plain[:-4] + ".manifest.json",
+                             "--output", replay, "--json"])
+            self.assertEqual(rc, 0, err.getvalue())
+            json.loads(o.getvalue())
+            with io.open(replay, encoding="ascii", newline="") as fh:
+                self.assertEqual(fh.read(), first)
+
+
+class TestPrintAllocation(unittest.TestCase):
+    """Task 10: the identifier tiles need the next allocation, un-consumed."""
+
+    def test_it_reports_the_identifiers_the_next_run_would_take(self):
+        with captured() as (out, err):
+            rc = G.main(["--repo", REPO, "--type", "I", "--claims", "3",
+                         "--print-allocation"])
+        self.assertEqual(rc, 0, err.getvalue())
+        payload = json.loads(out.getvalue())
+        self.assertEqual(len(payload["clm01"]), 3)
+        self.assertEqual(len(payload["bht03"]), 3)
+        self.assertTrue(payload["isa13"].isdigit())
+        self.assertEqual(len(payload["isa13"]), 9)
+        self.assertEqual(payload["claims"], 3)
+        self.assertEqual(payload["type"], "I")
+        self.assertTrue(payload["batchId"].startswith("Batch "))
+
+    def test_it_allocates_nothing(self):
+        before = masterfile_hash(REPO)
+        with captured() as (_o, err):
+            rc = G.main(["--repo", REPO, "--type", "P", "--claims", "2",
+                         "--print-allocation"])
+        self.assertEqual(rc, 0, err.getvalue())
+        self.assertEqual(masterfile_hash(REPO), before)
+
+    def test_it_matches_what_a_real_run_then_consumes(self):
+        with TempRepo() as repo:
+            with captured() as (out, _e):
+                G.main(["--repo", repo, "--type", "I", "--claims", "2",
+                        "--print-allocation"])
+            preview = json.loads(out.getvalue())
+            o = os.path.join(repo, "o.x12")
+            with captured() as (_o, err):
+                rc = G.main(["--repo", repo, "--type", "I", "--claims", "2",
+                             "--output", o])
+            self.assertEqual(rc, 0, err.getvalue())
+            with io.open(o[:-4] + ".manifest.json", encoding="utf-8") as fh:
+                man = json.loads(fh.read())
+            for key in ("isa13", "gs06", "statement", "clm01", "bht03"):
+                self.assertEqual(preview[key], man[key], key)
+
+    def test_it_needs_a_claim_count(self):
+        with captured() as (_o, err):
+            rc = G.main(["--repo", REPO, "--type", "I", "--print-allocation"])
+        self.assertEqual(rc, 1)
+        self.assertIn("--claims", err.getvalue())
+
+
 if __name__ == "__main__":
     unittest.main()

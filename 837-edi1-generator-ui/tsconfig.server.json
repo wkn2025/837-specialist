@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "outDir": "server/dist",
+    "rootDir": "server",
+    "module": "NodeNext",
+    "moduleResolution": "nodenext",
+    "types": ["node"]
+  },
+  "include": ["server/api.ts"]
+}

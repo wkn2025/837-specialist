@@ -546,6 +546,33 @@ def _read_override_doc(source):
         return json.load(fh)
 
 
+def _reported_path(path, repo):
+    """A path as the HTTP bridge should see it: repo-relative, forward slashes.
+
+    An --output outside the repo has no relative form worth serving, so it is
+    reported absolutely rather than as a chain of '..' the caller cannot join.
+    """
+    rel = os.path.relpath(path, repo)
+    if rel.split(os.sep)[0] == os.pardir:
+        rel = os.path.abspath(path)
+    return rel.replace("\\", "/")
+
+
+def _batch_id(outp):
+    """The directory a batch lands in - 'Batch 6' - names it for the UI."""
+    return os.path.basename(os.path.dirname(os.path.abspath(outp)))
+
+
+def _allocation_payload(profile, claims, alloc, outp, repo):
+    """The allocation as JSON, for the UI's identifier tiles."""
+    rec = alloc.as_record(profile.code, claims, _reported_path(outp, repo),
+                          "", profile.rel_path, "")
+    for placeholder in ("sha256", "seed_sha256"):
+        rec.pop(placeholder, None)
+    rec["batchId"] = _batch_id(outp)
+    return rec
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("--repo", required=True)
@@ -558,6 +585,11 @@ def main(argv=None):
                     help="override document (JSON file, or - for stdin)")
     ap.add_argument("--print-defaults", action="store_true",
                     help="emit the seed's values as an override document")
+    ap.add_argument("--print-allocation", action="store_true",
+                    help="emit the identifiers the next run would take, "
+                         "without taking them")
+    ap.add_argument("--json", action="store_true",
+                    help="report the run as one JSON object on stdout")
     ap.add_argument("--fail-after-validate", action="store_true",
                     help=argparse.SUPPRESS)
     # argv is None under the CLI, which is argparse's own "read sys.argv".
@@ -571,10 +603,12 @@ def main(argv=None):
         code, claims = pinned["type"], pinned["claims"]
     elif args.print_defaults:
         # Introspection needs no claim count: it reports the seed as it is.
+        # A count is still honoured, so the UI can ask for exactly the claims
+        # it is about to generate.
         if not args.type:
             sys.stderr.write("--type is required with --print-defaults\n")
             return 1
-        code, claims = args.type, None
+        code, claims = args.type, args.claims
     else:
         if not args.type or args.claims is None:
             sys.stderr.write("--type and --claims are required "
@@ -594,11 +628,24 @@ def main(argv=None):
     # Read-only, and deliberately before anything touches the masterfile:
     # printing the defaults allocates nothing.
     if args.print_defaults:
+        if claims is not None and not (isinstance(claims, int)
+                                       and 1 <= claims <= M.MAX_CLAIMS):
+            sys.stderr.write("claim count must be between 1 and %d, got %r\n"
+                             % (M.MAX_CLAIMS, claims))
+            return 1
         try:
             defaults = seed_introspect.defaults_for(profile, repo)
         except (seeds.SeedMismatch, seed_introspect.SeedShapeError) as exc:
             sys.stderr.write("%s\n" % exc)
             return 1
+        if claims is not None:
+            # build() cycles the seed's blocks for claim n; the defaults have
+            # to cycle identically or a returned document would describe a
+            # different block than the one it will be applied to.
+            seeded = defaults["claims"]
+            defaults["claims"] = [
+                dict(seeded[source_index(n, profile) - 1], n=n)
+                for n in range(1, claims + 1)]
         json.dump(defaults, sys.stdout)
         sys.stdout.write("\n")
         return 0
@@ -612,6 +659,20 @@ def main(argv=None):
         sys.stderr.write("claim count must be between 1 and %d, got %r\n"
                          % (M.MAX_CLAIMS, claims))
         return 1
+
+    # Also read-only: allocate() computes the next identifiers but only
+    # append_run() records them, so previewing them costs nothing.
+    if args.print_allocation:
+        try:
+            profile_out = _default_output(repo, profile.code, claims)
+            alloc = M.allocate(M.load(repo), repo, profile, claims)
+        except M.MasterfileError as exc:
+            sys.stderr.write("%s\n" % exc)
+            return 1
+        json.dump(_allocation_payload(profile, claims, alloc, profile_out,
+                                      repo), sys.stdout)
+        sys.stdout.write("\n")
+        return 0
 
     # One document, read once. The same object is parsed into the overrides
     # build() applies and recorded verbatim in the manifest the validator
@@ -709,6 +770,27 @@ def main(argv=None):
     except Exception as exc:                       # noqa: BLE001
         summary = None
         sys.stderr.write("claim summary not written: %s\n" % exc)
+
+    if args.json:
+        # stdout carries the object and nothing else; the summary warning
+        # above already went to stderr, so a caller can json.loads() this.
+        json.dump({
+            "batchId": _batch_id(outp),
+            "type": profile.code,
+            "claims": claims,
+            "x12": record["output"],
+            "manifest": _reported_path(manp, repo),
+            "docx": _reported_path(summary, repo) if summary else None,
+            "isa13": alloc.isa13,
+            "gs06": alloc.gs06,
+            "statement": alloc.statement,
+            "envelope_date": alloc.envelope_date,
+            "clm01": [alloc.clm01[0], alloc.clm01[-1]],
+            "sha256": sha,
+            "timestamp": record["timestamp"],
+        }, sys.stdout)
+        sys.stdout.write("\n")
+        return 0
 
     sys.stdout.write("wrote %s (%d bytes)\n" % (outp, len(text)))
     sys.stdout.write("manifest %s\n" % manp)
