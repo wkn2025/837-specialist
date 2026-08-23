@@ -1,0 +1,28 @@
+:root {
+  --navy: #26408f;
+  --blue: #0084cc;
+  --olive: #c7cd3d;
+  --green: #5b8c1f;
+  --surface: #eef0f4;
+  --card: #f7f8fa;
+  --border: #dde1ea;
+  --text: #1a2233;
+  --muted: #5b6478;
+  --light: #8892a6;
+  --tag-bg: #eef4e0;
+  --tag-fg: #6b7016;
+}
+body {
+  margin: 0;
+  background: var(--surface);
+  background-image:
+    linear-gradient(rgba(38, 64, 143, .05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(38, 64, 143, .05) 1px, transparent 1px);
+  background-size: 32px 32px;
+  font-family: Arial, sans-serif;
+  color: var(--text);
+}
+html { scroll-behavior: smooth; }
+::selection { background: var(--olive); color: var(--navy); }
+input:focus { outline: 2px solid var(--blue); outline-offset: 1px; }
+input[type=range] { accent-color: var(--blue); }
