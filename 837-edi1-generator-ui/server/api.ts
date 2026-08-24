@@ -1,212 +1,232 @@
 /**
- * The bridge between the browser and the generator CLI.
+ * The bridge between the browser and skill/generating-uhcg-edi-files.
  *
- * Every EDI decision stays in Python. This process shells out to
- * generate.py and forwards what it says; it never parses an .x12, never
- * computes an identifier, and never decides what a valid override is - the
- * generator's own refusals are the error messages the user sees.
- *
- * The override document travels as a temp FILE and every call goes through
- * execFile with an argument array, so nothing the browser sends reaches a
- * shell.
+ * Every rule about what a valid 837 override is lives in the Python
+ * generator; this file owns none of them. It shells out with execFile and an
+ * argument array (never a shell string), hands the override document over as
+ * a temp file rather than an argument, and passes the generator's own error
+ * text back to the caller unedited.
  */
 import express from 'express';
+import type { Request, Response } from 'express';
 import { execFile } from 'node:child_process';
-import { existsSync } from 'node:fs';
-import fs from 'node:fs/promises';
+import { promisify } from 'node:util';
+import fs from 'node:fs';
+import fsp from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { promisify } from 'node:util';
+import { fileURLToPath } from 'node:url';
 import { edi2Router, type Edi2Options } from './edi2.ts';
 
 const run = promisify(execFile);
 
-/** 837-edi1-generator-ui/server -> the repo root two levels up. */
-export const REPO = path.resolve(import.meta.dirname, '..', '..');
-const SKILL = path.join(REPO, 'skill', 'generating-uhcg-edi-files');
-const GEN = path.join(SKILL, 'scripts', 'generate.py');
+const GEN_REL = 'skill/generating-uhcg-edi-files/scripts/generate.py';
+const MAX_CLAIMS = 200;
+const BATCH_ID = /^Batch \d+$/;
+const DOWNLOAD_KINDS = new Set(['x12', 'docx', 'manifest']);
 
-/**
- * claim_summary.py needs python-docx, so the repo venv is the interpreter
- * that can actually finish a run. PYTHON overrides it for other setups.
- */
-function interpreter(): string {
-  if (process.env.PYTHON) return process.env.PYTHON;
-  const venv = process.platform === 'win32'
-    ? path.join(REPO, '.venv', 'Scripts', 'python.exe')
-    : path.join(REPO, '.venv', 'bin', 'python');
-  return existsSync(venv) ? venv : 'python';
+export interface Options {
+  /**
+   * The EDI2 Validator's read-only upload bridge (main). It is a router of
+   * its own with its own Python entry point, so it is configured here
+   * rather than folded into the generator's options.
+   */
+  edi2?: Edi2Options;
+  /** Data root: the tree holding EDI1/. Mirrors the CLI's --repo. */
+  repo?: string;
+  python?: string;
+  /** Where generate.py lives. Defaults to this checkout, not to `repo`. */
+  generator?: string;
 }
 
-const MAX_CLAIMS = 200;      // the slider's ceiling in the handoff; the
-                             // generator's own limit is 999
-
-type TxType = 'I' | 'P';
-
-function asType(type: unknown): TxType | null {
-  return type === 'I' || type === 'P' ? type : null;
+/** Walk up from here until the directory holding the generator turns up. */
+export function findRepo(start?: string): string {
+  let dir = start ?? path.dirname(fileURLToPath(import.meta.url));
+  for (;;) {
+    if (fs.existsSync(path.join(dir, GEN_REL))) return dir;
+    const up = path.dirname(dir);
+    if (up === dir) throw new Error(`no repo containing ${GEN_REL} above ${dir}`);
+    dir = up;
+  }
 }
 
-function badCount(claims: unknown): boolean {
-  return !Number.isInteger(claims)
-    || (claims as number) < 1 || (claims as number) > MAX_CLAIMS;
+function errorText(e: unknown): string {
+  const err = e as { stderr?: string | Buffer; message?: string };
+  const stderr = err.stderr ? String(err.stderr).trim() : '';
+  return stderr || String(err.message ?? e).trim();
 }
 
-/** stderr is the generator's voice; surface it rather than a generic 500. */
-function reason(e: unknown): string {
-  const err = e as { stderr?: string; message?: string };
-  return (err.stderr || err.message || 'the generator failed').trim();
+/** A batch's directory name, from the repo-relative path of its .x12. */
+function batchIdOf(rel: string): string {
+  return path.basename(path.dirname(rel));
 }
 
-async function python(args: string[], options: {
-  maxBuffer?: number;
-  timeout?: number;
-} = {}): Promise<string> {
-  const { stdout } = await run(interpreter(), args, {
-    maxBuffer: options.maxBuffer ?? 32 * 1024 * 1024,
-    timeout: options.timeout,
-  });
-  return stdout;
-}
-
-type Run = {
-  type?: string;
-  claims?: number;
-  output?: string;
-  timestamp?: string;
-  overrides?: unknown;
-};
-
-async function masterfileRuns(): Promise<Run[]> {
-  const raw = await fs.readFile(
-    path.join(REPO, 'EDI1', 'masterfile.json'), 'utf8');
-  return (JSON.parse(raw).runs ?? []) as Run[];
-}
-
-export function createApp(options: { edi2?: Edi2Options } = {}) {
+export function createApp(opts: Options = {}) {
+  const repo = opts.repo ?? findRepo();
+  const python = opts.python ?? process.env.PYTHON ?? 'python';
+  // The generator is code and lives in this checkout; `repo` is only the data
+  // root it reads and writes, exactly as the CLI's --repo means.
+  const gen = opts.generator ?? path.join(findRepo(), GEN_REL);
   const app = express();
+
+  const py = (args: string[]) =>
+    run(python, [gen, '--repo', repo, ...args], { maxBuffer: 32 * 1024 * 1024 });
+
+  // Mounted before express.json: /api/edi2/validate takes raw bytes, and a
+  // JSON body parser ahead of it would consume - and fail on - the upload.
   app.use('/api/edi2', edi2Router({
-    ...options.edi2,
-    runPython: options.edi2?.runPython ?? ((args) => python(args, {
-      timeout: 30_000,
-      maxBuffer: 64 * 1024 * 1024,
-    })),
+    ...opts.edi2,
+    runPython: opts.edi2?.runPython ?? (async (args: string[]) => {
+      const { stdout } = await run(python, args, {
+        maxBuffer: 64 * 1024 * 1024, timeout: 30_000,
+      });
+      return stdout;
+    }),
   }));
-  app.use(express.json({ limit: '32mb' }));
 
-  // The seed's own values, as an override document the form can load.
-  app.get('/api/defaults', async (req, res) => {
-    const type = asType(req.query.type);
-    if (!type) {
-      return res.status(400).json({ error: 'type must be I or P' });
+  app.use(express.json({ limit: '4mb' }));
+
+  const readType = (value: unknown): 'I' | 'P' | null =>
+    value === 'I' || value === 'P' ? value : null;
+
+  /** The seed's own values, shaped as an override document the UI can edit. */
+  app.get('/api/defaults', async (req: Request, res: Response) => {
+    const type = readType(req.query.type);
+    if (!type) return res.status(400).json({ error: 'type must be I or P' });
+    const args = ['--type', type, '--print-defaults'];
+    if (req.query.claims !== undefined) {
+      const claims = Number(req.query.claims);
+      if (!Number.isInteger(claims) || claims < 1 || claims > MAX_CLAIMS) {
+        return res.status(400).json({ error: 'claims must be 1..200' });
+      }
+      args.push('--claims', String(claims));
     }
     try {
-      res.json(JSON.parse(
-        await python([GEN, '--repo', REPO, '--type', type,
-                      '--print-defaults'])));
+      const { stdout } = await py(args);
+      return res.json(JSON.parse(stdout));
     } catch (e) {
-      res.status(400).json({ error: reason(e) });
+      return res.status(400).json({ error: errorText(e) });
     }
   });
 
-  // The identifiers a run WOULD take. Peeking allocates nothing, so the
-  // tiles can refresh on every slider move.
-  app.get('/api/masterfile', async (req, res) => {
-    const type = asType(req.query.type);
-    const claims = Number(req.query.claims);
-    if (!type) {
-      return res.status(400).json({ error: 'type must be I or P' });
-    }
-    if (badCount(claims)) {
-      return res.status(400).json({ error: `claims must be 1..${MAX_CLAIMS}` });
+  /** The identifiers the next batch would take - previewed, not consumed. */
+  app.get('/api/masterfile', async (req: Request, res: Response) => {
+    const type = readType(req.query.type);
+    if (!type) return res.status(400).json({ error: 'type must be I or P' });
+    const claims = Number(req.query.claims ?? 1);
+    if (!Number.isInteger(claims) || claims < 1 || claims > MAX_CLAIMS) {
+      return res.status(400).json({ error: 'claims must be 1..200' });
     }
     try {
-      res.json(JSON.parse(
-        await python([GEN, '--repo', REPO, '--type', type,
-                      '--claims', String(claims), '--print-allocation'])));
+      const { stdout } = await py(['--type', type, '--claims', String(claims),
+        '--print-allocation']);
+      return res.json(JSON.parse(stdout));
     } catch (e) {
-      res.status(400).json({ error: reason(e) });
+      return res.status(400).json({ error: errorText(e) });
     }
   });
 
-  // Body: { type, claims, overrides }. The override document is a named key
-  // rather than the rest of the body, because the document has a `claims`
-  // array of its own and the batch size is also called `claims` - collapsing
-  // the two into one object loses one of them.
-  app.post('/api/generate', async (req, res) => {
-    const { type: rawType, claims, overrides } = req.body ?? {};
-    const type = asType(rawType);
-    const doc = overrides ?? {};
-    if (!type) {
+  /** Batches already generated, newest first, straight from the masterfile. */
+  app.get('/api/history', async (_req: Request, res: Response) => {
+    try {
+      const raw = await fsp.readFile(
+        path.join(repo, 'EDI1', 'masterfile.json'), 'utf8');
+      const runs: Array<Record<string, unknown>> =
+        JSON.parse(raw).runs ?? [];
+      const rows = runs
+        // the bootstrap run records what was on disk, not a generated batch
+        .filter((r) => typeof r.output === 'string' && r.type !== 'imported')
+        .map((r) => {
+          const output = r.output as string;
+          const clm01 = (r.clm01 as string[]) ?? [];
+          return {
+            batchId: batchIdOf(output),
+            type: r.type as string,
+            claims: r.claims as number,
+            output,
+            file: path.basename(output),
+            timestamp: (r.timestamp as string) ?? '',
+            isa13: r.isa13 as string,
+            gs06: r.gs06 as string,
+            statement: r.statement as string,
+            clm01: clm01.length ? [clm01[0], clm01[clm01.length - 1]] : [],
+            status: 'Validated',
+          };
+        })
+        .reverse();
+      return res.json(rows);
+    } catch (e) {
+      return res.status(500).json({ error: errorText(e) });
+    }
+  });
+
+  /**
+   * Generate a batch. The body is { type, claims, document } - `document` is
+   * the override document verbatim, kept in its own key so its `claims` array
+   * cannot collide with the batch's claim count.
+   */
+  app.post('/api/generate', async (req: Request, res: Response) => {
+    const { type, claims, document } = req.body ?? {};
+    if (type !== 'I' && type !== 'P') {
       return res.status(400).json({ error: 'type must be I or P' });
     }
-    if (badCount(claims)) {
-      return res.status(400).json({ error: `claims must be 1..${MAX_CLAIMS}` });
+    if (!Number.isInteger(claims) || claims < 1 || claims > MAX_CLAIMS) {
+      return res.status(400).json({ error: 'claims must be 1..200' });
     }
-    const tmp = path.join(
-      await fs.mkdtemp(path.join(os.tmpdir(), 'edi-ov-')), 'overrides.json');
+    if (document !== undefined
+        && (document === null || typeof document !== 'object'
+            || Array.isArray(document))) {
+      return res.status(400).json({ error: 'document must be an object' });
+    }
+    const tmp = path.join(os.tmpdir(), `ov-${Date.now()}-${process.pid}.json`);
+    await fsp.writeFile(tmp, JSON.stringify(document ?? {}), 'utf8');
     try {
-      await fs.writeFile(tmp, JSON.stringify(doc));
-      res.json(JSON.parse(
-        await python([GEN, '--repo', REPO, '--type', type,
-                      '--claims', String(claims), '--data', tmp, '--json'])));
+      const { stdout } = await py(['--type', type, '--claims', String(claims),
+        '--data', tmp, '--json']);
+      return res.json(JSON.parse(stdout));
     } catch (e) {
-      res.status(400).json({ error: reason(e) });
+      return res.status(400).json({ error: errorText(e) });
     } finally {
-      await fs.rm(path.dirname(tmp), { recursive: true, force: true })
-        .catch(() => {});
+      await fsp.unlink(tmp).catch(() => {});
     }
   });
 
-  // Newest first. batchId indexes the masterfile's runs array, counting the
-  // "imported" pseudo-run bootstrap writes - which is filtered out of the
-  // listing but must not be renumbered away, or the download route would
-  // fetch the wrong file.
-  app.get('/api/history', async (_req, res) => {
+  /** Stream one artefact of a generated batch back to the browser. */
+  app.get('/api/download/:batchId/:kind', (req: Request, res: Response) => {
+    const batchId = String(req.params.batchId);
+    const kind = String(req.params.kind);
+    if (!BATCH_ID.test(batchId)) {
+      return res.status(400).json({ error: 'batchId must be "Batch <n>"' });
+    }
+    if (!DOWNLOAD_KINDS.has(kind)) {
+      return res.status(400).json({ error: 'kind must be x12, docx or manifest' });
+    }
+    const dir = path.join(repo, 'EDI1', batchId);
+    let names: string[];
     try {
-      const runs = await masterfileRuns();
-      res.json(runs
-        .map((run, i) => ({ batchId: i + 1, ...run }))
-        .filter((run) => run.type === 'I' || run.type === 'P')
-        .reverse());
-    } catch (e) {
-      res.status(400).json({ error: reason(e) });
+      names = fs.readdirSync(dir);
+    } catch {
+      return res.status(404).json({ error: `${batchId} has not been generated` });
     }
-  });
-
-  app.get('/api/download/:batchId/:kind', async (req, res) => {
-    const kind = req.params.kind;
-    if (kind !== 'x12' && kind !== 'docx') {
-      return res.status(400).json({ error: 'kind must be x12 or docx' });
+    const suffix = kind === 'x12' ? '.x12'
+      : kind === 'docx' ? '.docx' : '.manifest.json';
+    const name = names.find((n) => n.endsWith(suffix)
+      && !(kind === 'x12' && n.endsWith('.manifest.json')));
+    if (!name) {
+      return res.status(404).json({ error: `${batchId} has no ${kind}` });
     }
-    const batchId = Number(req.params.batchId);
-    try {
-      const runs = await masterfileRuns();
-      const run = Number.isInteger(batchId) ? runs[batchId - 1] : undefined;
-      if (!run?.output) {
-        return res.status(404).json({ error: `no batch ${req.params.batchId}` });
-      }
-      const x12 = path.resolve(REPO, run.output);
-      const file = kind === 'x12'
-        ? x12 : x12.replace(/\.x12$/, '_ClaimSummary.docx');
-      // The manifest's output path is repo-relative and written by the
-      // generator, but it reaches this line as user-influenced data. Confirm
-      // it still lands inside the repo before streaming it.
-      if (path.relative(REPO, file).startsWith('..')) {
-        return res.status(400).json({ error: 'that batch is outside the repo' });
-      }
-      if (!existsSync(file)) {
-        return res.status(404).json({ error: `${path.basename(file)} is gone` });
-      }
-      // dotfiles:'allow' - send() 404s any path with a dot-segment, and a
-      // checkout can legitimately sit under one (a git worktree under
-      // .claude/worktrees does). Containment was just checked above; this
-      // switch decides nothing about which file is served.
-      res.download(file, path.basename(file), { dotfiles: 'allow' });
-    } catch (e) {
-      res.status(400).json({ error: reason(e) });
-    }
+    return res.download(path.join(dir, name), name);
   });
 
   return app;
+}
+
+const invokedDirectly = process.argv[1]
+  && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url));
+
+if (invokedDirectly) {
+  const port = Number(process.env.PORT ?? 5000);
+  createApp().listen(port, () => {
+    process.stdout.write(`generator bridge listening on :${port}\n`);
+  });
 }

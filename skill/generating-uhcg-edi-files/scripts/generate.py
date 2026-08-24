@@ -1,14 +1,19 @@
 """Build a UHCG outbound 837 file by slicing claim payload from a seed.
 
-Every claim byte comes from the seed. Only identifier and date segments are
-substituted, each one declared as a literal that must occur an exact number of
+Every claim byte comes from the seed unless an override document declares
+otherwise. Identifier, date and declared-override segments are substituted,
+each one named as a whole-segment literal that must occur an exact number of
 times - a literal that has drifted is a hard failure, never a silent no-op.
+Anything the document does not declare must still come out of the seed
+unchanged, which _assert_seed_fidelity checks before any edit is applied.
 """
 from __future__ import annotations
 
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal
 
 import claim_summary
+import overrides
+import seed_introspect
 import seeds
 import x12_parse as X
 
@@ -30,27 +35,18 @@ def set_elem(seg, idx, val):
     return X.ELEM.join(e)
 
 
-def edits_for(profile, alloc, n, ov=None):
-    """[(literal, must_occur, replace_n, replacement), ...] for claim n."""
+def edits_for(profile, alloc, n, clm02=None):
+    """[(literal, must_occur, replace_n, replacement), ...] for claim n.
+
+    CLM01 and CLM02 live in one segment, so a claim whose amounts are
+    overridden folds its new CLM02 into this single edit. Two tuples naming
+    the same CLM literal would fail the exact-count check in apply_edits.
+    """
     i = source_index(n, profile) - 1
     src_clm = profile.src_clm[i]
-    # The whole CLM segment is the literal; elements 1 and (when an override
-    # supplies a claim total) 2 move together. That keeps every
-    # facility/frequency code the seed carried without the generator ever
-    # spelling one out. Ruling C3: the CLM segment has exactly one owner -
-    # this is it. apply_edits matches the seed's *original* literal, so a
-    # second edit tuple naming this same CLM segment could never land (the
-    # first replacement already consumed the only match); money_edits does
-    # not emit a CLM edit of its own for exactly this reason - it only
-    # reports the total via claim_total() below.
     new_clm = set_elem(src_clm, 1, alloc.clm01[n - 1])
-    total = claim_total(ov, n)
-    if total is not None:
-        # Same float-mediated-formatting defect as _money_fmt below (review
-        # finding 6) - CLM02 is money on the same path, so it gets the same
-        # pure-Decimal formatter rather than a second, differently-behaved
-        # one.
-        new_clm = set_elem(new_clm, 2, _money_fmt(total))
+    if clm02 is not None:
+        new_clm = set_elem(new_clm, 2, clm02)
     ed = [
         ("ST*837*%s*%s" % (profile.src_st02[i], profile.version), 1, 1,
          "ST*837*%s*%s" % (alloc.st02[n - 1], profile.version)),
@@ -60,6 +56,9 @@ def edits_for(profile, alloc, n, ov=None):
          "BHT*0019*00*%s*%s*%s*CH" % (alloc.bht03[n - 1],
                                       alloc.envelope_date,
                                       alloc.envelope_time)),
+        # The whole CLM segment is the literal; only elements 1 and 2 move.
+        # That keeps every facility/frequency code the seed carried without
+        # the generator ever spelling one out.
         (src_clm, 1, 1, new_clm),
         ("REF*F8*%s" % profile.src_ref_f8[i], 1, 1,
          "REF*F8*%s" % alloc.ref_f8[n - 1]),
@@ -85,45 +84,13 @@ def _service_date_forms(profile):
                      % profile.service_date_shape)
 
 
-def _date_edits(payload, profile, alloc, ov=None, claim_no=None):
+def _date_edits(payload, profile, alloc):
     """DTP*472 edits for one block, counted from the block itself.
 
-    A declared line set owns its service dates positionally. Without one,
-    preserve the original allocator-driven seed-date mapping.
+    The counts are read off the block, so a block that repeats a date (seed
+    claims 8 and 9 of the institutional seed do) needs no hand-kept table.
     """
     prefix, form = _service_date_forms(profile)
-    claim = ov.claim(claim_no) if ov and claim_no is not None else None
-    lines = (claim or {}).get("lines") or []
-    if lines:
-        bounds = _loop_bounds(payload)
-        if len(bounds) != len(lines):
-            raise BuildError(
-                "claim %d: override has %d line(s) but payload has %d LX "
-                "loop(s)" % (claim_no, len(lines), len(bounds)))
-        edits = []
-        for line_no, ((start, end), line) in enumerate(
-                zip(bounds, lines), start=1):
-            positions = [i for i in range(start, end)
-                         if payload[i].startswith(prefix)]
-            if len(positions) != 1:
-                raise BuildError(
-                    "claim %d line %d: expected one DTP*472, found %d"
-                    % (claim_no, line_no, len(positions)))
-            i = positions[0]
-            src = payload[i]
-            body = src[len(prefix):]
-            day = body.split("-")[0]
-            if body != form(day):
-                raise BuildError("service date %r is not the declared %s shape"
-                                 % (body, profile.service_date_shape))
-            if day not in profile.src_dates:
-                raise BuildError("service date %r is not one the profile "
-                                 "declares" % day)
-            replacement = prefix + form(line["date"])
-            if replacement != src:
-                edits.append((i, src, replacement))
-        return edits
-
     counts = {}
     for s in payload:
         if not s.startswith(prefix):
@@ -146,473 +113,318 @@ def _date_edits(payload, profile, alloc, ov=None, claim_no=None):
     return ed
 
 
-_IDENTITY_SEGMENTS = {
-    "subscriber": ("NM1*IL*", ("last", "first", "memberId")),
-    "billingProvider": ("NM1*85*", ("name", "npi")),
-    "attendingProvider": ("NM1*71*", ("last", "first", "npi")),
-    "taxId": ("REF*EI*", ("taxId",)),
+# The segment each identity group of the override document lives in. The
+# fields inside a group come from overrides.IDENTITY_FIELDS and their element
+# indices from profile.override_addrs, so a name is never spelled twice.
+IDENTITY_SEGMENTS = {
+    "subscriber": "NM1*IL*",
+    "billingProvider": "NM1*85*",
+    "attendingProvider": "NM1*71*",
+    "taxId": "REF*EI*",
 }
 
-# T3-k: each identity group has exactly one legal JSON shape - three take an
-# object, taxId takes a bare string. This lives next to _IDENTITY_SEGMENTS
-# (not in overrides.py) so generate.py stays the one place that knows what
-# each group accepts; check_identity_targets enforces it. A bare string for
-# an object-shaped group used to silently map to {key: value}, whose key
-# never matches that group's fields tuple, so the "edit" was accepted and
-# then quietly dropped - taxId only ever looked correct because its single
-# field name happens to equal its own group key.
-_IDENTITY_SHAPE = {
-    "subscriber": dict,
-    "billingProvider": dict,
-    "attendingProvider": dict,
-    "taxId": str,
-}
-
-
-def _json_shape_name(t):
-    return {dict: "object", str: "string", list: "array",
-            type(None): "null"}.get(t, t.__name__)
+# Date of birth is a subscriber field in the document but lives in its own
+# segment, not in the subscriber NM1.
+DOB_SEGMENT = "DMG*D8*"
 
 
 def identity_edits(profile, ov, payload):
     """Element swaps for the identity segments this override declares.
 
     The whole seed segment is the literal, so a segment that has drifted from
-    the profile still fails the exact-count check in apply_edits.
+    the profile still fails the exact-count check in apply_edits. A field set
+    to the value the seed already carries produces no edit at all - emitting
+    one would put two tuples on the same literal and break that check.
     """
-    ed = []
     if not ov or not ov.identity:
-        return ed
+        return []
 
-    def swap(prefix, fields, values):
+    ed = []
+
+    def swap(prefix, values):
+        if not values:
+            return
         src = next((s for s in payload if s.startswith(prefix)), None)
         if src is None:
-            # Not an error here: a future validate.py check (Task 6, not
-            # written yet) is expected to evaluate one frozen literal at a
-            # time against the declared override, so most groups will not
-            # match any single literal there. check_identity_targets below
-            # is what turns a group naming a segment the seed lacks into a
-            # hard failure today.
-            return
+            raise BuildError(
+                "override names %s but the seed block has no %s segment"
+                % (prefix, prefix))
         addrs = profile.override_addrs[prefix]
         out = src
-        for name in fields:
-            if name in values:
-                out = set_elem(out, addrs[name], values[name])
+        for name, value in values.items():
+            out = set_elem(out, addrs[name], value)
         if out != src:
             ed.append((src, 1, 1, out))
 
-    for key, (prefix, fields) in _IDENTITY_SEGMENTS.items():
-        if key not in ov.identity:
+    for group, prefix in IDENTITY_SEGMENTS.items():
+        if group not in ov.identity:
             continue
-        v = ov.identity[key]
-        swap(prefix, fields, v if isinstance(v, dict) else {key: v})
-
-    sub = ov.identity.get("subscriber") or {}
-    if "dob" in sub:
-        swap("DMG*D8*", ("dob",), {"dob": sub["dob"]})
+        value = ov.identity[group]
+        if group in overrides.SCALAR_IDENTITY:
+            swap(prefix, {group: value})
+            continue
+        swap(prefix, {k: v for k, v in value.items() if k != "dob"})
+        if "dob" in value:
+            swap(DOB_SEGMENT, {"dob": value["dob"]})
     return ed
 
 
-def check_identity_targets(profile, ov, payload, n):
-    """Every declared identity group must be well-formed for this block.
-
-    Four independent hard failures, all against the same declared group:
-
-    1. swap() is deliberately silent about a missing target segment so that
-       a future validate.py check (Task 6, not written yet) can evaluate one
-       frozen literal at a time against the declared override; this is
-       where a group naming a segment the seed lacks becomes a hard failure
-       today.
-    2. T3-k: a group's value must be the one JSON shape _IDENTITY_SHAPE
-       declares for it (an object for subscriber/billingProvider/
-       attendingProvider, a bare string for taxId). A bare string for an
-       object-shaped group maps, via swap()'s `{key: value}` fallback, to a
-       values dict whose only key is the group's own name - which never
-       matches that group's fields tuple, so nothing raises and nothing
-       gets edited. This must be caught before the field-name check below,
-       since that check assumes a dict.
-    3. swap()'s inner loop only ever reads field names it recognizes
-       (`if name in values`), so an object with a misspelled or made-up
-       field name - e.g. "lastName" instead of "last" - would otherwise
-       silently emit no edit at all while the caller believes it applied.
-       That is a different hole from #2: #2 is shape-level (the whole value
-       is the wrong JSON type), this is field-level (the value is the right
-       type, but a key inside it is not one identity_edits understands).
-       subscriber is a special case: "dob" is a valid field even though it
-       is not in _IDENTITY_SEGMENTS["subscriber"]'s fields tuple, because it
-       addresses the DMG*D8* segment instead of NM1*IL*.
-    4. Fix round 1, item 7a: "dob" addresses DMG*D8*, not NM1*IL* - so
-       failure #1 above (checked against `prefix`, i.e. NM1*IL* for
-       subscriber) does not protect it. A block that carries NM1*IL* but no
-       DMG*D8* segment passes #1 through #3 and identity_edits' swap()
-       silently produces no edit at all (swap() only raises when its own
-       target prefix is missing, and dob's target is DMG*D8*, not
-       NM1*IL*). Checked separately, after the field-name check, because it
-       only applies once "dob" is confirmed to be a known field of a
-       dict-shaped subscriber override.
-    """
-    if not ov or not ov.identity:
-        return
-    for key, (prefix, fields) in _IDENTITY_SEGMENTS.items():
-        if key not in ov.identity:
-            continue
-        if not any(s.startswith(prefix) for s in payload):
-            raise BuildError(
-                "claim %d: override names %s but the seed block has no %s "
-                "segment" % (n, key, prefix))
-        v = ov.identity[key]
-        expected = _IDENTITY_SHAPE[key]
-        if not isinstance(v, expected):
-            raise BuildError(
-                "claim %d: %s override must be a JSON %s, got %s"
-                % (n, key, _json_shape_name(expected),
-                   _json_shape_name(type(v))))
-        if isinstance(v, dict):
-            valid = set(fields)
-            if key == "subscriber":
-                valid.add("dob")
-            unknown = sorted(set(v) - valid)
-            if unknown:
-                raise BuildError(
-                    "claim %d: %s override names unknown field(s) %s "
-                    "(valid: %s)"
-                    % (n, key, ", ".join(unknown), ", ".join(sorted(valid))))
-            if (key == "subscriber" and "dob" in v
-                    and not any(s.startswith("DMG*D8*") for s in payload)):
-                raise BuildError(
-                    "claim %d: override names subscriber.dob but the seed "
-                    "block has no DMG*D8* segment" % n)
-
-
-def check_frozen_segments(profile, payload, n):
-    """Every frozen segment must be present in this block, verbatim.
-
-    In normal use seeds.load_seed()'s sha256 gate already guarantees the
-    whole seed file - including every frozen segment - matches the profile
-    before build() ever sees a block, so this only fires if a caller hands
-    build() a payload that was altered after that gate ran. It exists so
-    build() does not rely on that gate alone: a frozen literal must still be
-    a hard failure here, never a silent no-op, matching this module's stated
-    safety model. This runs on the pre-edit payload, so a frozen segment an
-    override is about to legitimately swap is still present here unchanged -
-    the check does not need to know about identity_edits at all.
-    """
-    missing = [f for f in profile.frozen if f not in payload]
-    if missing:
-        raise BuildError(
-            "claim %d: frozen segment(s) missing or drifted: %s"
-            % (n, "; ".join(missing[:4])))
-
-
 def diagnosis_edits(profile, ov, payload, n):
-    """Replace the ABK principal-diagnosis composite, leaving ABF alone."""
+    """Replace the ABK principal-diagnosis code, leaving ABF alone.
+
+    ABK may be the first composite of its own HI segment (837I) or share one
+    with the ABF secondaries (837P), so every composite is considered - the
+    same scan seed_introspect uses to read the default back out.
+    """
     c = ov.claim(n) if ov else None
     if not c or not c.get("principalDiagnosis"):
         return []
     for s in payload:
         if not s.startswith("HI*"):
             continue
-        e = X.elems(s)
-        if not e[1].startswith("ABK:"):
-            continue
-        parts = e[1].split(":")
-        parts[1] = c["principalDiagnosis"]
-        return [(s, 1, 1, set_elem(s, 1, ":".join(parts)))]
-    raise BuildError("claim %d: seed has no ABK principal diagnosis" % n)
+        for k, comp in enumerate(X.elems(s)[1:], 1):
+            if not comp.startswith("ABK:"):
+                continue
+            parts = comp.split(":")
+            parts[1] = c["principalDiagnosis"]
+            new = set_elem(s, k, ":".join(parts))
+            return [] if new == s else [(s, 1, 1, new)]
+    raise BuildError("claim %d: seed block has no ABK principal diagnosis" % n)
 
 
-def _loop_bounds(payload):
-    """[(start, end)] for each LX loop in payload; end is exclusive.
+def record_overrides(record, raw_doc):
+    """Attach the submitted override document to a manifest record.
 
-    A loop runs from its LX segment up to (but not including) the next LX
-    segment, or - for the last loop - up to the SE segment if the payload
-    ends in one. Loop length is NOT assumed uniform: the P seed's block 6
-    carries an NTE*TPO* between the DTP and the HCP in its sixth loop only
-    (confirmed by reading the seed directly), so bounds are derived purely
-    from LX position, never from a fixed per-loop segment count.
+    The document is recorded exactly as submitted, because it is what the
+    validator checks the output against: a change the manifest does not
+    declare has no reversal and still fails check 9. An empty or absent
+    document adds no key, so an unedited batch's manifest keeps the shape it
+    has always had.
+    """
+    if raw_doc:
+        record["overrides"] = raw_doc
+    return record
+
+
+def _line_loops(profile, payload, n):
+    """Split a block into (head, [loop, ...], tail) around its LX loops.
+
+    The tail matters: a block does not end at its last service line. Every
+    block ends with SE, so a loop cannot be taken as "everything after the
+    last LX" without duplicating the trailer when a line is added.
+
+    A loop runs from its LX across the segments the seed's service lines are
+    built from - LX, the charge, the service date, an optional line note and
+    the line HCP. NTE is one of them: five professional lines carry a note
+    between DTP and HCP (UHCG_Special_Instructions_NTE_Guide.md), and it
+    describes that line, so a copied line keeps it. A loop carrying anything
+    else is refused rather than copied blindly - splicing a shape this
+    function does not model would silently corrupt the block.
     """
     starts = [j for j, s in enumerate(payload) if s.startswith("LX*")]
     if not starts:
-        return []
-    ends = starts[1:] + [len(payload)]
-    ends[-1] = len(payload) - 1 if payload[-1].startswith("SE*") \
-        else len(payload)
-    return list(zip(starts, ends))
+        raise BuildError("claim %d: seed block has no service line" % n)
+    owned = ("LX*", profile.line_id + "*", "DTP*472*", "HCP*", "NTE*")
+
+    loops, end = [], starts[0]
+    for k, start in enumerate(starts):
+        stop = starts[k + 1] if k + 1 < len(starts) else len(payload)
+        j = start
+        while j < stop and payload[j].startswith(owned):
+            j += 1
+        if k + 1 < len(starts) and j != stop:
+            raise BuildError(
+                "claim %d: service line %d carries an unmodelled segment %r"
+                % (n, k + 1, payload[j]))
+        loops.append(payload[start:j])
+        end = j
+    return payload[:starts[0]], loops, payload[end:]
 
 
-def splice_lines(profile, ov, payload, n):
-    """Grow or shrink a claim's LX loops to match its override's line count.
+def splice_to(profile, payload, want, n):
+    """Return the block with exactly `want` LX loops, renumbered from 1.
 
-    This is the only edit in the plan that changes segment counts, so it
-    runs before the edit list is assembled (renumber_se fixes SE01
-    afterward; LX01 is renumbered here). Growing a block copies its
-    EXISTING loops round-robin (Ruling T5-f) - growing a 2-loop block, line
-    3 copies loop 1, line 4 copies loop 2, and so on - rather than always
-    the last loop, so a grown claim does not become a run of otherwise-
-    identical duplicate service lines (a single-loop block necessarily still
-    repeats its only loop; that is unavoidable). Every qualifier, revenue
-    code, and DTP a copied loop carried survives untouched, EXCEPT a copied
-    NTE* segment, which a FABRICATED loop drops (Rulings T5-e and X-24).
-    The reason is NOT that a fabricated line lacks reduction information -
-    money_edits writes a per-line HCP reduction onto it, so it has some.
-    It is that a line-level NTE is free-text prose written about a
-    DIFFERENT line, and this generator has no basis on which to assert that
-    prose holds for a line it fabricated. The P seed's own remark makes the
-    point: "Allowed Amount equal to Billed Charges" is false the moment a
-    fabricated line takes a savings. UHCG_Special_Instructions_NTE_Guide.md
-    :50 (Outbound) permits a line-level NTE where line-level reduction
-    information exists; it does not license copying one line's wording onto
-    another. Emitting no remark is always safe under the guide; emitting a
-    possibly-false one about money is not. Loops the seed itself carries -
-    kept as-is when shrinking, or copied FROM when growing - are never
-    altered; only a fabricated loop's own NTE is stripped. Only LX01 is
-    renumbered here, and money_edits (which runs after this, addressing
-    segments by position rather than content - Ruling T5-a) sets the
-    amounts. A claim with no line override, or one whose line count already
-    matches the seed block, is untouched - this keeps splice_lines inert for
-    every claim task 1-4's tests exercise.
+    Added loops are copies of the block's last loop, so every qualifier and
+    revenue code the seed carried survives. Only LX01 is set here; the
+    amounts are written afterwards by money_edits, and SE01 by renumber_se.
     """
-    c = ov.claim(n) if ov else None
-    if not c or not c["lines"]:
-        return payload
-    bounds = _loop_bounds(payload)
-    want = len(c["lines"])
-    if want == len(bounds) or not bounds:
-        return payload
     if want < 1:
-        # Unreachable through overrides.parse() today - an empty "lines"
-        # list is caught by the guard above and treated as no override, so
-        # `want` is always >= 1 here. Defense in depth against a future
-        # caller that builds an Overrides object by hand (as several tests
-        # in this plan already do) with a non-empty-but-zero-length claim.
-        raise BuildError("claim %d: a claim needs at least one service "
-                         "line" % n)
+        raise BuildError("claim %d: a claim needs at least one service line"
+                         % n)
+    head, loops, tail = _line_loops(profile, payload, n)
+    if want == len(loops):
+        return payload
 
-    head = payload[:bounds[0][0]]
-    tail = payload[bounds[-1][1]:]
-    loops = [payload[s:e] for s, e in bounds]
-    if want > len(loops):
-        originals = list(loops)
-        while len(loops) < want:
-            # The cycle index is how many loops we have already fabricated,
-            # which is exactly len(loops) - len(originals). Deriving it from
-            # the list rather than tracking a second counter keeps the two
-            # from ever disagreeing.
-            src = originals[(len(loops) - len(originals)) % len(originals)]
-            loops.append([s for s in src if not s.startswith("NTE*")])
-    else:
-        loops = loops[:want]
+    out_loops = [list(lp) for lp in loops[:want]]
+    while len(out_loops) < want:
+        out_loops.append(list(loops[-1]))
 
     out = list(head)
-    for i, loop in enumerate(loops, 1):
+    for i, loop in enumerate(out_loops, 1):
         loop = list(loop)
         loop[0] = "LX*%d" % i
         out.extend(loop)
-    return out + tail
+    return out + list(tail)
 
 
-_CENTS = Decimal("0.01")
+def splice_lines(profile, ov, payload, n):
+    """Grow or shrink a block's service lines to the override's line count."""
+    c = ov.claim(n) if ov else None
+    if not c or not c["lines"]:
+        return payload
+    return splice_to(profile, payload, len(c["lines"]), n)
 
 
-def _money_fmt(v):
-    """Stringify a money Decimal at two places, never through float.
+def _fmt(v):
+    return "%.2f" % v
 
-    Every value this sees (billed/savings/allowed, all derived from
-    overrides.py's `_money()` or Decimal arithmetic on those) is already at
-    cent precision, so the quantize below is a formatting step, not a
-    rounding one - but it still uses the project's standard ROUND_HALF_UP
-    (never the Decimal context default) so a value that somehow arrives with
-    more than two places is handled the same way the rest of the codebase
-    handles money, per CLAUDE.md's "Money is Decimal... never float."
-    `"%.2f" % v` used to do this by converting the Decimal to a float first -
-    a literal violation of that rule on the money path (review finding 6).
+
+def claim_total(ov, n):
+    """CLM02 for a claim whose lines are overridden, or None.
+
+    Read by build() so the new total can be folded into the single CLM edit
+    that edits_for already owns.
     """
-    return str(Decimal(v).quantize(_CENTS, rounding=ROUND_HALF_UP))
+    c = ov.claim(n) if ov else None
+    if not c or not c["lines"]:
+        return None
+    return _fmt(sum(line["billed"] for line in c["lines"]))
 
 
-# The service-line charge sits at a different element index per profile:
-# SV2*0430*HC:97530*420.00*UN*2 carries it at index 3, SV1*HC:99222*293.00*
-# UN*1*21**1:2:3**N carries it at index 2. claim_summary.py:71-79 is the
-# prior art for both indices. Hardcoding one index for both line_ids would
-# silently write the amount into the wrong element for whichever profile
-# does not use that index - that bug has already shipped once in this plan.
-_LINE_AMOUNT_IDX = {"SV2": 3, "SV1": 2}
+def _loop_segment(payload, start, end, prefix, n, what):
+    """Index of the one segment in [start, end) carrying this prefix."""
+    for j in range(start, end):
+        if payload[j].startswith(prefix):
+            return j
+    raise BuildError("claim %d: a service line has no %s (%s)"
+                     % (n, prefix, what))
 
 
 def money_edits(profile, ov, payload, n):
-    """Rewrite SV2/SV1 charges, both HCP levels, as one unit.
+    """Positional rewrites of the line charges and both HCP levels.
 
-    validate.py enforces CLM02 == sum(lines) and the profile's money rule, so
-    the line charge, the line HCP, the claim HCP and CLM02 can never be
-    edited independently. CLM02 itself is not edited here - edits_for owns
-    the CLM segment (ruling C3); this function only returns the line/HCP
-    edits and leaves the claim total to be read via claim_total() below.
+    Returns (index, expected_literal, replacement) tuples rather than the
+    literal tuples apply_edits takes: a claim repeats its service lines
+    verbatim - the institutional seed's ninth block carries the same SV2 six
+    times - so a whole-segment literal cannot name one line. The expected
+    literal keeps drift a hard failure all the same.
 
-    The claim-level HCP is a different segment from any line-level HCP: it
-    sits before the first LX loop, while each line's HCP sits inside that
-    line's own LX loop (decision 5 - Task 1 shipped a bug that conflated
-    the two).
-
-    Ruling T5-a: `payload` may now be a spliced block (splice_lines runs
-    before this in build()), where a grown claim fabricates loops by copying
-    its existing ones round-robin (Ruling T5-f) - so two loops can share the
-    exact same SV/HCP literal going in, and each one needs a DIFFERENT
-    amount coming out. Round-robin copying REDUCES how often that happens
-    but does not eliminate it: a single-loop block still repeats its only
-    loop, growing past the original loop count repeats the cycle, and the
-    837I seed's own blocks 2-9 already carry 2..9 SV2 segments drawn from
-    only two distinct values, so byte-identical repeats exist in the seed
-    before any splice. Index addressing is therefore still REQUIRED, not a
-    leftover from the old copy-the-last-loop behaviour. A literal-addressed
-    edit tuple cannot express that: apply_edits' `must_occur`/`replace_n`
-    contract writes the SAME replacement into every hit it matches, so
-    `must_occur=2` would force both loops to the same amount and
-    `must_occur=1` would raise
-    "occurs 2 times, expected exactly 1" (this is the brief's own Step 4
-    test). So every edit this function emits is index-addressed - a
-    (index, expected_literal, replacement) 3-tuple that apply_edits matches
-    by position, not by searching for the literal. It still verifies the
-    literal at that position before overwriting it, so a payload that has
-    drifted from what this function expected still fails hard, the same
-    property the literal form guarantees.
+    CLM02 is not edited here. It belongs to the same segment as CLM01, which
+    edits_for already rewrites, so build() passes claim_total() to that one
+    edit instead.
     """
     c = ov.claim(n) if ov else None
     if not c or not c["lines"]:
         return []
 
-    lx_at = [j for j, s in enumerate(payload) if s.startswith("LX*")]
-    if len(lx_at) != len(c["lines"]):
+    bounds = seed_introspect.loop_bounds(payload)
+    if len(bounds) != len(c["lines"]):
         raise BuildError(
-            "claim %d: override has %d lines but the seed block has %d"
-            % (n, len(c["lines"]), len(lx_at)))
+            "claim %d: override has %d service lines but the seed block has "
+            "%d" % (n, len(c["lines"]), len(bounds)))
 
-    amt_idx = _LINE_AMOUNT_IDX[profile.line_id]
-
+    charge_at = seed_introspect.CHARGE_ELEM[profile.line_id]
+    split = profile.money_rule == "split_85_15"
     ed = []
     total = Decimal("0.00")
-    for line_no, (j, line) in enumerate(zip(lx_at, c["lines"]), start=1):
+    sum_allowed = Decimal("0.00")
+    sum_savings = Decimal("0.00")
+
+    for (start, end), line in zip(bounds, c["lines"]):
         billed, savings = line["billed"], line["savings"]
-        # UHCG_Overview_Reference.md:218 - "Repriced Saving Amount is
-        # calculated as Billed Amount - Allowed Amount", i.e. allowed =
-        # billed - savings. overrides.parse has already derived or validated
-        # `savings` under the profile's money rule, so this one formula
-        # covers both 837I (split_85_15) and 837P (allowed_plus_savings).
-        allowed = billed - savings
+        allowed = (overrides.derived_allowed(billed) if split
+                   else billed - savings)
         total += billed
+        sum_allowed += allowed
+        sum_savings += savings
 
-        # Review finding 5: a bare next(...) here raised an uncaught
-        # StopIteration on a block missing its SV/HCP segment - not in the
-        # (SeedMismatch, MasterfileError, BuildError) tuple main() catches,
-        # so it would surface as an unhandled crash instead of the module's
-        # "hard failure with claim context" pattern diagnosis_edits already
-        # follows. Give all three lookups the same explicit, labeled
-        # failure - the two per-line lookups below, and the claim-level HCP
-        # lookup after this loop (fix round 1, item 6: that third bare
-        # next() was missed the first time round).
-        # These searches are still scoped forward from this loop's own LX
-        # (index j), so a duplicate loop elsewhere in the payload can never
-        # be mistaken for this one's SV/HCP - only the index found matters.
-        sv_idx = next((k for k in range(j, len(payload))
-                       if payload[k].startswith(profile.line_id + "*")),
-                      None)
-        if sv_idx is None:
+        # The allocator owns the service window: _date_edits maps every seed
+        # date onto alloc.service_dates, so a line date that is not the
+        # seed's cannot be honoured. Refuse it rather than drop it silently.
+        j = _loop_segment(payload, start, end, "DTP*472*", n, "service date")
+        seed_date = X.elems(payload[j])[3].split("-")[0]
+        if line["date"] != seed_date:
             raise BuildError(
-                "claim %d: line %d has no %s segment in the seed block"
-                % (n, line_no, profile.line_id))
-        sv = payload[sv_idx]
-        ed.append((sv_idx, sv, set_elem(sv, amt_idx, _money_fmt(billed))))
+                "claim %d: service date %s cannot be overridden - the "
+                "generator remaps the seed's %s onto the allocated window, "
+                "so only the seed's own date may be submitted"
+                % (n, line["date"], seed_date))
 
-        hcp_idx = next((k for k in range(j, len(payload))
-                        if payload[k].startswith("HCP*")), None)
-        if hcp_idx is None:
-            raise BuildError(
-                "claim %d: line %d has no HCP segment in the seed block"
-                % (n, line_no))
-        hcp = payload[hcp_idx]
-        new_hcp = set_elem(set_elem(hcp, 2, _money_fmt(allowed)), 3,
-                           _money_fmt(savings))
-        ed.append((hcp_idx, hcp, new_hcp))
+        j = _loop_segment(payload, start, end, profile.line_id + "*", n,
+                          "charge")
+        sv = payload[j]
+        new = set_elem(sv, charge_at, _fmt(billed))
+        if new != sv:
+            ed.append((j, sv, new))
 
-    claim_hcp_idx = next((k for k in range(lx_at[0])
-                          if payload[k].startswith("HCP*")), None)
-    if claim_hcp_idx is None:
-        raise BuildError(
-            "claim %d: seed block has no claim-level HCP segment before "
-            "its first service line" % n)
-    claim_hcp = payload[claim_hcp_idx]
-    saved = sum(l["savings"] for l in c["lines"])
-    ed.append((claim_hcp_idx, claim_hcp,
-               set_elem(set_elem(claim_hcp, 2, _money_fmt(total - saved)), 3,
-                        _money_fmt(saved))))
+        j = _loop_segment(payload, start, end, "HCP*", n, "line repricing")
+        hcp = payload[j]
+        new = set_elem(set_elem(hcp, seed_introspect.HCP_ALLOWED,
+                                _fmt(allowed)),
+                       seed_introspect.HCP_SAVINGS, _fmt(savings))
+        if new != hcp:
+            ed.append((j, hcp, new))
 
+    # The claim-level HCP sits before the first LX, and the two money rules
+    # compute it differently: 837I is an 85/15 split of CLM02, while 837P is
+    # the sum of its line HCPs. validate.py enforces exactly that.
+    j = _loop_segment(payload, 0, bounds[0][0], "HCP*", n, "claim repricing")
+    chcp = payload[j]
+    ca, cs = ((overrides.derived_allowed(total), overrides.derived_savings(total))
+              if split else (sum_allowed, sum_savings))
+    new = set_elem(set_elem(chcp, seed_introspect.HCP_ALLOWED, _fmt(ca)),
+                   seed_introspect.HCP_SAVINGS, _fmt(cs))
+    if new != chcp:
+        ed.append((j, chcp, new))
     return ed
 
 
-def claim_total(ov, n):
-    """The CLM02 an override implies, or None to keep the seed's amount."""
-    c = ov.claim(n) if ov else None
-    if not c or not c["lines"]:
-        return None
-    return sum(l["billed"] for l in c["lines"])
+def apply_positional_edits(payload, edits, key):
+    """Rewrite segments by index, asserting each is the literal expected.
+
+    The literal check gives positional edits the same property apply_edits
+    has: a seed that has drifted is a hard failure, never a silent no-op.
+    """
+    segs = list(payload)
+    for idx, expected, replacement in edits:
+        if not 0 <= idx < len(segs):
+            raise BuildError("claim %s: segment index %d is outside the block"
+                             % (key, idx))
+        if segs[idx] != expected:
+            raise BuildError("claim %s: segment %d is %r, expected %r"
+                             % (key, idx, segs[idx], expected))
+        segs[idx] = replacement
+    return segs
+
+
+def _assert_seed_fidelity(profile, payload, n):
+    """Every frozen segment must still be in the seed block.
+
+    An override changes the output, never the input, so this runs whatever
+    the document declares. It is what keeps "seed bytes are frozen unless the
+    override is declared" true once build() is allowed to rewrite content.
+    """
+    for literal in profile.frozen:
+        if literal not in payload:
+            raise BuildError(
+                "claim %d: seed block is missing the frozen segment %r"
+                % (n, literal))
 
 
 def apply_edits(payload, edits, key):
-    """Apply a mixed list of literal-addressed and index-addressed edits.
-
-    Two tuple shapes, unambiguously distinguished by length (Ruling T5-a):
-
-      * 4-tuple (literal, must_occur, replace_n, replacement) - the
-        original form. Finds every occurrence of `literal` in the payload,
-        requires there be exactly `must_occur` of them, and writes the SAME
-        `replacement` into the first `replace_n` of them. Used whenever a
-        segment - or a fixed number of byte-identical copies of one - is
-        addressed by its own content, e.g. edits_for's CLM/ST/BHT/REF edits
-        and _date_edits' one-date-many-occurrences rewrite.
-
-      * 3-tuple (index, expected_literal, replacement) - the new form. Used
-        when two segments in the payload can be byte-identical to each
-        other going in but must diverge coming out (money_edits, after a
-        splice has copied an LX loop). Addressed by position rather than by
-        searching for the literal, so two identical segments can each take
-        a different replacement - something the 4-tuple form cannot express
-        (must_occur/replace_n write the same replacement into every hit).
-        It still verifies `segs[index] == expected_literal` before writing,
-        so a payload that drifted from what the caller expected is still a
-        hard failure, not a silent overwrite - the same guarantee the
-        4-tuple form's must_occur check gives.
-    """
     segs = list(payload)
-    for edit in edits:
-        if len(edit) == 4:
-            literal, must_occur, replace_n, replacement = edit
-            hits = [j for j, s in enumerate(segs) if s == literal]
-            if len(hits) != must_occur:
-                raise BuildError(
-                    "claim %s: literal %r occurs %d times, expected "
-                    "exactly %d" % (key, literal, len(hits), must_occur))
-            if replace_n != must_occur:
-                raise BuildError(
-                    "claim %s: replace_n %d does not equal must_occur %d "
-                    "for %r" % (key, replace_n, must_occur, literal))
-            for j in hits[:replace_n]:
-                segs[j] = replacement
-        elif len(edit) == 3:
-            index, expected, replacement = edit
-            if not 0 <= index < len(segs):
-                raise BuildError(
-                    "claim %s: index %d is out of range for %d segments"
-                    % (key, index, len(segs)))
-            if segs[index] != expected:
-                raise BuildError(
-                    "claim %s: segment at index %d is %r, expected %r "
-                    "(drifted from what the edit expected)"
-                    % (key, index, segs[index], expected))
-            segs[index] = replacement
-        else:
+    for literal, must_occur, replace_n, replacement in edits:
+        hits = [j for j, s in enumerate(segs) if s == literal]
+        if len(hits) != must_occur:
             raise BuildError(
-                "claim %s: malformed edit tuple (expected 3 or 4 elements, "
-                "got %d): %r" % (key, len(edit), edit))
+                "claim %s: literal %r occurs %d times, expected exactly %d"
+                % (key, literal, len(hits), must_occur))
+        if replace_n != must_occur:
+            raise BuildError(
+                "claim %s: replace_n %d does not equal must_occur %d for %r"
+                % (key, replace_n, must_occur, literal))
+        for j in hits[:replace_n]:
+            segs[j] = replacement
     return segs
 
 
@@ -658,18 +470,23 @@ def build(seed_segs, profile, alloc, claims, ov=None):
                 "claim %d: seed block is %d segments, profile declares %d"
                 % (n, len(payload),
                    profile.block_lens[source_index(n, profile) - 1]))
-        # The block_lens assertion above runs against the SEED block; the
-        # splice then produces the output block every check after this
-        # point (identity/frozen/edits) operates on. Order matters.
+        _assert_seed_fidelity(profile, payload, n)
+        # The seed checks above run on the seed block; everything below runs
+        # on the block that will actually be emitted. Splicing changes the
+        # segment count, so the date counts and the positional indices must
+        # both be taken from the spliced block, never from the seed.
         payload = splice_lines(profile, ov, payload, n)
-        check_identity_targets(profile, ov, payload, n)
-        check_frozen_segments(profile, payload, n)
-        edits = (edits_for(profile, alloc, n, ov)
-                 + _date_edits(payload, profile, alloc, ov, n)
+        edits = (edits_for(profile, alloc, n, claim_total(ov, n))
+                 + _date_edits(payload, profile, alloc)
                  + identity_edits(profile, ov, payload)
-                 + diagnosis_edits(profile, ov, payload, n)
-                 + money_edits(profile, ov, payload, n))
-        body.extend(renumber_se(apply_edits(payload, edits, str(n)), str(n)))
+                 + diagnosis_edits(profile, ov, payload, n))
+        out = apply_edits(payload, edits, str(n))
+        # Positional edits are computed against the spliced block and applied
+        # after the literal ones. No literal edit touches a charge or an HCP,
+        # so the expected-literal check below would catch any overlap.
+        out = apply_positional_edits(out, money_edits(profile, ov, payload, n),
+                                     str(n))
+        body.extend(renumber_se(out, str(n)))
 
     return ([isa, gs] + body
             + ["GE*%d*%s" % (claims, alloc.gs06),
@@ -685,7 +502,6 @@ def render(segs):
 # CLI
 # --------------------------------------------------------------------------
 import argparse
-import dataclasses
 import hashlib
 import io
 import json
@@ -694,45 +510,10 @@ import shutil
 import subprocess
 import sys
 import tempfile
-import uuid
 
 import masterfile as M
-import overrides
-import seed_introspect
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-
-
-def manifest_record(alloc, profile, claims, out_rel, sha, seed_sha,
-                    raw_doc=None):
-    """The manifest for one run, including the declaration that produced it.
-
-    The `overrides` key is added HERE rather than inside
-    masterfile.Allocation.as_record: masterfile.py allocates never-reused
-    identifiers and has no business knowing what an override document is.
-    This is the seam - production main() and the tests both go through this
-    one function, so the non-empty path is exercised code, not dead code.
-
-    Readers must tolerate the key's ABSENCE: every manifest committed under
-    EDI1/ predates it. Always `man.get("overrides") or {}`, never
-    `man["overrides"]`.
-    """
-    record = alloc.as_record(profile.code, claims, out_rel, sha,
-                             profile.rel_path, seed_sha)
-    record["overrides"] = raw_doc or {}
-    return record
-
-
-def _ov_from_manifest(man, profile):
-    """The declaration a manifest records, re-validated through the gate.
-
-    --pin has to replay the declaration as well as the allocation, or
-    validate.py check 14 ("regenerating from the manifest reproduces the file
-    byte for byte") fails on every file built from an override document. The
-    document goes back through overrides.parse rather than being trusted
-    as-is, so a hand-edited manifest is refused by the same gate the CLI uses.
-    """
-    return overrides.parse(man.get("overrides") or {}, profile, man["claims"])
 
 
 def _alloc_from_manifest(man):
@@ -757,19 +538,39 @@ def _default_output(repo, code, claims):
                         "fromUHCG-837%s-WKN_%dclaims.x12" % (code, claims))
 
 
-def _load_document(path):
-    """The override document named by --data, or None.
-
-    A path rather than an inline argument: a 200-claim document is far past
-    the ~8k Windows command-line ceiling. `-` reads stdin so a caller that
-    already holds the document in memory need not touch the filesystem.
-    """
-    if path is None:
-        return None
-    if path == "-":
+def _read_override_doc(source):
+    """Load the override document named by --data ('-' means stdin)."""
+    if source == "-":
         return json.load(sys.stdin)
-    with io.open(path, encoding="utf-8") as fh:
+    with io.open(source, encoding="utf-8") as fh:
         return json.load(fh)
+
+
+def _reported_path(path, repo):
+    """A path as the HTTP bridge should see it: repo-relative, forward slashes.
+
+    An --output outside the repo has no relative form worth serving, so it is
+    reported absolutely rather than as a chain of '..' the caller cannot join.
+    """
+    rel = os.path.relpath(path, repo)
+    if rel.split(os.sep)[0] == os.pardir:
+        rel = os.path.abspath(path)
+    return rel.replace("\\", "/")
+
+
+def _batch_id(outp):
+    """The directory a batch lands in - 'Batch 6' - names it for the UI."""
+    return os.path.basename(os.path.dirname(os.path.abspath(outp)))
+
+
+def _allocation_payload(profile, claims, alloc, outp, repo):
+    """The allocation as JSON, for the UI's identifier tiles."""
+    rec = alloc.as_record(profile.code, claims, _reported_path(outp, repo),
+                          "", profile.rel_path, "")
+    for placeholder in ("sha256", "seed_sha256"):
+        rec.pop(placeholder, None)
+    rec["batchId"] = _batch_id(outp)
+    return rec
 
 
 def main(argv=None):
@@ -785,36 +586,29 @@ def main(argv=None):
     ap.add_argument("--print-defaults", action="store_true",
                     help="emit the seed's values as an override document")
     ap.add_argument("--print-allocation", action="store_true",
-                    help="emit the identifiers a run would take, taking none")
+                    help="emit the identifiers the next run would take, "
+                         "without taking them")
     ap.add_argument("--json", action="store_true",
-                    help="emit the output paths and batch id as JSON")
+                    help="report the run as one JSON object on stdout")
     ap.add_argument("--fail-after-validate", action="store_true",
                     help=argparse.SUPPRESS)
+    # argv is None under the CLI, which is argparse's own "read sys.argv".
     args = ap.parse_args(argv)
 
-    # With --json, stdout carries exactly one JSON object and nothing else -
-    # the Express bridge parses it whole. Progress lines go to stderr.
-    progress = sys.stderr if args.json else sys.stdout
-
     repo = os.path.abspath(args.repo)
-    if args.data and args.pin:
-        # --pin already replays the declaration the manifest records. A second
-        # document would silently lose to it, producing a file that is not
-        # what either input asked for.
-        sys.stderr.write("--data cannot be combined with --pin\n")
-        return 1
     pinned = None
     if args.pin:
         with io.open(args.pin, encoding="utf-8") as fh:
             pinned = json.loads(fh.read())
         code, claims = pinned["type"], pinned["claims"]
     elif args.print_defaults:
-        # Reading the seed's own values allocates nothing, so a claim count
-        # would mean nothing here.
+        # Introspection needs no claim count: it reports the seed as it is.
+        # A count is still honoured, so the UI can ask for exactly the claims
+        # it is about to generate.
         if not args.type:
             sys.stderr.write("--type is required with --print-defaults\n")
             return 1
-        code, claims = args.type, None
+        code, claims = args.type, args.claims
     else:
         if not args.type or args.claims is None:
             sys.stderr.write("--type and --claims are required "
@@ -831,15 +625,28 @@ def main(argv=None):
             % (code, code.upper()))
         return 1
 
-    # Before the masterfile is touched: --print-defaults allocates nothing,
-    # and the UI calls it on every transaction-type switch.
+    # Read-only, and deliberately before anything touches the masterfile:
+    # printing the defaults allocates nothing.
     if args.print_defaults:
+        if claims is not None and not (isinstance(claims, int)
+                                       and 1 <= claims <= M.MAX_CLAIMS):
+            sys.stderr.write("claim count must be between 1 and %d, got %r\n"
+                             % (M.MAX_CLAIMS, claims))
+            return 1
         try:
-            json.dump(seed_introspect.defaults_for(profile, repo),
-                      sys.stdout)
-        except (seeds.SeedMismatch, IOError, OSError) as exc:
+            defaults = seed_introspect.defaults_for(profile, repo)
+        except (seeds.SeedMismatch, seed_introspect.SeedShapeError) as exc:
             sys.stderr.write("%s\n" % exc)
             return 1
+        if claims is not None:
+            # build() cycles the seed's blocks for claim n; the defaults have
+            # to cycle identically or a returned document would describe a
+            # different block than the one it will be applied to.
+            seeded = defaults["claims"]
+            defaults["claims"] = [
+                dict(seeded[source_index(n, profile) - 1], n=n)
+                for n in range(1, claims + 1)]
+        json.dump(defaults, sys.stdout)
         sys.stdout.write("\n")
         return 0
 
@@ -853,196 +660,111 @@ def main(argv=None):
                          % (M.MAX_CLAIMS, claims))
         return 1
 
-    # The identifiers a run WOULD take. M.allocate only reads - the masterfile
-    # moves in append_run, further down - so this consumes nothing. It exists
-    # so the UI's identifier tiles come from the allocator itself rather than
-    # from a second implementation of the allocation rules in the browser.
+    # Also read-only: allocate() computes the next identifiers but only
+    # append_run() records them, so previewing them costs nothing.
     if args.print_allocation:
         try:
+            profile_out = _default_output(repo, profile.code, claims)
             alloc = M.allocate(M.load(repo), repo, profile, claims)
         except M.MasterfileError as exc:
             sys.stderr.write("%s\n" % exc)
             return 1
-        peek = dataclasses.asdict(alloc)
-        peek["nextBatch"] = len(M.load(repo)["runs"]) + 1
-        json.dump(peek, sys.stdout)
+        json.dump(_allocation_payload(profile, claims, alloc, profile_out,
+                                      repo), sys.stdout)
         sys.stdout.write("\n")
         return 0
 
-    # Read the document before anything is allocated, so a malformed file
-    # costs nothing from the masterfile.
-    try:
-        raw_doc = _load_document(args.data)
-    except ValueError as exc:
-        sys.stderr.write("%s is not valid JSON: %s\n" % (args.data, exc))
-        return 1
-    except (IOError, OSError) as exc:
-        sys.stderr.write("%s cannot be read: %s\n" % (args.data, exc))
-        return 1
-
-    # Every publisher holds one repository-scoped OS lock from output
-    # selection through publication. An unpinned run keeps it through the
-    # atomic masterfile append as well, so two processes cannot observe the
-    # same available batch path or identifier set. Pinned replays do not
-    # allocate, but share the lock so their output existence check cannot
-    # race another publisher targeting the same path.
-    with M.generation_lock(repo):
-        outp = os.path.abspath(args.output or _default_output(
-            repo, profile.code, claims))
-        manp = outp[:-4] + ".manifest.json" if outp.endswith(".x12") \
-            else outp + ".manifest.json"
-        if os.path.exists(outp) and not args.force:
-            sys.stderr.write("%s exists; pass --force to overwrite\n" % outp)
-            return 1
-
-        try:
-            seed_segs = seeds.load_seed(profile, repo)
-            if pinned:
-                alloc = _alloc_from_manifest(pinned)
-                # A pinned replay must reproduce the DECLARATION as well as
-                # the allocation, or check 14 fails on every overridden file.
-                ov = _ov_from_manifest(pinned, profile)
-                raw_doc = pinned.get("overrides") or {}
-            else:
-                mf = M.load(repo)
-                alloc = M.allocate(mf, repo, profile, claims)
-                # A run without --data declares nothing, and manifest_record
-                # writes an empty declaration rather than omitting the key.
-                raw_doc = raw_doc or {}
-                ov = overrides.parse(raw_doc, profile, claims)
-            text = render(build(seed_segs, profile, alloc, claims, ov))
-        except (seeds.SeedMismatch, M.MasterfileError, BuildError,
-                overrides.OverrideError) as exc:
-            sys.stderr.write("%s\n" % exc)
-            return 1
-
-        with open(seeds.seed_path(profile, repo), "rb") as fh:
-            seed_sha = hashlib.sha256(fh.read()).hexdigest()
-        sha = hashlib.sha256(text.encode("ascii")).hexdigest()
-        record = manifest_record(
-            alloc, profile, claims,
-            os.path.relpath(outp, repo).replace("\\", "/"),
-            sha, seed_sha, raw_doc)
+    # One document, read once. The same object is parsed into the overrides
+    # build() applies and recorded verbatim in the manifest the validator
+    # checks against, so the two can never describe different things.
+    raw_override_doc = pinned.get("overrides") if pinned else None
+    if args.data:
         if pinned:
-            record["timestamp"] = pinned.get("timestamp",
-                                               record["timestamp"])
-
-        d = os.path.dirname(outp)
-        created_dirs = []
+            sys.stderr.write("--data cannot be combined with --pin; a pinned "
+                             "manifest already carries its declaration\n")
+            return 2
         try:
-            if d and not os.path.isdir(d):
-                cursor = d
-                while cursor and not os.path.exists(cursor):
-                    created_dirs.append(cursor)
-                    parent = os.path.dirname(cursor)
-                    if parent == cursor:
-                        break
-                    cursor = parent
-                os.makedirs(d)
-            # Validation and publication staging must share the destination's
-            # filesystem. os.replace below is then atomic rather than
-            # shutil.move's possible cross-filesystem copy-and-delete.
-            tmp = tempfile.mkdtemp(prefix=".edi_gen_", dir=d or None)
-        except OSError as exc:
-            for created in created_dirs:
-                try:
-                    os.rmdir(created)
-                except OSError:
-                    pass
-            sys.stderr.write("generation staging failed: %s\n" % exc)
+            raw_override_doc = _read_override_doc(args.data)
+        except (IOError, OSError, ValueError) as exc:
+            sys.stderr.write("--data %s could not be read as JSON: %s\n"
+                             % (args.data, exc))
+            return 2
+
+    # Parsed before the masterfile is opened, so a document the generator
+    # cannot honour costs no identifier.
+    try:
+        ov = overrides.parse(raw_override_doc, profile, claims)
+    except overrides.OverrideError as exc:
+        sys.stderr.write("%s\n" % exc)
+        return 2
+
+    outp = os.path.abspath(args.output or _default_output(repo, profile.code,
+                                                          claims))
+    manp = outp[:-4] + ".manifest.json" if outp.endswith(".x12") \
+        else outp + ".manifest.json"
+    if os.path.exists(outp) and not args.force:
+        sys.stderr.write("%s exists; pass --force to overwrite\n" % outp)
+        return 1
+
+    try:
+        seed_segs = seeds.load_seed(profile, repo)
+        if pinned:
+            alloc = _alloc_from_manifest(pinned)
+        else:
+            mf = M.load(repo)
+            alloc = M.allocate(mf, repo, profile, claims)
+        text = render(build(seed_segs, profile, alloc, claims, ov))
+    # overrides.OverrideError belongs here as well as at the parse gate
+    # above: build() re-enters the override code while it applies the
+    # declaration, and without this the gate's own exception class would
+    # reach the user as a traceback instead of the CLI's clean error path.
+    except (seeds.SeedMismatch, M.MasterfileError, BuildError,
+            overrides.OverrideError) as exc:
+        sys.stderr.write("%s\n" % exc)
+        return 1
+
+    with open(seeds.seed_path(profile, repo), "rb") as fh:
+        seed_sha = hashlib.sha256(fh.read()).hexdigest()
+    sha = hashlib.sha256(text.encode("ascii")).hexdigest()
+    record = alloc.as_record(
+        profile.code, claims,
+        os.path.relpath(outp, repo).replace("\\", "/"),
+        sha, profile.rel_path, seed_sha)
+    record_overrides(record, raw_override_doc)
+    if pinned:
+        record["timestamp"] = pinned.get("timestamp", record["timestamp"])
+
+    tmp = tempfile.mkdtemp(prefix="edi_gen_")
+    try:
+        tmp_out = os.path.join(tmp, os.path.basename(outp))
+        tmp_man = tmp_out[:-4] + ".manifest.json"
+        with io.open(tmp_out, "w", encoding="ascii", newline="") as fh:
+            fh.write(text)
+        with io.open(tmp_man, "w", encoding="utf-8", newline="\n") as fh:
+            fh.write(json.dumps(record, indent=2, sort_keys=True) + "\n")
+        proc = subprocess.run(
+            [sys.executable, os.path.join(HERE, "validate.py"),
+             "--file", tmp_out, "--manifest", tmp_man, "--repo", repo,
+             "--skip-producer"],
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        out_text = proc.stdout.decode("utf-8", "replace")
+        if proc.returncode != 0:
+            sys.stderr.write(out_text)
+            sys.stderr.write("validation failed; nothing was written\n")
             return 1
-        published = []
-        backups = []
-        committed = False
-        try:
-            tmp_out = os.path.join(tmp, os.path.basename(outp))
-            tmp_man = tmp_out[:-4] + ".manifest.json"
-            with io.open(tmp_out, "w", encoding="ascii", newline="") as fh:
-                fh.write(text)
-            with io.open(tmp_man, "w", encoding="utf-8",
-                         newline="\n") as fh:
-                fh.write(json.dumps(record, indent=2, sort_keys=True) + "\n")
-            proc = subprocess.run(
-                [sys.executable, os.path.join(HERE, "validate.py"),
-                 "--file", tmp_out, "--manifest", tmp_man, "--repo", repo,
-                 "--skip-producer"],
-                stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-            out_text = proc.stdout.decode("utf-8", "replace")
-            if proc.returncode != 0:
-                sys.stderr.write(out_text)
-                sys.stderr.write("validation failed; nothing was written\n")
-                return 1
-            if args.fail_after_validate:
-                sys.stderr.write("forced failure after validation\n")
-                return 1
-            try:
-                # Backups live beside their originals, outside the disposable
-                # generation directory. If restoring one ever fails, the
-                # only surviving copy therefore remains recoverable after
-                # this function cleans its temporary validation files.
-                for destination in (outp, manp):
-                    if os.path.exists(destination):
-                        backup = "%s.previous-%s" % (
-                            destination, uuid.uuid4().hex)
-                        os.replace(destination, backup)
-                        backups.append((backup, destination))
+        if args.fail_after_validate:
+            sys.stderr.write("forced failure after validation\n")
+            return 1
+        d = os.path.dirname(outp)
+        if d and not os.path.isdir(d):
+            os.makedirs(d)
+        shutil.move(tmp_out, outp)
+        shutil.move(tmp_man, manp)
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
 
-                published.append(outp)
-                os.replace(tmp_out, outp)
-                published.append(manp)
-                os.replace(tmp_man, manp)
-
-                batch_id = None
-                if not pinned:
-                    M.append_run(repo, record)
-                    # 1-based index in the append-only history, including the
-                    # imported bootstrap run.
-                    batch_id = len(mf["runs"]) + 1
-                committed = True
-            except (IOError, OSError, M.MasterfileError) as exc:
-                cleanup_errors = []
-                for published_path in reversed(published):
-                    try:
-                        os.unlink(published_path)
-                    except FileNotFoundError:
-                        pass
-                    except OSError as cleanup_exc:
-                        cleanup_errors.append(
-                            "%s (%s)" % (published_path, cleanup_exc))
-                restore_errors = []
-                for backup, destination in reversed(backups):
-                    try:
-                        os.replace(backup, destination)
-                    except OSError as restore_exc:
-                        restore_errors.append(
-                            "%s remains at %s (%s)"
-                            % (destination, backup, restore_exc))
-                sys.stderr.write("generation transaction failed: %s\n" % exc)
-                if cleanup_errors:
-                    sys.stderr.write("artifact cleanup failed; "
-                                     + "; ".join(cleanup_errors) + "\n")
-                if restore_errors:
-                    sys.stderr.write("artifact restore failed; "
-                                     + "; ".join(restore_errors) + "\n")
-                return 1
-            for backup, _destination in backups:
-                try:
-                    os.unlink(backup)
-                except OSError as exc:
-                    sys.stderr.write("stale artifact backup remains at %s: "
-                                     "%s\n" % (backup, exc))
-        finally:
-            try:
-                shutil.rmtree(tmp)
-            except OSError as exc:
-                sys.stderr.write("generation staging cleanup failed at %s: "
-                                 "%s\n" % (tmp, exc))
-            if not committed:
-                for created in created_dirs:
-                    try:
-                        os.rmdir(created)
-                    except OSError:
-                        pass
+    if not pinned:
+        M.append_run(repo, record)
 
     # The reference .docx is the last thing built, outside the
     # allocate->validate->move->append sequence. The file and its
@@ -1054,19 +776,36 @@ def main(argv=None):
         summary = None
         sys.stderr.write("claim summary not written: %s\n" % exc)
 
-    progress.write("wrote %s (%d bytes)\n" % (outp, len(text)))
-    progress.write("manifest %s\n" % manp)
-    progress.write("ISA13 %s  GS06 %s  envelope %s %s\n"
-                   % (alloc.isa13, alloc.gs06, alloc.envelope_date,
-                      alloc.envelope_time))
-    progress.write("statement %s  claims %d\n" % (alloc.statement, claims))
-    progress.write("CLM01 %s .. %s\n" % (alloc.clm01[0], alloc.clm01[-1]))
-    if summary:
-        progress.write("summary %s\n" % summary)
     if args.json:
-        json.dump({"x12FilePath": outp, "docxFilePath": summary,
-                   "manifestPath": manp, "batchId": batch_id}, sys.stdout)
+        # stdout carries the object and nothing else; the summary warning
+        # above already went to stderr, so a caller can json.loads() this.
+        json.dump({
+            "batchId": _batch_id(outp),
+            "type": profile.code,
+            "claims": claims,
+            "x12": record["output"],
+            "manifest": _reported_path(manp, repo),
+            "docx": _reported_path(summary, repo) if summary else None,
+            "isa13": alloc.isa13,
+            "gs06": alloc.gs06,
+            "statement": alloc.statement,
+            "envelope_date": alloc.envelope_date,
+            "clm01": [alloc.clm01[0], alloc.clm01[-1]],
+            "sha256": sha,
+            "timestamp": record["timestamp"],
+        }, sys.stdout)
         sys.stdout.write("\n")
+        return 0
+
+    sys.stdout.write("wrote %s (%d bytes)\n" % (outp, len(text)))
+    sys.stdout.write("manifest %s\n" % manp)
+    sys.stdout.write("ISA13 %s  GS06 %s  envelope %s %s\n"
+                     % (alloc.isa13, alloc.gs06, alloc.envelope_date,
+                        alloc.envelope_time))
+    sys.stdout.write("statement %s  claims %d\n" % (alloc.statement, claims))
+    sys.stdout.write("CLM01 %s .. %s\n" % (alloc.clm01[0], alloc.clm01[-1]))
+    if summary:
+        sys.stdout.write("summary %s\n" % summary)
     return 0
 
 

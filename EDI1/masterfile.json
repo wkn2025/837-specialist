@@ -499,81 +499,6 @@
     },
     {
       "bht03": [
-        "2401140001",
-        "2401140002",
-        "2401140003"
-      ],
-      "claims": 3,
-      "clm01": [
-        "TEST240114001",
-        "TEST240114002",
-        "TEST240114003"
-      ],
-      "envelope_date": "20240114",
-      "envelope_time": "0930",
-      "gs06": "996",
-      "isa13": "990000202",
-      "output": "EDI1/Batch 6/fromUHCG-837I-WKN_3claims.x12",
-      "overrides": {
-        "claims": [
-          {
-            "lines": [
-              {
-                "billed": "700.00",
-                "date": "20241121"
-              },
-              {
-                "billed": "384.00",
-                "date": "20241122"
-              },
-              {
-                "billed": "100.00",
-                "date": "20241122"
-              }
-            ],
-            "n": 2,
-            "principalDiagnosis": "E119"
-          }
-        ],
-        "identity": {
-          "subscriber": {
-            "last": "DOE"
-          }
-        }
-      },
-      "ref_9a": [
-        "E2E24011412125001",
-        "E2E24011412125002",
-        "E2E24011412125003"
-      ],
-      "ref_f8": [
-        "99012156004",
-        "99012156005",
-        "99012156006"
-      ],
-      "seed": "EDI1/Batch 1/fromUHCG-837I-WKN_9claims.x12",
-      "seed_sha256": "6076704874332f15f1b1f2495e0cb4be8343c55d151614ffef9f007c30192298",
-      "service_dates": [
-        "20240108",
-        "20240109",
-        "20240110",
-        "20240111",
-        "20240112",
-        "20240113",
-        "20240114"
-      ],
-      "sha256": "a25fec8308d9554b384ce17dee3b204d237b696e27f37b95b972f9801030f24f",
-      "st02": [
-        "990000204",
-        "990000205",
-        "990000206"
-      ],
-      "statement": "20240108-20240114",
-      "timestamp": "2026-08-22T01:05:51",
-      "type": "I"
-    },
-    {
-      "bht03": [
         "2401210001",
         "2401210002",
         "2401210003"
@@ -646,6 +571,146 @@
       "statement": "20240115-20240121",
       "timestamp": "2026-08-22T02:16:30",
       "type": "I"
+    },
+    {
+      "bht03": [
+        "2401140001",
+        "2401140002",
+        "2401140003"
+      ],
+      "claims": 3,
+      "clm01": [
+        "TEST240114001",
+        "TEST240114002",
+        "TEST240114003"
+      ],
+      "envelope_date": "20240114",
+      "envelope_time": "0930",
+      "gs06": "3406",
+      "isa13": "990000104",
+      "output": "EDI1/Batch 6/fromUHCG-837I-WKN_3claims.x12",
+      "overrides": {
+        "claims": [
+          {
+            "lines": [
+              {
+                "billed": "420.00",
+                "date": "20241121"
+              }
+            ],
+            "n": 1,
+            "principalDiagnosis": "I48"
+          },
+          {
+            "lines": [
+              {
+                "billed": "300.00",
+                "date": "20241121"
+              },
+              {
+                "billed": "384.00",
+                "date": "20241122"
+              },
+              {
+                "billed": "384.00",
+                "date": "20241122"
+              }
+            ],
+            "n": 2,
+            "principalDiagnosis": "E119"
+          },
+          {
+            "lines": [
+              {
+                "billed": "420.00",
+                "date": "20241121"
+              },
+              {
+                "billed": "420.00",
+                "date": "20241122"
+              },
+              {
+                "billed": "384.00",
+                "date": "20241123"
+              }
+            ],
+            "n": 3,
+            "principalDiagnosis": "I48"
+          }
+        ],
+        "identity": {
+          "attendingProvider": {
+            "first": "MOHAMMED",
+            "last": "NIZAM",
+            "npi": "1326145764"
+          },
+          "billingProvider": {
+            "name": "JFK JOHNSON REHAB INSTITUTE",
+            "npi": "1114932548"
+          },
+          "subscriber": {
+            "dob": "19941217",
+            "first": "WILLIAM",
+            "last": "DOE",
+            "memberId": "909001333969"
+          },
+          "taxId": "B03000684"
+        }
+      },
+      "ref_9a": [
+        "E2E24011412125001",
+        "E2E24011412125002",
+        "E2E24011412125003"
+      ],
+      "ref_f8": [
+        "99012155022",
+        "99012155023",
+        "99012155024"
+      ],
+      "seed": "EDI1/Batch 1/fromUHCG-837I-WKN_9claims.x12",
+      "seed_sha256": "6076704874332f15f1b1f2495e0cb4be8343c55d151614ffef9f007c30192298",
+      "service_dates": [
+        "20240108",
+        "20240109",
+        "20240110",
+        "20240111",
+        "20240112",
+        "20240113",
+        "20240114"
+      ],
+      "sha256": "5eaf468a62bbfdecefd33eb60e68c9a82e362cb60ccb1b261ecdc1eb1c085453",
+      "st02": [
+        "990000016",
+        "990000017",
+        "990000018"
+      ],
+      "statement": "20240108-20240114",
+      "timestamp": "2026-08-22T23:33:28",
+      "type": "I"
+    },
+    {
+      "bht03": [],
+      "claims": 0,
+      "clm01": [],
+      "envelope_date": "20240114",
+      "gs06": "996",
+      "isa13": "990000202",
+      "note": "identifiers consumed by main's Batch 6 (commit d9abb31), whose artefacts were superseded by the authoritative Batch 6 at the 837p-seed-registration integration. No file carries them any more; this record keeps the allocator from reissuing them. The date-derived BHT03/CLM01/REF*9A it also used are recorded by the surviving Batch 6 run.",
+      "ref_9a": [],
+      "ref_f8": [
+        "99012156004",
+        "99012156005",
+        "99012156006"
+      ],
+      "st02": [
+        "990000204",
+        "990000205",
+        "990000206"
+      ],
+      "statement": "20240108-20240114",
+      "superseded_sha256": "a25fec8308d9554b384ce17dee3b204d237b696e27f37b95b972f9801030f24f",
+      "timestamp": "2026-08-22T01:05:51",
+      "type": "retired"
     }
   ],
   "version": 1

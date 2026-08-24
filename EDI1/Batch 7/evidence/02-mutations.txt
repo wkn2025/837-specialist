@@ -1,26 +1,61 @@
-command : .venv/Scripts/python.exe skill/generating-uhcg-edi-files/scripts/mutations.py --repo .
+command : python skill/generating-uhcg-edi-files/scripts/mutations.py --repo .
+date    : 2026-08-23
 exit    : 0
+result  : 62 mutations, every one caught by the check that owns it
+
+Rewritten at the 837p-seed-registration integration. The previous version
+summarised main's mutation suite; the merged suite has a different fixture
+layout (a declared-override family per transaction type rather than one
+"decl" family) and different mutation names, so the old bullets no longer
+described anything that runs. Every line below is taken from the run above.
+
+The mutation suite allocates no identifier and never writes EDI1/masterfile.json
+(scripts/mutations.py builds its declared fixture in a temp dir by calling
+generate.build directly). masterfile.json sha256 was
+c243f781a10677390f9b43345f8bf23da75ee8e464405bff7414f624bad5ab49 before and
+after this run.
 
 837I baseline: all checks pass
-- checks 1 through 14 were independently driven red by their owning mutations
-- undeclared identity, member ID, diagnosis, line charge and duplicate-LX drift were caught
+- checks 1 through 14 each driven red by their own owning mutation
+- includes: BHT03 at 11 characters (5), REF*F8 reusing a seed claim control
+  number (7), a service line date leaving 2024 (8), a CR line ending (13),
+  the committed fixture no longer matching its generator (14)
 
 837P baseline: all checks pass
-- checks 1 through 14 were independently driven red by their owning mutations
-- undeclared identity, member ID, diagnosis, line charge and duplicate-LX drift were caught
+- checks 1 through 14 each driven red by their own owning mutation
+- includes: ISA15 claiming production (2), a service line range that stops
+  being a single day (8), a date of birth the profile does not declare (8),
+  a claim HCP that is not the sum of its lines (11)
 
-decl baseline: all checks pass
-- reverting a declared member ID was caught by checks 9 and 12
-- altering undeclared identity was caught by checks 9 and 12
-- reverting the declared diagnosis was caught by check 9
-- altering the declared line charge was caught by checks 9 and 11
-- changing the committed fixture was caught by checks 9 and 14
+837I declared baseline: all checks pass
+- an identity segment altered beyond the declaration -> checks 9, 12
+- an undeclared member id altered -> checks 9, 12
+- an undeclared tax id altered beyond the declaration -> checks 9, 12
+- a declared diagnosis altered beyond the declaration -> check 9
+- a declared line charge altered beyond the declaration -> checks 9, 11
+- a declared service line dropped from the file -> checks 4, 9, 10, 11
+- a spliced line keeping a duplicate LX number -> check 9
+- the manifest declaring a surname the file does not carry -> checks 9, 12
+- the manifest dropping the declaration entirely -> checks 9, 10, 12
+- the manifest declaring fewer service lines than the file carries -> checks 9, 10
+- the manifest declaring an override the generator would refuse -> checks 9, 10, 12
 
-generator guards:
+837P declared baseline: all checks pass
+- an identity segment altered beyond the declaration -> check 9
+- an undeclared member id or principal diagnosis altered -> check 9
+- a declared line charge altered beyond the declaration -> checks 9, 11
+- a line's allowed plus savings no longer equalling its charge -> checks 9, 11
+- a declared service line dropped from the file -> checks 4, 9, 10, 11
+- the manifest dropping the declaration entirely -> checks 9, 10
+
+generator guards
 - refused an unregistered transaction type
-- refused claim counts of zero and over 999
-- refused overwriting either fixture without --force
+- refused a claim count of zero and a claim count over 999
+- refused to overwrite either committed fixture without --force
 - refused --type without --claims
-- both fixtures remained byte-identical after all refused runs
+- both fixtures byte-identical after all refused runs
 
-every mutation was caught by the check that owns it
+Scope note: this is the repo-wide mutation suite, not a Batch 7 artifact
+check. It exercises the committed I and P fixtures and a temp declared
+fixture. It does not read EDI1/Batch 7. The Batch 7 artifact's own result is
+in 01-validate.txt and 06-post-integration-revalidation.txt.

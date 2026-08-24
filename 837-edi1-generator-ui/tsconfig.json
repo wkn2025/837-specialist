@@ -4,20 +4,24 @@
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "module": "ESNext",
     "moduleResolution": "bundler",
+    "moduleDetection": "force",
     "jsx": "react-jsx",
     "strict": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
-    "resolveJsonModule": true,
     "isolatedModules": true,
-    // node --experimental-strip-types resolves the real file, so the .ts
-    // extension in server/index.ts is required at runtime.
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    // server/index.ts is run by `node --experimental-strip-types`, which
+    // resolves the real file, so its .ts import specifier is required at
+    // runtime. tsconfig.server.json rewrites it on the compiled path.
     "allowImportingTsExtensions": true,
-    "verbatimModuleSyntax": true,
     "skipLibCheck": true,
     "noEmit": true,
-    "types": ["node", "vite/client"],
+    "types": ["vite/client", "node"],
+    // The EDI2 Validator feature imports through this alias; vite.config.ts
+    // carries the matching runtime alias.
     "paths": { "@/*": ["./src/*"] }
   },
   "include": ["src", "server", "vite.config.ts"]

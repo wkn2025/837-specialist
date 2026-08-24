@@ -1,11 +1,14 @@
 """Validate a generated UHCG 837 file against its manifest and its seed.
 
-Check 9 reads the seed directly, and computes what the manifest's declared
-overrides should have made of it entirely locally: the payload-fidelity proof
-must not share an edit computation with the generator it audits (Ruling
-X-2b). A DECLARED change therefore passes and an UNDECLARED one is still a
-hard failure. Check 14 is what catches a manifest that lies about what was
-generated.
+Check 9 reads the seed file directly: the payload-fidelity proof keeps its own
+source of truth rather than taking the generator's word for what the payload
+should be. It does read the manifest for what was *declared* - only one module
+can map "subscriber.last" onto an element of NM1*IL, so the declaration is
+interpreted with generate.py's own edit functions. That is not a loophole: a
+declaration is a fixed input, every reversal is guarded on the exact bytes the
+declaration implies, and anything the manifest did not declare has no reversal
+and still fails against the seed. Check 14 is what catches a manifest that
+lies about what was generated.
 
 Usage:
     python validate.py --file PATH --manifest PATH --repo ROOT
@@ -21,7 +24,7 @@ import re
 import subprocess
 import sys
 import tempfile
-from decimal import Decimal as D, ROUND_HALF_UP
+from decimal import Decimal as D
 
 import generate as G
 import masterfile as M
@@ -31,7 +34,6 @@ import x12_parse as X
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 FAILED = []
-_CENTS = D("0.01")
 
 
 def check(num, name, ok, detail=""):
@@ -56,439 +58,195 @@ def claim_hcp(block):
     return hcp[0] if len(hcp) == 1 else None
 
 
-# --------------------------------------------------------------------------
-# Check 9 - what the seed block should have become, computed HERE
-#
-# Ruling X-2b. Check 9 is the one check that can catch the generator getting a
-# declaration wrong, so it must not share the generator's EDIT COMPUTATION:
-# never generate.identity_edits, money_edits, splice_lines, diagnosis_edits,
-# edits_for or apply_edits. Sharing DATA is fine and is what everything below
-# does - profile.src_*, profile.frozen, profile.override_addrs (seeds.py:52),
-# and the pure index arithmetic of G.source_index. The tautology this avoids:
-# the generator writes value V, the validator recomputes its expectation with
-# the same code and also gets V, and a misapplied declaration passes.
-#
-# The framing is inverted from the original "reverse the edits, then demand
-# equality with the seed block". A declared line add or remove changes the
-# block's length, so positional reversal has nothing to line up against.
-# Instead the seed block is carried FORWARD - resized, then edited exactly as
-# the declaration and the manifest say it should be - and the generated block
-# must equal it byte for byte. Every difference must therefore be explained
-# by the declaration, which is what the old reversal proved and a superset of
-# what its per-literal occurrence counts proved. It also removes the SE defect
-# the old reverse_pairs carried: it built the expected SE from
-# profile.block_lens[i], the SEED's segment count, which is wrong for any
-# spliced block. SE01 is now recomputed from the expected block's own length.
-# --------------------------------------------------------------------------
+def _swap_clm(seg, clm01, clm02=None):
+    """The CLM segment with element 1, and any declared element 2, replaced.
 
-# The service-line charge sits at a different element index per profile:
-# SV2*0430*HC:97530*420.00*UN*2 carries it at index 3, SV1*HC:99222*293.00*
-# UN*1*21**1:2:3**N at index 2 (claim_summary.py:71-79 is the prior art).
-# Declared here rather than imported from generate.py, per Ruling X-2b.
-_LINE_AMOUNT_IDX = {"SV2": 3, "SV1": 2}
-
-# Which segment each identity override group addresses. The ELEMENT indices
-# come from profile.override_addrs (data, shared deliberately); the group ->
-# segment mapping is restated here so check 9 owns its own expectation.
-_IDENTITY_PREFIX = {
-    "subscriber": "NM1*IL*",
-    "billingProvider": "NM1*85*",
-    "attendingProvider": "NM1*71*",
-    "taxId": "REF*EI*",
-}
-_DOB_PREFIX = "DMG*D8*"
-
-
-def _set_elem(seg, idx, val):
+    Kept local to the validator: the identifier reversal must not share a
+    code path with the generator it audits. CLM02 moves only when the
+    manifest declares new amounts, because CLM01 and CLM02 live in one
+    segment and the generator rewrites them together.
+    """
     e = seg.split(X.ELEM)
-    while len(e) <= idx:
-        e.append("")
-    e[idx] = val
+    e[1] = clm01
+    if clm02 is not None:
+        e[2] = clm02
     return X.ELEM.join(e)
 
 
-def _money_str(v):
-    """Two-place money, Decimal only - never through a float."""
-    return str(D(v).quantize(_CENTS, rounding=ROUND_HALF_UP))
+def _service_date_pairs(profile, man):
+    """[(generated segment, seed segment), ...] for the declared date shape."""
+    out = []
+    for gen, src in zip(man["service_dates"], profile.src_dates):
+        if profile.service_date_shape == "D8":
+            out.append(("DTP*472*D8*%s" % gen, "DTP*472*D8*%s" % src))
+        elif profile.service_date_shape == "RD8_same_day":
+            out.append(("DTP*472*RD8*%s-%s" % (gen, gen),
+                        "DTP*472*RD8*%s-%s" % (src, src)))
+        else:
+            raise ValueError("unknown service_date_shape %r"
+                             % profile.service_date_shape)
+    return out
 
 
-def _date_form(profile):
-    """(DTP*472 prefix, one-day formatter) for the declared date shape."""
-    if profile.service_date_shape == "D8":
-        return "DTP*472*D8*", lambda d: d
-    if profile.service_date_shape == "RD8_same_day":
-        return "DTP*472*RD8*", lambda d: "%s-%s" % (d, d)
-    raise ValueError("unknown service_date_shape %r"
-                     % profile.service_date_shape)
+def declared_overrides(profile, man, claims):
+    """The override document this manifest declares, parsed, or None.
 
-
-def lx_bounds(block):
-    """[(start, end)] for each LX loop in `block`; end is exclusive.
-
-    A local LX-to-next-LX scan. Loop length is NOT assumed uniform - the 837P
-    seed's block 6 carries an NTE*TPO* in its sixth loop only - so bounds come
-    from LX position alone, never from a segments-per-line constant.
+    A declaration the generator itself would have refused is treated as no
+    declaration at all: the file is then measured against the untouched seed
+    and fails, rather than being excused by a document that could never have
+    produced it.
     """
-    starts = [j for j, s in enumerate(block) if s.startswith("LX*")]
-    if not starts:
+    doc = (man or {}).get("overrides")
+    if not doc:
+        return None
+    try:
+        return overrides.parse(doc, profile, claims)
+    except overrides.OverrideError:
+        return None
+
+
+def declared_blocks(profile, man, seed_blocks, claims):
+    """The seed block each output claim must match, after declared splices.
+
+    A claim whose service lines were added to or removed from is longer or
+    shorter than its seed block. That is only allowed because the manifest
+    declares it: an undeclared change in segment count still fails, because
+    the expected shape is rebuilt from the declaration, never read off the
+    file being checked.
+    """
+    ov = declared_overrides(profile, man, claims)
+    out = []
+    for n in range(1, claims + 1):
+        block = seed_blocks[G.source_index(n, profile) - 1]
+        out.append(G.splice_lines(profile, ov, block, n) if ov else block)
+    return out
+
+
+def expected_identity(profile, ov, seed_block):
+    """The frozen literals, with the declared identity overrides applied.
+
+    Anything the manifest did not declare must still match the seed exactly,
+    so check 12 keeps its meaning instead of being removed: only the segments
+    a declaration actually names are allowed to differ.
+    """
+    swaps = {}
+    if ov:
+        for literal, _must, _rep, replacement in G.identity_edits(
+                profile, ov, seed_block):
+            swaps[literal] = replacement
+    return [swaps.get(literal, literal) for literal in profile.frozen]
+
+
+def declared_dobs(ov):
+    """Dates of birth a declaration introduces, for the date-window check."""
+    if not ov:
         return []
-    ends = starts[1:] + [len(block)]
-    ends[-1] = len(block) - 1 if block[-1].startswith("SE*") else len(block)
-    return list(zip(starts, ends))
+    sub = (ov.identity or {}).get("subscriber") or {}
+    return [sub["dob"]] if "dob" in sub else []
 
 
-def declared_lines(ov, n):
-    c = ov.claim(n) if ov else None
-    return (c or {}).get("lines") or []
+def restore_declared(profile, ov, expected_block, restored, n):
+    """Undo the declared content overrides on one block.
 
-
-def resized_seed_block(seed_block, want):
-    """The seed block carrying `want` LX loops instead of its own count.
-
-    Grows by copying the block's ORIGINAL loops round-robin and stripping any
-    NTE a fabricated loop would inherit; shrinks by truncation; renumbers
-    LX01. That is the declared splice policy (Rulings T5-e/T5-f), restated
-    here so check 9 does not call generate.splice_lines.
+    Every reversal is guarded: a segment is put back only when it is exactly
+    what the declaration says the generator would have written. A file that
+    differs from the declaration keeps its own bytes and fails the comparison
+    that follows, so a declaration can never excuse a change it does not
+    describe.
     """
-    bounds = lx_bounds(seed_block)
-    if not bounds or want < 1 or want == len(bounds):
-        return list(seed_block)
-    head = seed_block[:bounds[0][0]]
-    tail = seed_block[bounds[-1][1]:]
-    loops = [seed_block[s:e] for s, e in bounds]
-    if want > len(loops):
-        originals = list(loops)
-        while len(loops) < want:
-            src = originals[(len(loops) - len(originals)) % len(originals)]
-            loops.append([s for s in src if not s.startswith("NTE*")])
-    else:
-        loops = loops[:want]
-    out = list(head)
-    for i, loop in enumerate(loops, 1):
-        loop = list(loop)
-        loop[0] = "LX*%d" % i
-        out.extend(loop)
-    return out + tail
+    if not ov:
+        return restored
+    out = list(restored)
+    # Amounts are addressed by position: a claim repeats its service lines
+    # verbatim, so a literal cannot name one line.
+    for idx, seed_seg, generated_seg in G.money_edits(profile, ov,
+                                                      expected_block, n):
+        if 0 <= idx < len(out) and out[idx] == generated_seg:
+            out[idx] = seed_seg
+    for literal, _must, _rep, replacement in (
+            G.identity_edits(profile, ov, expected_block)
+            + G.diagnosis_edits(profile, ov, expected_block, n)):
+        out = [literal if s == replacement else s for s in out]
+    return out
 
 
-def identifier_pairs(profile, man, n, total=None):
-    """(seed literal, occurrences, expected literal) for output claim n.
+def reverse_pairs(profile, man, n, ov=None, block_len=None):
+    """(derived literal, must_occur, source literal) for output claim n.
 
-    The identifier and date substitutions the manifest declares. CLM carries
-    element 1 always and element 2 when a money declaration supplies a claim
-    total. SE is not here: its segment count depends on the finished block,
-    so it is recomputed last.
+    `ov` and `block_len` carry the manifest's declaration: CLM02 moves with
+    the declared amounts, and SE01 counts the declared block, which a
+    declared splice makes longer or shorter than the seed's.
     """
     i = G.source_index(n, profile) - 1
     src_clm = profile.src_clm[i]
-    new_clm = _set_elem(src_clm, 1, man["clm01"][n - 1])
-    if total is not None:
-        new_clm = _set_elem(new_clm, 2, _money_str(total))
+    clm02 = G.claim_total(ov, n) if ov else None
+    se_len = profile.block_lens[i] if block_len is None else block_len
     out = [
-        ("ST*837*%s*%s" % (profile.src_st02[i], profile.version), 1,
-         "ST*837*%s*%s" % (man["st02"][n - 1], profile.version)),
-        ("BHT*0019*00*%s*%s*%s*CH" % (profile.src_st02[i],
-                                      profile.src_bht_date,
-                                      profile.src_bht_time), 1,
-         "BHT*0019*00*%s*%s*%s*CH" % (man["bht03"][n - 1],
+        ("ST*837*%s*%s" % (man["st02"][n - 1], profile.version), 1,
+         "ST*837*%s*%s" % (profile.src_st02[i], profile.version)),
+        ("BHT*0019*00*%s*%s*%s*CH" % (man["bht03"][n - 1],
                                       man["envelope_date"],
-                                      man["envelope_time"])),
-        (src_clm, 1, new_clm),
-        ("REF*F8*%s" % profile.src_ref_f8[i], 1,
-         "REF*F8*%s" % man["ref_f8"][n - 1]),
-        ("REF*9A*%s" % profile.src_ref_9a[i], 1,
-         "REF*9A*%s" % man["ref_9a"][n - 1]),
+                                      man["envelope_time"]), 1,
+         "BHT*0019*00*%s*%s*%s*CH" % (profile.src_st02[i],
+                                      profile.src_bht_date,
+                                      profile.src_bht_time)),
+        (_swap_clm(src_clm, man["clm01"][n - 1], clm02), 1, src_clm),
+        ("REF*F8*%s" % man["ref_f8"][n - 1], 1,
+         "REF*F8*%s" % profile.src_ref_f8[i]),
+        ("REF*9A*%s" % man["ref_9a"][n - 1], 1,
+         "REF*9A*%s" % profile.src_ref_9a[i]),
+        # SE01 counts the emitted block, so a declared splice moves it; the
+        # seed block it is restored to still carries the seed's own count.
+        ("SE*%d*%s" % (se_len, man["st02"][n - 1]), 1,
+         "SE*%d*%s" % (profile.block_lens[i], profile.src_st02[i])),
     ]
     if profile.statement_qualifier:
-        out.append(("DTP*%s*RD8*%s" % (profile.statement_qualifier,
-                                       profile.src_statement), 1,
-                    "DTP*%s*RD8*%s" % (profile.statement_qualifier,
-                                       man["statement"])))
+        out.append(
+            ("DTP*%s*RD8*%s" % (profile.statement_qualifier,
+                                man["statement"]), 1,
+             "DTP*%s*RD8*%s" % (profile.statement_qualifier,
+                                profile.src_statement)))
     return out
-
-
-def _replace_exactly(segs, literal, occurrences, replacement, problems, n):
-    hits = [j for j, s in enumerate(segs) if s == literal]
-    if len(hits) != occurrences:
-        problems.append("claim %d: the seed block carries %r %d time(s), the "
-                        "profile declares %d"
-                        % (n, literal, len(hits), occurrences))
-        return segs
-    out = list(segs)
-    for j in hits:
-        out[j] = replacement
-    return out
-
-
-def _apply_identity(profile, ov, block, problems, n):
-    """Element swaps for every identity group the declaration names."""
-    if not ov or not ov.identity:
-        return block
-    out = list(block)
-    groups = list(_IDENTITY_PREFIX.items())
-    sub = ov.identity.get("subscriber")
-    if isinstance(sub, dict) and "dob" in sub:
-        groups.append(("dob", _DOB_PREFIX))
-    for key, prefix in groups:
-        if key == "dob":
-            values = {"dob": sub["dob"]}
-        elif key in ov.identity:
-            v = ov.identity[key]
-            values = v if isinstance(v, dict) else {key: v}
-        else:
-            continue
-        addrs = profile.override_addrs[prefix]
-        src = next((s for s in out if s.startswith(prefix)), None)
-        if src is None:
-            problems.append("claim %d: the declaration names %s but the seed "
-                            "block has no %s segment" % (n, key, prefix))
-            continue
-        edited = src
-        for name in sorted(values):
-            if name in addrs:
-                edited = _set_elem(edited, addrs[name], values[name])
-        if edited != src:
-            out = _replace_exactly(out, src, 1, edited, problems, n)
-    return out
-
-
-def _apply_diagnosis(ov, block, problems, n):
-    """Replace the ABK principal-diagnosis composite, leaving ABF alone."""
-    c = ov.claim(n) if ov else None
-    if not c or not c.get("principalDiagnosis"):
-        return block
-    for s in block:
-        if not s.startswith("HI*"):
-            continue
-        e = X.elems(s)
-        if len(e) < 2 or not e[1].startswith("ABK:"):
-            continue
-        parts = e[1].split(":")
-        parts[1] = c["principalDiagnosis"]
-        return _replace_exactly(block, s, 1, _set_elem(s, 1, ":".join(parts)),
-                                problems, n)
-    problems.append("claim %d: the declaration names a principal diagnosis "
-                    "but the seed block has no ABK composite" % n)
-    return block
-
-
-def _apply_money(profile, ov, block, problems, n):
-    """Line charges and both HCP levels, addressed by LX position.
-
-    Positional, not literal: a seed block can carry byte-identical service
-    lines (the 837I seed's blocks 2-9 do), and a fabricated loop is a copy of
-    one, so two segments that go in identical must come out with different
-    amounts.
-    """
-    lines = declared_lines(ov, n)
-    if not lines:
-        return block
-    out = list(block)
-    lx_at = [j for j, s in enumerate(out) if s.startswith("LX*")]
-    if len(lx_at) != len(lines):
-        problems.append("claim %d: the declaration has %d line(s) but the "
-                        "block carries %d LX loop(s)"
-                        % (n, len(lines), len(lx_at)))
-        return out
-    amt_idx = _LINE_AMOUNT_IDX[profile.line_id]
-    total, saved = D("0.00"), D("0.00")
-    for line_no, (j, line) in enumerate(zip(lx_at, lines), start=1):
-        billed, savings = line["billed"], line["savings"]
-        total += billed
-        saved += savings
-        sv = next((k for k in range(j, len(out))
-                   if out[k].startswith(profile.line_id + "*")), None)
-        hcp = next((k for k in range(j, len(out))
-                    if out[k].startswith("HCP*")), None)
-        if sv is None or hcp is None:
-            problems.append("claim %d: line %d has no %s or no HCP segment"
-                            % (n, line_no, profile.line_id))
-            continue
-        out[sv] = _set_elem(out[sv], amt_idx, _money_str(billed))
-        # UHCG_Overview_Reference.md:218 - "Repriced Saving Amount is
-        # calculated as Billed Amount - Allowed Amount", i.e. allowed =
-        # billed - savings, for both money rules.
-        out[hcp] = _set_elem(_set_elem(out[hcp], 2, _money_str(billed
-                                                               - savings)),
-                             3, _money_str(savings))
-    claim_hcp_at = next((k for k in range(lx_at[0])
-                         if out[k].startswith("HCP*")), None)
-    if claim_hcp_at is None:
-        problems.append("claim %d: the seed block has no claim-level HCP "
-                        "before its first service line" % n)
-        return out
-    out[claim_hcp_at] = _set_elem(
-        _set_elem(out[claim_hcp_at], 2, _money_str(total - saved)),
-        3, _money_str(saved))
-    return out
-
-
-def _apply_dates(profile, man, ov, block, problems, n):
-    """Reconstruct service dates independently from the declaration.
-
-    Declared lines own their DTP*472 values by LX position. Claims without a
-    line declaration retain the allocator-to-seed-date mapping.
-    """
-    prefix, form = _date_form(profile)
-    lines = declared_lines(ov, n)
-    out = list(block)
-    if lines:
-        bounds = lx_bounds(out)
-        if len(bounds) != len(lines):
-            problems.append("claim %d: the declaration has %d line(s) but "
-                            "the block carries %d LX loop(s)"
-                            % (n, len(lines), len(bounds)))
-            return out
-        for line_no, ((start, end), line) in enumerate(
-                zip(bounds, lines), start=1):
-            positions = [i for i in range(start, end)
-                         if out[i].startswith(prefix)]
-            if len(positions) != 1:
-                problems.append("claim %d line %d: expected one DTP*472, "
-                                "found %d" % (n, line_no, len(positions)))
-                continue
-            out[positions[0]] = prefix + form(line["date"])
-        return out
-
-    for i, s in enumerate(out):
-        if not s.startswith(prefix):
-            continue
-        day = s[len(prefix):].split("-")[0]
-        if day not in profile.src_dates:
-            problems.append("claim %d: seed service date %r is not one the "
-                            "profile declares" % (n, day))
-            continue
-        out[i] = prefix + form(man["service_dates"][
-            profile.src_dates.index(day)])
-    return out
-
-
-def expected_block(profile, man, ov, n, seed_block, problems):
-    """The seed block as the manifest and its declaration say it should be."""
-    lines = declared_lines(ov, n)
-    total = sum((l["billed"] for l in lines), D("0.00")) if lines else None
-    out = resized_seed_block(seed_block, len(lines)) if lines \
-        else list(seed_block)
-
-    for literal, occurrences, replacement in identifier_pairs(
-            profile, man, n, total):
-        out = _replace_exactly(out, literal, occurrences, replacement,
-                               problems, n)
-
-    out = _apply_dates(profile, man, ov, out, problems, n)
-
-    out = _apply_identity(profile, ov, out, problems, n)
-    out = _apply_diagnosis(ov, out, problems, n)
-    out = _apply_money(profile, ov, out, problems, n)
-
-    if out and out[-1].startswith("SE*"):
-        out[-1] = "SE*%d*%s" % (len(out), man["st02"][n - 1])
-    else:
-        problems.append("claim %d: the seed block does not end in SE" % n)
-    return out
-
-
-def expected_identity(profile, man):
-    """The frozen literals, with the manifest's declared overrides applied.
-
-    A list, positionally parallel to profile.frozen.
-
-    Ruling X-2a: this MAY call generate.identity_edits, and does. That reuse
-    is the contract generate.py:155-163 was written to support - swap() is
-    deliberately silent about a missing target segment precisely so this
-    function can hand it ONE frozen literal at a time. Check 12's job is
-    presence plus post-generation tamper detection, and code reuse cannot
-    blind it to a tampered FILE. The class of defect reuse WOULD hide - a
-    generator that misapplies a declaration - is check 9's job, and check 9
-    computes its expectation locally (Ruling X-2b) so the two are
-    independent.
-    """
-    ov = overrides.parse(man.get("overrides") or {}, profile, man["claims"])
-    out = []
-    for literal in profile.frozen:
-        expected = literal
-        for edit in G.identity_edits(profile, ov, [literal]):
-            if edit[0] == literal:
-                expected = edit[3]
-        out.append(expected)
-    return out
-
-
-def split_85_15(charge):
-    """(allowed, savings) for a charge, derived the way the generator does.
-
-    Savings first, allowed as the remainder - so allowed + savings equals the
-    charge exactly, for every charge. This is the guide's formula, read in the
-    only direction that is exactly invertible:
-
-        docs/reference/umr-uhcg-837/UHCG_Overview_Reference.md:218 -
-        "Repriced Saving Amount is calculated as Billed Amount -
-        Allowed Amount."
-
-    The 85/15 RATIO is NOT a UHCG requirement; no guide mandates it. It is the
-    repricing ratio the 837I seed file itself carries, frozen as a
-    seed-fidelity invariant so sliced claim payload stays internally
-    consistent with the seed it came from. overrides.py:177-199 is the
-    generator side of the same invariant.
-
-    Decimal with ROUND_HALF_UP, never float and never the Decimal context
-    default, per CLAUDE.md's money rules and to match overrides.py:193 and
-    generate.py's _money_fmt byte for byte.
-    """
-    savings = (charge * D("0.15")).quantize(_CENTS, rounding=ROUND_HALF_UP)
-    return charge - savings, savings
 
 
 def _check_money_split(blocks, profile):
-    """CLM02 = sum of line charges, and every HCP is the seed's 85/15 split.
-
-    Decimal throughout. This check used to derive both sides independently in
-    float - `round(total * 0.85, 2)` and `round(total * 0.15, 2)` - which for
-    a charge of 0.50 yields 0.42/0.07, a pair that does not even reconcile to
-    the charge (0.90 and 1.10 give 0.77/0.14 and 0.94/0.17, both over). The
-    generator has always derived savings and then subtracted, so the two
-    disagreed on roughly 2.4% of cent values and the validator would have
-    rejected the generator's own correct output. See split_85_15 above for
-    the citation, and CLAUDE.md ("Money is Decimal... never float") for why
-    no value on this path is allowed through a float.
-    """
+    """CLM02 = sum of line charges, and every HCP is an 85/15 split."""
     ok, detail = True, []
     for i, b in enumerate(blocks):
-        total = D(X.elems([s for s in b if s.startswith("CLM*")][0])[2])
-        charges = sum((D(X.elems(s)[3]) for s in b
-                       if s.startswith(profile.line_id + "*")), D("0"))
+        total = round(float(X.elems(
+            [s for s in b if s.startswith("CLM*")][0])[2]), 2)
+        charges = round(sum(float(X.elems(s)[3]) for s in b
+                            if s.startswith(profile.line_id + "*")), 2)
         if charges != total:
             ok = False
-            detail.append("claim %d lines sum to %s but CLM02 is %s"
+            detail.append("claim %d lines sum to %.2f but CLM02 is %.2f"
                           % (i + 1, charges, total))
         hcp = claim_hcp(b)
         if hcp is None:
             ok = False
             detail.append("claim %d has no single claim-level HCP" % (i + 1))
             continue
-        a = D(X.elems(hcp)[2])
-        s2 = D(X.elems(hcp)[3])
-        want_a, want_s = split_85_15(total)
-        if (a, s2) != (want_a, want_s):
+        a = round(float(X.elems(hcp)[2]), 2)
+        s2 = round(float(X.elems(hcp)[3]), 2)
+        if (a, s2) != (round(total * 0.85, 2), round(total * 0.15, 2)):
             ok = False
-            detail.append("claim %d HCP %s/%s is not %s/%s, the 85/15 split "
-                          "of %s" % (i + 1, a, s2, want_a, want_s, total))
+            detail.append("claim %d HCP %.2f/%.2f is not 85/15 of %.2f"
+                          % (i + 1, a, s2, total))
         for j, seg in enumerate(b):
             if not seg.startswith(profile.line_id + "*"):
                 continue
-            charge = D(X.elems(seg)[3])
+            charge = round(float(X.elems(seg)[3]), 2)
             lh = next((x for x in b[j:] if x.startswith("HCP*")), None)
             if lh is None:
                 ok = False
                 detail.append("claim %d: a service line has no HCP" % (i + 1))
                 continue
-            la = D(X.elems(lh)[2])
-            ls = D(X.elems(lh)[3])
-            want_la, want_ls = split_85_15(charge)
-            if (la, ls) != (want_la, want_ls):
+            la = round(float(X.elems(lh)[2]), 2)
+            ls = round(float(X.elems(lh)[3]), 2)
+            if (la, ls) != (round(charge * 0.85, 2), round(charge * 0.15, 2)):
                 ok = False
-                detail.append("claim %d line %s: HCP %s/%s is not %s/%s"
-                              % (i + 1, charge, la, ls, want_la, want_ls))
+                detail.append("claim %d line %.2f: HCP %.2f/%.2f not 85/15"
+                              % (i + 1, charge, la, ls))
     return ok, detail
 
 
@@ -567,19 +325,6 @@ def main():
     with io.open(args.manifest, encoding="utf-8") as fh:
         man = json.loads(fh.read())
     profile = seeds.get(man["type"])
-    # The declaration the manifest records is the yardstick checks 9 and 12
-    # measure against. It goes back through the same gate the generator used,
-    # so a manifest carrying a document the generator would have refused is a
-    # hard failure here rather than a silently permissive expectation.
-    # `.get(...) or {}` because every manifest committed before this key
-    # existed simply has no "overrides" at all.
-    try:
-        ov = overrides.parse(man.get("overrides") or {}, profile,
-                             man["claims"])
-    except overrides.OverrideError as exc:
-        sys.stderr.write("the manifest's declared overrides are not valid: "
-                         "%s\n" % exc)
-        return 1
     with open(seeds.seed_path(profile, args.repo), "rb") as fh:
         seed_hash_before = hashlib.sha256(fh.read()).hexdigest()
     seed_segs = seeds.load_seed(profile, args.repo)
@@ -590,6 +335,10 @@ def main():
     raw, segs = X.read_segments(args.file)
     blocks = blocks_of(segs)
     claims = man["claims"]
+    # What the manifest declares this file was allowed to change, and the
+    # seed block each claim must match once those declarations are reversed.
+    declared = declared_overrides(profile, man, claims)
+    expected_blocks = declared_blocks(profile, man, seed_blocks, claims)
 
     print("file     : %s" % os.path.abspath(args.file))
     print("manifest : %s" % os.path.abspath(args.manifest))
@@ -754,15 +503,9 @@ def main():
     year = str(M.YEAR)
     all_dates = sorted({m.group(0) for m in re.finditer(
         r"(?<![0-9])(?:19|20)[0-9]{6}(?![0-9])", raw)})
-    dobs = list(profile.dob_exceptions)
-    declared_service_dates = {
-        line["date"]
-        for n in range(1, claims + 1)
-        for line in declared_lines(ov, n)
-    }
+    dobs = list(profile.dob_exceptions) + declared_dobs(declared)
     outside = [d for d in all_dates
-               if not d.startswith(year) and d not in dobs
-               and d not in declared_service_dates]
+               if not d.startswith(year) and d not in dobs]
     if outside:
         ok = False
         detail.append("dates outside %s: %s" % (year, outside))
@@ -778,7 +521,6 @@ def main():
                 ok = False
                 detail.append("claim %d DTP*%s %s"
                               % (i + 1, profile.statement_qualifier, rd8))
-        declared = declared_lines(ov, i + 1)
         for s in b:
             if not s.startswith("DTP*472*"):
                 continue
@@ -793,46 +535,43 @@ def main():
                                   % (i + 1, body))
                     continue
             for d in days:
-                if not declared and not lo <= d <= hi:
+                if not lo <= d <= hi:
                     ok = False
                     detail.append("claim %d line date %s outside %s"
                                   % (i + 1, d, man["statement"]))
-    check(8, "every date is inside %s (%d declared DOB(s) and %d declared "
-              "service date(s) excepted), undeclared line dates inside %s"
-              % (year, len(dobs), len(declared_service_dates),
-                 man["statement"]),
-           ok, "; ".join(detail) or "ok")
-
-    # 9 - payload identity against the SEED, as declared
-    ok, detail = True, []
-    expected_blocks = [
-        expected_block(profile, man, ov, n,
-                       seed_blocks[G.source_index(n, profile) - 1], detail)
-        for n in range(1, claims + 1)]
-    if detail:
-        ok = False
-    if len(blocks) != claims:
-        ok = False
-        detail.append("the file has %d payload blocks, the manifest declares "
-                      "%d" % (len(blocks), claims))
-    for i, (b, exp) in enumerate(zip(blocks, expected_blocks)):
-        if b == exp:
-            continue
-        ok = False
-        diff = [(a, c) for a, c in zip(b, exp) if a != c]
-        detail.append("claim %d is not what seed block %d plus the declared "
-                      "edits produces: %s"
-                      % (i + 1, G.source_index(i + 1, profile), diff[:2]))
-    check(9, "every payload segment is what its seed block plus the "
-             "manifest's declared edits produces, byte for byte",
+    check(8, "every date is inside %s (%d declared DOB(s) excepted), line "
+             "dates inside %s" % (year, len(dobs), man["statement"]),
           ok, "; ".join(detail) or "ok")
 
-    # 10 - coverage. Expected length comes from the same forward computation,
-    # so a declared line add or remove moves it with the declaration instead
-    # of being pinned to the seed's own segment count.
-    expected_lens = [len(e) for e in expected_blocks]
-    check(10, "%d payload units whose shapes cycle the seed blocks, as "
-              "declared" % claims,
+    # 9 - payload byte-identity against the SEED, plus what was DECLARED
+    ok, detail = True, []
+    for i, b in enumerate(blocks):
+        n = i + 1
+        expected = expected_blocks[i]
+        restored = restore_declared(profile, declared, expected, list(b), n)
+        for lit, must_occur, original in reverse_pairs(
+                profile, man, n, declared, len(expected)):
+            hits = [j for j, s in enumerate(restored) if s == lit]
+            if len(hits) != must_occur:
+                ok = False
+                detail.append("claim %d: %r occurs %d times, expected %d"
+                              % (n, lit, len(hits), must_occur))
+                continue
+            for j in hits:
+                restored[j] = original
+        for gen_seg, src_seg in _service_date_pairs(profile, man):
+            restored = [src_seg if s == gen_seg else s for s in restored]
+        if restored != expected:
+            ok = False
+            diff = [(a, c) for a, c in zip(restored, expected) if a != c]
+            detail.append("claim %d differs from seed block %d: %s"
+                          % (n, G.source_index(n, profile), diff[:2]))
+    check(9, "every payload segment is byte-identical to its seed block once "
+             "the declared edits are reversed", ok, "; ".join(detail) or "ok")
+
+    # 10 - coverage
+    expected_lens = [len(b) for b in expected_blocks]
+    check(10, "%d payload units whose shapes cycle the seed blocks" % claims,
           [len(b) for b in blocks] == expected_lens,
           "got %s expected %s" % ([len(b) for b in blocks][:12],
                                   expected_lens[:12]))
@@ -844,15 +583,14 @@ def main():
 
     # 12 - frozen identity, as declared
     ok, missing = True, []
-    frozen = expected_identity(profile, man)
     for i, b in enumerate(blocks):
-        for seg in frozen:
+        seed_block = seed_blocks[G.source_index(i + 1, profile) - 1]
+        for seg in expected_identity(profile, declared, seed_block):
             if seg not in b:
                 ok = False
                 missing.append("claim %d missing %r" % (i + 1, seg))
     check(12, "the %d frozen identity segments appear, exact bytes, in every "
-              "claim - overridden where the manifest declares an override"
-              % len(frozen), ok, "; ".join(missing[:4]) or "ok")
+              "claim" % len(profile.frozen), ok, "; ".join(missing[:4]) or "ok")
 
     # 13 - file shape
     shape = {

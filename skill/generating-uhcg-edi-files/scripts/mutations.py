@@ -1,22 +1,40 @@
 """Negative controls for validate.py.
 
-Each mutation breaks exactly one rule on a throwaway copy of the canonical
-fixture and names the check number that must go red. A mutation whose literal
-no longer occurs the declared number of times is BROKEN, not a pass - a stale
-literal tests nothing while still scoring as evidence.
+Each mutation breaks exactly one rule on a throwaway copy of a fixture and
+names the check number that must go red. A mutation whose literal no longer
+occurs the declared number of times is BROKEN, not a pass - a stale literal
+tests nothing while still scoring as evidence.
+
+Two families of fixture:
+
+* the committed canonical files, generated with no override at all; and
+* a declared-override file built here at run time, which is the only way to
+  aim a mutation at the reversal logic validate.py uses to check a file
+  against what its manifest declared.
+
+The declared fixture is built by calling generate.build directly with a
+hand-made allocation, so a mutation run allocates no identifier and never
+touches EDI1/masterfile.json.
 
 Usage:
     python mutations.py --repo ROOT
 """
 from __future__ import annotations
 import argparse
+import copy
 import io
+import json
 import os
 import re
 import shutil
 import subprocess
 import sys
 import tempfile
+
+import generate as G
+import masterfile as M
+import overrides
+import seeds
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SKILL = os.path.join(HERE, "..")
@@ -27,10 +45,6 @@ FIXTURE_P = os.path.join(SKILL, "tests", "fixtures",
                          "canonical_3claims_P.x12")
 MANIFEST_P = os.path.join(SKILL, "tests", "fixtures",
                           "canonical_3claims_P.manifest.json")
-FIXTURE_D = os.path.join(SKILL, "tests", "fixtures",
-                         "declared_3claims.x12")
-MANIFEST_D = os.path.join(SKILL, "tests", "fixtures",
-                          "declared_3claims.manifest.json")
 VALIDATOR = os.path.join(HERE, "validate.py")
 GENERATOR = os.path.join(HERE, "generate.py")
 
@@ -59,21 +73,10 @@ MUTATIONS_I = [
      "N3*80 JAMES STREET*4TH FLOOR~\n", 3, 1, ""),
     ("CLM02 no longer equals the sum of the service lines", 11,
      "CLM*TEST240115001*420.00", 1, 1, "CLM*TEST240115001*430.00"),
-    # Both canonical manifests declare no overrides, so every edit below is by
-    # definition UNDECLARED - the class check 12 and check 9 must keep catching
-    # now that declared edits are legal. The complementary half, where a
-    # declaration IS present, is MUTATIONS_D on the declared fixture.
-    ("an identity segment is altered with nothing declared", 12,
+    # The declared-override suite below owns the "altered beyond what was
+    # declared" case; this one keeps the undeclared baseline covered.
+    ("a frozen identity segment is altered in an undeclared batch", 12,
      "N4*SALT LAKE CITY*UT*84136~", 3, 1, "N4*SALT LAKE CITY*UT*84137~"),
-    ("an undeclared member id is altered", 12,
-     "NM1*IL*1*NISHIMURA*WILLIAM****MI*909001333969", 3, 1,
-     "NM1*IL*1*NISHIMURA*WILLIAM****MI*000000000000"),
-    ("an undeclared principal diagnosis is altered", 9,
-     "ABK:I48", 3, 1, "ABK:E119"),
-    ("an undeclared line charge no longer matches its HCP split", 11,
-     "SV2*0430*HC:97530*420.00", 3, 1, "SV2*0430*HC:97530*421.00"),
-    ("a service line keeps a duplicate LX number", 9,
-     "LX*2", 2, 1, "LX*1"),
     ("the file gains a CR line ending", 13,
      "IEA*1*990000001~\n", 1, 1, "IEA*1*990000001~\r\n"),
     ("the committed fixture no longer matches its generator", 14,
@@ -119,17 +122,8 @@ MUTATIONS_P = [
      "HCP*10*278.29*15.71*9327*0.00~"),
     ("the claim HCP is not the sum of its lines", 11,
      "HCP*10*222.21*83.79*9327~", 1, 1, "HCP*10*221.21*84.79*9327~"),
-    ("an identity segment is altered with nothing declared", 12,
+    ("a frozen identity segment is altered in an undeclared batch", 12,
      "NM1*PR*2*ERCT*****PI*ERCT~", 3, 1, "NM1*PR*2*ERCX*****PI*ERCT~"),
-    ("an undeclared member id is altered", 9,
-     "NM1*IL*1*LEPISTO*KRISTIINA****MI*909001299798", 1, 1,
-     "NM1*IL*1*LEPISTO*KRISTIINA****MI*909001000000"),
-    ("an undeclared principal diagnosis is altered", 9,
-     "HI*ABK:R10A0*ABF:R300", 1, 1, "HI*ABK:E119*ABF:R300"),
-    ("an undeclared line charge no longer matches its HCP", 11,
-     "SV1*HC:81002:QW*11.00", 1, 1, "SV1*HC:81002:QW*12.00"),
-    ("a service line keeps a duplicate LX number", 9,
-     "LX*2", 1, 1, "LX*1"),
     ("the file gains a CR line ending", 13,
      "IEA*1*990000101~\n", 1, 1, "IEA*1*990000101~\r\n"),
     ("the committed fixture no longer matches its generator", 14,
@@ -137,34 +131,176 @@ MUTATIONS_P = [
      "PER*IC*MacroHealth*EM*support@macrohealth.com*TE*9059064674~"),
 ]
 
-# The declared fixture is the other half of the model the canonical two cannot
-# reach: its manifest DECLARES a member id, a subscriber name, an attending
-# NPI, claim 1's principal diagnosis and claim 2's line charges. Checks 9 and
-# 12 measure the file against that declaration, so here the seed value is the
-# WRONG value - reverting to it must go red exactly as inventing a new one
-# does. Rebuild it with scripts/build_declared_fixture.py; it draws no
-# identifiers from the masterfile.
-MUTATIONS_D = [
-    ("a declared member id is reverted to its seed value", 12,
-     "NM1*IL*1*OKONKWO*ADAEZE****MI*909001777001", 3, 1,
-     "NM1*IL*1*NISHIMURA*WILLIAM****MI*909001333969"),
-    ("an identity segment the declaration never named is altered", 12,
-     "NM1*85*2*JFK JOHNSON REHAB INSTITUTE*****XX*1114932548", 3, 1,
-     "NM1*85*2*JFK JOHNSON REHAB INSTITUTE*****XX*1114932549"),
-    ("a declared principal diagnosis is reverted to its seed value", 9,
-     "HI*ABK:E1165", 1, 1, "HI*ABK:I48"),
-    ("a declared line charge is altered", 11,
-     "SV2*0430*HC:97530*500.00*UN*3", 1, 1,
-     "SV2*0430*HC:97530*501.00*UN*3"),
-    ("the committed fixture no longer matches its generator", 14,
-     "PER*IC*Sanyam Sood*EM*sanyam_sood@optum.com*TE*9999998888~", 3, 1,
-     "PER*IC*Sanyam Sood*EM*sanyam_sood@optum.com*TE*9999998887~"),
-]
-
 FIXTURES = [
     ("837I", FIXTURE, MANIFEST, MUTATIONS_I),
     ("837P", FIXTURE_P, MANIFEST_P, MUTATIONS_P),
-    ("decl", FIXTURE_D, MANIFEST_D, MUTATIONS_D),
+]
+
+# --------------------------------------------------------------------------
+# Declared-override fixtures
+# --------------------------------------------------------------------------
+
+# One document per profile, declaring an identity field, a tax id, a
+# principal diagnosis, new amounts and a spliced second service line - so a
+# single generated file can be aimed at from every angle. What is NOT
+# declared matters as much: the member id, the first name and claims 2 and 3
+# keep their seed values, which is what makes "altered beyond the
+# declaration" a distinct case from "altered".
+DECLARED_DOC_I = {
+    "identity": {"subscriber": {"last": "DOE"}, "taxId": "999888777"},
+    "claims": [{"n": 1, "principalDiagnosis": "E119",
+                "lines": [{"date": "20241121", "billed": "100.00"},
+                          {"date": "20241121", "billed": "300.00"}]}],
+}
+
+DECLARED_DOC_P = {
+    "identity": {"subscriber": {"last": "DOE"}, "taxId": "999888777"},
+    "claims": [{"n": 1, "principalDiagnosis": "E119",
+                "lines": [{"date": "20260130", "billed": "100.00",
+                           "savings": "10.00"},
+                          {"date": "20260130", "billed": "300.00",
+                           "savings": "30.00"}]}],
+}
+
+DECLARED_DOCS = {"I": DECLARED_DOC_I, "P": DECLARED_DOC_P}
+DECLARED_CLAIMS = 3
+
+
+def declared_alloc(profile, claims):
+    """An allocation whose identifiers collide with nothing on disk.
+
+    Built by hand rather than allocated, so a mutation run never reads or
+    advances the masterfile.
+    """
+    return M.Allocation(
+        isa13="778000778", gs06="778",
+        envelope_date="20240320", envelope_time="0811",
+        window_start="20240301", window_end="20240307",
+        statement="20240301-20240307",
+        service_dates=["2024030%d" % d
+                       for d in range(1, len(profile.src_dates) + 1)],
+        st02=["%09d" % (778000700 + i) for i in range(claims)],
+        bht03=["MUT%s6%04d" % (profile.code, i + 1) for i in range(claims)],
+        clm01=["MUTTASK7%s%03d" % (profile.code, i + 1)
+               for i in range(claims)],
+        ref_f8=["%011d" % (77812154900 + i) for i in range(claims)],
+        ref_9a=(["E2EMUTTASK7%03d" % (i + 1) for i in range(claims)]
+                if profile.id_style == "i_e2e"
+                else ["%d" % (17800070 + i) for i in range(claims)]))
+
+
+def declared_fixture(profile, repo, tmp, doc=None, record_edit=None):
+    """Write a valid declared-override file and its manifest into `tmp`.
+
+    Returns (x12_path, manifest_path). The manifest declares exactly the
+    document the file was built from, unless `record_edit` alters it - which
+    is how a declaration/file mismatch is staged.
+    """
+    doc = DECLARED_DOCS[profile.code] if doc is None else doc
+    alloc = declared_alloc(profile, DECLARED_CLAIMS)
+    ov = overrides.parse(doc, profile, DECLARED_CLAIMS)
+    text = G.render(G.build(seeds.load_seed(profile, repo), profile, alloc,
+                            DECLARED_CLAIMS, ov))
+    record = alloc.as_record(profile.code, DECLARED_CLAIMS, "declared.x12",
+                             "0" * 64, profile.rel_path, profile.sha256)
+    G.record_overrides(record, copy.deepcopy(doc))
+    if record_edit:
+        record_edit(record)
+    path = os.path.join(tmp, "declared_%s.x12" % profile.code)
+    manp = os.path.join(tmp, "declared_%s.manifest.json" % profile.code)
+    with io.open(path, "w", encoding="ascii", newline="") as fh:
+        fh.write(text)
+    with io.open(manp, "w", encoding="utf-8", newline="\n") as fh:
+        fh.write(json.dumps(record, indent=2, sort_keys=True) + "\n")
+    return path, manp
+
+
+# name, expected failing check, literal, must_occur, replace_n, replacement
+# Applied to the generated declared file, whose manifest declares DECLARED_DOC.
+DECLARED_TEXT_I = [
+    # Mutation 12, re-aimed: the surname IS declared, so this alters a
+    # different element of the same segment - a change beyond the declaration.
+    ("an identity segment is altered beyond what the manifest declared", 12,
+     "NM1*IL*1*DOE*WILLIAM****MI*909001333969~", 3, 1,
+     "NM1*IL*1*DOE*WILMA****MI*909001333969~"),
+    ("an undeclared member id is altered", 12,
+     "NM1*IL*1*DOE*WILLIAM****MI*909001333969~", 3, 1,
+     "NM1*IL*1*DOE*WILLIAM****MI*000000000000~"),
+    ("an undeclared tax id is altered beyond the declaration", 12,
+     "REF*EI*999888777~", 3, 1, "REF*EI*999888778~"),
+    ("an undeclared principal diagnosis is altered", 9,
+     "HI*ABK:I48:::::::U~", 2, 1, "HI*ABK:E119:::::::U~"),
+    ("a declared diagnosis is altered beyond the declaration", 9,
+     "HI*ABK:E119:::::::U~", 1, 1, "HI*ABK:J449:::::::U~"),
+    ("a declared line charge is altered beyond the declaration", 9,
+     "SV2*0430*HC:97530*300.00*UN*2~", 1, 1,
+     "SV2*0430*HC:97530*301.00*UN*2~"),
+    ("a line charge no longer matches its HCP split", 11,
+     "HCP*10*255.00*45.00*9327*0.00**0.00****UN*2~", 1, 1,
+     "HCP*10*256.00*44.00*9327*0.00**0.00****UN*2~"),
+    ("the declared claim HCP is altered", 11,
+     "HCP*10*340.00*60.00*9327*******UN*1~", 1, 1,
+     "HCP*10*341.00*59.00*9327*******UN*1~"),
+    ("a declared service line is dropped from the file", 10,
+     "LX*2~\nSV2*0430*HC:97530*300.00*UN*2~\n", 1, 1, ""),
+    ("a spliced line keeps a duplicate LX number", 9,
+     "LX*2~", 3, 1, "LX*1~"),
+]
+
+DECLARED_TEXT_P = [
+    ("an identity segment is altered beyond what the manifest declared", 9,
+     "NM1*IL*1*DOE*JETTE****MI*909001302539~", 1, 1,
+     "NM1*IL*1*DOE*JETTA****MI*909001302539~"),
+    ("an undeclared member id is altered", 9,
+     "NM1*IL*1*DOE*JETTE****MI*909001302539~", 1, 1,
+     "NM1*IL*1*DOE*JETTE****MI*000000000000~"),
+    ("an undeclared principal diagnosis is altered", 9,
+     "HI*ABK:E119*ABF:E871*ABF:S065XAA~", 1, 1,
+     "HI*ABK:J449*ABF:E871*ABF:S065XAA~"),
+    ("a declared line charge is altered beyond the declaration", 9,
+     "SV1*HC:99222*300.00*UN*1*21**1:2:3**N~", 1, 1,
+     "SV1*HC:99222*301.00*UN*1*21**1:2:3**N~"),
+    ("a line's allowed plus savings no longer equals its charge", 11,
+     "HCP*10*270.00*30.00*9327*0.00~", 1, 1,
+     "HCP*10*271.00*30.00*9327*0.00~"),
+    ("a declared service line is dropped from the file", 10,
+     "LX*2~\nSV1*HC:99222*300.00*UN*1*21**1:2:3**N~\n", 1, 1, ""),
+]
+
+# name, expected failing check, edit(record) - the file stays valid and the
+# MANIFEST is what changes, so these prove a declaration cannot excuse a file
+# it does not describe.
+DECLARED_MANIFEST_I = [
+    ("the manifest declares a surname the file does not carry", 9,
+     lambda r: r["overrides"]["identity"]["subscriber"].__setitem__(
+         "last", "SMITHXXX")),
+    ("the manifest drops the declaration entirely", 9,
+     lambda r: r.pop("overrides")),
+    ("the manifest declares fewer service lines than the file carries", 10,
+     lambda r: r["overrides"]["claims"][0].__setitem__(
+         "lines", r["overrides"]["claims"][0]["lines"][:1])),
+    ("the manifest declares amounts the file does not carry", 9,
+     lambda r: r["overrides"]["claims"][0]["lines"][1].__setitem__(
+         "billed", "999.00")),
+    ("the manifest declares an override the generator would refuse", 9,
+     lambda r: r["overrides"]["claims"][0]["lines"][0].__setitem__(
+         "savings", "1.00")),
+]
+
+DECLARED_MANIFEST_P = [
+    ("the manifest declares a surname the file does not carry", 9,
+     lambda r: r["overrides"]["identity"]["subscriber"].__setitem__(
+         "last", "SMITHXXX")),
+    ("the manifest drops the declaration entirely", 9,
+     lambda r: r.pop("overrides")),
+    ("the manifest declares fewer service lines than the file carries", 10,
+     lambda r: r["overrides"]["claims"][0].__setitem__(
+         "lines", r["overrides"]["claims"][0]["lines"][:1])),
+]
+
+DECLARED_FIXTURES = [
+    ("837I", seeds.get("I"), DECLARED_TEXT_I, DECLARED_MANIFEST_I),
+    ("837P", seeds.get("P"), DECLARED_TEXT_P, DECLARED_MANIFEST_P),
 ]
 
 
@@ -188,6 +324,37 @@ def run_generator(argv):
     return (proc.returncode,
             proc.stdout.decode("utf-8", "replace")
             + proc.stderr.decode("utf-8", "replace"))
+
+
+class BrokenMutation(Exception):
+    """The mutation no longer bites: its literal is stale."""
+
+
+def run_declared_text_case(profile, repo, tmp, case):
+    """Mutate the declared file's bytes and validate. -> (checks, name, out)"""
+    name, _expect, literal, must_occur, replace_n, repl = case
+    path, manp = declared_fixture(profile, repo, tmp)
+    with io.open(path, encoding="ascii", newline="") as fh:
+        text = fh.read()
+    occurs = text.count(literal)
+    if occurs != must_occur:
+        raise BrokenMutation("%s: %r occurs %d times, declared %d"
+                             % (name, literal, occurs, must_occur))
+    mutated = text.replace(literal, repl, replace_n)
+    if mutated == text:
+        raise BrokenMutation("%s: replacement changed nothing" % name)
+    with io.open(path, "w", encoding="ascii", newline="") as fh:
+        fh.write(mutated)
+    out = run_validator(path, manp, repo)
+    return failing_checks(out), name, out
+
+
+def run_declared_manifest_case(profile, repo, tmp, case):
+    """Mutate the declared manifest and validate. -> (checks, name, out)"""
+    name, _expect, edit = case
+    path, manp = declared_fixture(profile, repo, tmp, record_edit=edit)
+    out = run_validator(path, manp, repo)
+    return failing_checks(out), name, out
 
 
 def guard_cases(repo, tmp):
@@ -259,6 +426,42 @@ def main():
             if not ok:
                 missed.append("%s: %s" % (label, name))
             shutil.rmtree(tmp, ignore_errors=True)
+
+    print("\ndeclared-override mutations\n")
+    for label, profile, text_cases, man_cases in DECLARED_FIXTURES:
+        tmp = tempfile.mkdtemp(prefix="edi_decl_")
+        try:
+            path, manp = declared_fixture(profile, repo, tmp)
+            baseline = failing_checks(run_validator(path, manp, repo))
+            if baseline:
+                sys.stderr.write(
+                    "%s declared baseline is not clean: %s\n"
+                    % (label, baseline))
+                return 1
+            print("%s declared baseline: all checks pass\n" % label)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+        for case, runner in ([(c, run_declared_text_case) for c in text_cases]
+                             + [(c, run_declared_manifest_case)
+                                for c in man_cases]):
+            name, expect = case[0], case[1]
+            tmp = tempfile.mkdtemp(prefix="edi_decl_")
+            try:
+                got, _name, _out = runner(profile, repo, tmp, case)
+            except BrokenMutation as exc:
+                print("BROKEN  %s check %2d  %s" % (label, expect, name))
+                print("        %s" % exc)
+                broken.append("%s declared: %s" % (label, name))
+                continue
+            finally:
+                shutil.rmtree(tmp, ignore_errors=True)
+            ok = expect in got
+            print("%-7s %s check %2d  %s"
+                  % ("caught" if ok else "MISSED", label, expect, name))
+            print("        checks that went red: %s" % got)
+            if not ok:
+                missed.append("%s declared: %s" % (label, name))
 
     print("\ngenerator guards\n")
     tmp = tempfile.mkdtemp(prefix="edi_guard_")

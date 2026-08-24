@@ -1,0 +1,20 @@
+Identifier uniqueness for EDI1/Batch 6
+======================================================
+masterfile runs before this batch : 4
+masterfile runs after             : 5
+
+allocated by this run
+  isa13          990000104
+  gs06           3406
+  envelope_date  20240114
+  statement      20240108-20240114
+  st02           990000016 .. 990000018  (3)
+  bht03          2401140001 .. 2401140003  (3)
+  clm01          TEST240114001 .. TEST240114003  (3)
+  ref_f8         99012155022 .. 99012155024  (3)
+  ref_9a         E2E24011412125001 .. E2E24011412125003  (3)
+
+collisions against every prior run: none
+
+validate.py check 7 independently rescans every .x12 on disk for the
+same thing, and passed - see 01-validate.txt.

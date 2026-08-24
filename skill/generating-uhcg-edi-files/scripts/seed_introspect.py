@@ -1,22 +1,59 @@
 """Read a seed into the override-document shape the UI edits.
 
 Defaults shown in the UI are parsed from the seed, never hand-written, so a
-seed change can never silently disagree with the form.
+seed change can never silently disagree with the form. The shape returned by
+``defaults_for`` is itself a valid override document, which is what lets the
+UI's initial form state round-trip back through the generator unchanged.
+
+Nothing here allocates an identifier or touches the masterfile: introspection
+is read-only.
 """
 from __future__ import annotations
 
 import seeds
 import x12_parse as X
 
+# Element index of the line charge, by line segment id. SV2 carries a revenue
+# code in element 1 that SV1 does not, so the charge sits one element later:
+#   SV2*0430*HC:97530*420.00*UN*2     -> element 3
+#   SV1*HC:99222*293.00*UN*1*21...    -> element 2
+# UHCG_837I_Companion_Guide_FULL.csv (SV2 loop 2400) and
+# UHCG_837P_Companion_Guide_FULL.csv (SV1 loop 2400).
+# Public: generate.py writes the charges this module reads, and the two must
+# never disagree about where a charge lives.
+CHARGE_ELEM = {"SV2": 3, "SV1": 2}
+
+# HCP03 is the savings (pricing reduction) at both claim and line level in
+# both companion guides; HCP02 is the allowed amount.
+HCP_ALLOWED, HCP_SAVINGS = 2, 3
+
+
+class SeedShapeError(Exception):
+    """The seed does not carry a segment introspection needs."""
+
 
 def _find(block, prefix):
     return next((s for s in block if s.startswith(prefix)), None)
 
 
+def _require(block, prefix, what):
+    seg = _find(block, prefix)
+    if seg is None:
+        raise SeedShapeError("seed block has no %s segment (%s)"
+                             % (prefix, what))
+    return seg
+
+
 def _identity(block):
-    il = X.elems(_find(block, "NM1*IL*"))
-    bp = X.elems(_find(block, "NM1*85*"))
-    dmg = X.elems(_find(block, "DMG*D8*"))
+    """Subscriber, billing provider, tax id and (if present) attending.
+
+    Read from the first ST..SE block only. Every override is applied per
+    block against that block's own segments, so this is the form's starting
+    point rather than a claim-by-claim record.
+    """
+    il = X.elems(_require(block, "NM1*IL*", "subscriber"))
+    bp = X.elems(_require(block, "NM1*85*", "billing provider"))
+    dmg = X.elems(_require(block, "DMG*D8*", "subscriber date of birth"))
     ref = _find(block, "REF*EI*")
     out = {
         "subscriber": {"last": il[3], "first": il[4], "memberId": il[9],
@@ -32,35 +69,51 @@ def _identity(block):
 
 
 def _principal_diagnosis(block):
-    """The ABK composite of the principal-diagnosis HI segment."""
+    """The code out of the ABK composite, ignoring the ABF secondaries.
+
+    ABK may be the first composite of its own HI segment (837I) or share a HI
+    segment with the ABF codes (837P), so every composite of every HI is
+    considered.
+    """
     for s in block:
         if not s.startswith("HI*"):
             continue
-        first = X.elems(s)[1]
-        if first.startswith("ABK:"):
-            return first.split(":")[1]
+        for comp in X.elems(s)[1:]:
+            if comp.startswith("ABK:"):
+                return comp.split(":")[1]
     return None
+
+
+def loop_bounds(block):
+    """[(start, end)] for each LX service-line loop; end is exclusive.
+
+    Each loop is bounded by the next LX, so a loop missing its own DTP or HCP
+    is caught instead of silently borrowing the following loop's values.
+    """
+    starts = [j for j, s in enumerate(block) if s.startswith("LX*")]
+    return list(zip(starts, starts[1:] + [len(block)]))
 
 
 def _lines(block, profile):
     """One entry per LX loop, in file order."""
+    charge_at = CHARGE_ELEM[profile.line_id]
+
     out = []
-    for j, s in enumerate(block):
-        if not s.startswith("LX*"):
-            continue
-        sv = _find(block[j:], profile.line_id + "*")
-        dtp = _find(block[j:], "DTP*472*")
-        hcp = _find(block[j:], "HCP*")
-        # SV2 (837I) carries charge at index 3; SV1 (837P) at index 2 --
-        # index 3 there is the unit-of-measure ("UN"). See claim_summary.py.
-        billed = X.elems(sv)[3 if profile.line_id == "SV2" else 2]
+    for start, end in loop_bounds(block):
+        loop = block[start:end]
+        sv = _require(loop, profile.line_id + "*", "service line charge")
+        dtp = _require(loop, "DTP*472*", "service date")
+        hcp = _require(loop, "HCP*", "line repricing")
+        # RD8 ranges are same-day in every registered seed; D8 has no range.
         date = X.elems(dtp)[3].split("-")[0]
-        savings = X.elems(hcp)[3]
-        out.append({"date": date, "billed": billed, "savings": savings})
+        out.append({"date": date,
+                    "billed": X.elems(sv)[charge_at],
+                    "savings": X.elems(hcp)[HCP_SAVINGS]})
     return out
 
 
 def defaults_for(profile, repo):
+    """The seed's own values, shaped as an override document."""
     blocks = seeds.blocks(seeds.load_seed(profile, repo))
     return {
         "identity": _identity(blocks[0]),

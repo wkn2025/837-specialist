@@ -1,324 +1,231 @@
-import io
-import json
+"""Task 3: declared identity and diagnosis overrides reach the output.
+
+The safety property under test is two-sided. A segment the document names is
+allowed to differ from the seed; a segment it does not name must still come
+out of the seed unchanged, and a seed that has drifted is a hard failure
+rather than a silent no-op.
+"""
 import os
 import sys
+import unittest
 
-import pytest
-
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                "..", "scripts"))
-import generate
-import masterfile as M
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.join(HERE, "..", "scripts"))
+sys.path.insert(0, HERE)
+import generate as G
 import overrides
 import seeds
 import x12_parse as X
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-FIXTURE_I = os.path.join(HERE, "fixtures", "canonical_3claims.x12")
-FIXTURE_I_MANIFEST = os.path.join(HERE, "fixtures",
-                                  "canonical_3claims.manifest.json")
+from test_generate import fake_alloc, fake_alloc_p
+
+REPO = os.environ.get("EDI_REPO", r"C:\Users\wkn\837-specialist")
+I = seeds.get("I")
+P = seeds.get("P")
 
 
-# tests/conftest.py has no _fake_alloc helper (and is off-limits to edit for
-# this task), so this mirrors test_generate.py's fake_alloc() for the "I"
-# profile that most tests below use.
-def _fake_alloc(claims):
-    yymmdd = "240115"
-    return M.Allocation(
-        isa13="900000900", gs06="900",
-        envelope_date="20240115", envelope_time="0930",
-        window_start="20240101", window_end="20240107",
-        statement="20240101-20240107",
-        service_dates=["2024010%d" % d for d in range(1, 8)],
-        st02=["%09d" % (900000900 + i) for i in range(claims)],
-        bht03=["%s%04d" % (yymmdd, i + 1) for i in range(claims)],
-        clm01=["TEST%s%03d" % (yymmdd, i + 1) for i in range(claims)],
-        ref_f8=["%011d" % (90012154900 + i) for i in range(claims)],
-        ref_9a=["E2E%s12125%03d" % (yymmdd, i + 1) for i in range(claims)])
+def _build(doc, claims=2, profile=I, alloc=None):
+    ov = None if doc is None else overrides.parse(doc, profile, claims)
+    segs = seeds.load_seed(profile, REPO)
+    a = alloc or (fake_alloc(claims) if profile is I else fake_alloc_p(claims))
+    return G.build(segs, profile, a, claims, ov)
 
 
-# Mirrors test_generate.py's fake_alloc_p() for the 837P tests below (Important
-# 3: T3-g asks for 837P coverage, which no test in this file touched before).
-def _fake_alloc_p(claims):
-    return M.Allocation(
-        isa13="900000901", gs06="901",
-        envelope_date="20240215", envelope_time="0930",
-        window_start="20240201", window_end="20240208",
-        statement="20240201-20240208",
-        service_dates=["2024020%d" % d for d in range(1, 9)],
-        st02=["%09d" % (12900201 + i) for i in range(claims)],
-        bht03=["%09d" % (12900201 + i) for i in range(claims)],
-        clm01=["TEST240215%03d" % (i + 1) for i in range(claims)],
-        ref_f8=["%011d" % (90012155900 + i) for i in range(claims)],
-        ref_9a=["%d" % (12900201 + i) for i in range(claims)])
+class TestTheUnchangedPath(unittest.TestCase):
+    def test_no_override_is_byte_identical_to_today(self):
+        self.assertEqual(_build({}), _build(None))
+
+    def test_the_old_four_argument_call_still_works(self):
+        # ov defaults to None, so every existing caller is untouched.
+        segs = seeds.load_seed(I, REPO)
+        self.assertEqual(G.build(segs, I, fake_alloc(2), 2), _build(None))
+
+    def test_an_empty_override_leaves_the_professional_seed_alone(self):
+        self.assertEqual(_build({}, claims=2, profile=P),
+                         _build(None, claims=2, profile=P))
 
 
-def _build(repo, doc, claims=2):
-    profile = seeds.get("I")
-    ov = overrides.parse(doc, profile, claims)
-    alloc = _fake_alloc(claims)
-    segs = seeds.load_seed(profile, repo)
-    return generate.build(segs, profile, alloc, claims, ov)
+class TestSubscriberOverrides(unittest.TestCase):
+    def test_subscriber_name_and_member_id_are_replaced(self):
+        out = _build({"identity": {"subscriber": {
+            "last": "DOE", "first": "JANE",
+            "memberId": "W123456789", "dob": "19850412"}}})
+        self.assertIn("NM1*IL*1*DOE*JANE****MI*W123456789", out)
+        self.assertIn("DMG*D8*19850412*F", out)
+        self.assertEqual([s for s in out if "NISHIMURA" in s], [])
+
+    def test_a_single_named_field_leaves_the_rest_of_the_segment_alone(self):
+        out = _build({"identity": {"subscriber": {"last": "DOE"}}})
+        self.assertIn("NM1*IL*1*DOE*WILLIAM****MI*909001333969", out)
+        # dob was never named, so its segment is untouched.
+        self.assertIn("DMG*D8*19941217*F", out)
+
+    def test_the_override_applies_to_every_claim_block(self):
+        out = _build({"identity": {"billingProvider": {
+            "name": "RIVERBEND MEDICAL GROUP", "npi": "1740283920"}}},
+            claims=2)
+        self.assertEqual(
+            len([s for s in out if "RIVERBEND MEDICAL GROUP" in s]), 2)
+
+    def test_the_billing_provider_npi_does_not_disturb_the_service_facility(
+            self):
+        # NM1*85 and NM1*77 carry the same NPI in the seed; only NM1*85 is
+        # the billing provider.
+        out = _build({"identity": {"billingProvider": {"npi": "1740283920"}}},
+                     claims=1)
+        self.assertIn("NM1*85*2*JFK JOHNSON REHAB INSTITUTE*****XX*1740283920",
+                      out)
+        self.assertIn("NM1*77*2*JFK JOHNSON REHAB IN*****XX*1114932548", out)
+
+    def test_the_attending_provider_is_replaceable(self):
+        out = _build({"identity": {"attendingProvider": {
+            "last": "OKONKWO", "first": "ADAEZE", "npi": "1740283920"}}},
+            claims=1)
+        self.assertIn("NM1*71*1*OKONKWO*ADAEZE****XX*1740283920", out)
+
+    def test_the_tax_id_is_replaceable(self):
+        out = _build({"identity": {"taxId": "999888777"}}, claims=1)
+        self.assertIn("REF*EI*999888777", out)
+        self.assertEqual([s for s in out if s == "REF*EI*B03000684"], [])
+
+    def test_overriding_a_segment_the_seed_lacks_is_a_hard_failure(self):
+        # The professional seed has no attending provider.
+        with self.assertRaisesRegex(G.BuildError, "NM1\\*71"):
+            _build({"identity": {"attendingProvider": {"last": "DOE"}}},
+                   claims=1, profile=P)
 
 
-def _build_p(repo, doc, claims=1):
-    profile = seeds.get("P")
-    ov = overrides.parse(doc, profile, claims)
-    alloc = _fake_alloc_p(claims)
-    segs = seeds.load_seed(profile, repo)
-    return generate.build(segs, profile, alloc, claims, ov)
+class TestProfessionalIdentity(unittest.TestCase):
+    def test_the_professional_subscriber_is_replaceable(self):
+        out = _build({"identity": {"subscriber": {"last": "DOE"}}},
+                     claims=1, profile=P)
+        self.assertIn("NM1*IL*1*DOE*JETTE****MI*909001302539", out)
+
+    def test_each_block_is_edited_against_its_own_segments(self):
+        # Block 6 has a different billing provider from block 1, so a
+        # whole-segment literal from block 1 would not be found there.
+        out = _build({"identity": {"billingProvider": {"npi": "1740283920"}}},
+                     claims=6, profile=P)
+        npis = [X.elems(s)[9] for s in out if s.startswith("NM1*85*")]
+        self.assertEqual(npis, ["1740283920"] * 6)
+        self.assertIn("NM1*85*2*LABORATORY CORPORATION OF AMER*****XX"
+                      "*1740283920", out)
 
 
-def _blocks(segs):
-    return [segs[st:se + 1] for st, se in X.transaction_sets(segs)]
+class TestDiagnosisOverrides(unittest.TestCase):
+    def test_principal_diagnosis_is_replaced_without_touching_secondaries(
+            self):
+        out = _build({"claims": [{"n": 1, "principalDiagnosis": "E119"}]})
+        self.assertIn("HI*ABK:E119:::::::U", out)
+        self.assertTrue([s for s in out if s.startswith("HI*ABF:")])
+
+    def test_only_the_named_claim_changes(self):
+        out = _build({"claims": [{"n": 2, "principalDiagnosis": "E119"}]},
+                     claims=2)
+        self.assertIn("HI*ABK:I48:::::::U", out)       # claim 1 untouched
+        self.assertIn("HI*ABK:E119:::::::U", out)
+
+    def test_a_professional_abk_sharing_its_segment_with_abf_is_replaced(self):
+        # HI*ABK:R42*ABF:E871*ABF:S065XAA - the ABF composites must survive.
+        out = _build({"claims": [{"n": 1, "principalDiagnosis": "E119"}]},
+                     claims=1, profile=P)
+        self.assertIn("HI*ABK:E119*ABF:E871*ABF:S065XAA", out)
+
+    def test_the_replacement_round_trips_through_seed_introspection(self):
+        import seed_introspect
+        out = _build({"claims": [{"n": 1, "principalDiagnosis": "E119"}]},
+                     claims=1)
+        block = [b for b in seeds.blocks(out)][0]
+        self.assertEqual(seed_introspect._principal_diagnosis(block), "E119")
 
 
-def _fixture_alloc(manifest_path):
-    with io.open(manifest_path, encoding="utf-8") as fh:
-        man = json.loads(fh.read())
-    return generate._alloc_from_manifest(man), man["claims"]
+class TestSeedFidelity(unittest.TestCase):
+    def test_a_frozen_segment_that_is_not_overridden_still_asserts(self):
+        segs = [s.replace("PO BOX 30532", "PO BOX 99999")
+                for s in seeds.load_seed(I, REPO)]
+        with self.assertRaises(G.BuildError):
+            G.build(segs, I, fake_alloc(1), 1, overrides.parse({}, I, 1))
+
+    def test_the_drift_check_also_runs_without_an_override(self):
+        segs = [s.replace("PO BOX 30532", "PO BOX 99999")
+                for s in seeds.load_seed(I, REPO)]
+        with self.assertRaises(G.BuildError):
+            G.build(segs, I, fake_alloc(1), 1)
+
+    def test_a_drifted_segment_that_is_overridden_is_still_caught(self):
+        segs = [s.replace("NM1*IL*1*NISHIMURA*WILLIAM****MI*909001333969",
+                          "NM1*IL*1*NISHIMURA*WILLIAM****MI*909001333960")
+                for s in seeds.load_seed(I, REPO)]
+        with self.assertRaises(G.BuildError):
+            G.build(segs, I, fake_alloc(1), 1,
+                    overrides.parse({"identity": {"subscriber":
+                                                  {"last": "DOE"}}}, I, 1))
+
+    def test_the_professional_seed_is_checked_too(self):
+        segs = [s.replace("N3*PO BOX 30526", "N3*PO BOX 99999")
+                for s in seeds.load_seed(P, REPO)]
+        with self.assertRaises(G.BuildError):
+            G.build(segs, P, fake_alloc_p(1), 1)
 
 
-def test_no_override_is_byte_identical_to_the_committed_fixture(repo):
-    # T3-d: the previous version of this test routed both sides through
-    # overrides.parse, and parse(None) / parse({}) both return an identical
-    # empty Overrides ({}, {}) - so the assertion was really f(x) == f(x).
-    # A build() that mangled every claim would still have passed it. The
-    # committed fixture is an honest oracle because it was produced
-    # independently of this test (by the CLI, from this exact seed and this
-    # exact allocation, and is also the mutation suite's baseline) - so a
-    # divergence here means build()'s actual output changed, not that two
-    # equally-broken code paths agree with each other.
-    profile = seeds.get("I")
-    alloc, claims = _fixture_alloc(FIXTURE_I_MANIFEST)
-    segs = seeds.load_seed(profile, repo)
-    with io.open(FIXTURE_I, encoding="ascii", newline="") as fh:
-        fixture_text = fh.read()
+class TestTheRegistryAgreesWithTheDocument(unittest.TestCase):
+    """overrides.py owns the field names; seeds.py owns the element indices.
+    If they drift, an edit the UI offers silently never reaches the file."""
 
-    # Exercise the literal default path - no ov argument passed at all.
-    assert generate.render(generate.build(segs, profile, alloc, claims)) \
-        == fixture_text
-    # ov=None explicitly must produce the same bytes.
-    assert generate.render(
-        generate.build(segs, profile, alloc, claims, ov=None)) \
-        == fixture_text
-    # An empty-but-parsed override must also match the same honest oracle -
-    # each compared independently against the fixture, never against the
-    # other build() call (see the docstring above for why that would prove
-    # nothing).
-    ov_empty = overrides.parse({}, profile, claims)
-    assert generate.render(
-        generate.build(segs, profile, alloc, claims, ov_empty)) \
-        == fixture_text
+    def test_every_document_field_has_an_element_address(self):
+        for profile in (I, P):
+            addressed = set()
+            for addrs in profile.override_addrs.values():
+                addressed.update(addrs)
+            for group, fields in overrides.IDENTITY_FIELDS.items():
+                for f in fields:
+                    self.assertIn(f, addressed,
+                                  "%s: %s.%s has no address"
+                                  % (profile.code, group, f))
+            for scalar in overrides.SCALAR_IDENTITY:
+                self.assertIn(scalar, addressed, profile.code)
+
+    def test_every_group_maps_to_a_segment_prefix(self):
+        known = set(overrides.IDENTITY_FIELDS) | set(overrides.SCALAR_IDENTITY)
+        self.assertEqual(set(G.IDENTITY_SEGMENTS), known)
+
+    def test_each_group_field_is_addressed_under_its_own_prefix(self):
+        for group, fields in overrides.IDENTITY_FIELDS.items():
+            prefix = G.IDENTITY_SEGMENTS[group]
+            for f in fields:
+                if f == "dob":
+                    continue          # dob lives in DMG, not the NM1
+                self.assertIn(f, I.override_addrs[prefix],
+                              "%s.%s" % (group, f))
 
 
-def test_subscriber_name_member_id_and_dob_are_replaced(repo):
-    out = _build(repo, {"identity": {"subscriber": {
-        "last": "DOE", "first": "JANE",
-        "memberId": "W123456789", "dob": "19850412"}}})
-    assert "NM1*IL*1*DOE*JANE****MI*W123456789" in out
-    assert "DMG*D8*19850412*F" in out
-    assert not [s for s in out if "NISHIMURA" in s]
+class TestEditShape(unittest.TestCase):
+    def test_identity_edits_returns_nothing_without_an_override(self):
+        block = seeds.blocks(seeds.load_seed(I, REPO))[0]
+        self.assertEqual(G.identity_edits(I, None, block), [])
+        self.assertEqual(
+            G.identity_edits(I, overrides.parse({}, I, 1), block), [])
+
+    def test_an_edit_that_changes_nothing_is_not_emitted(self):
+        # Naming the seed's own value must not add an edit tuple, or a second
+        # edit naming the same literal would fail its exact-count check.
+        block = seeds.blocks(seeds.load_seed(I, REPO))[0]
+        ov = overrides.parse(
+            {"identity": {"subscriber": {"last": "NISHIMURA"}}}, I, 1)
+        self.assertEqual(G.identity_edits(I, ov, block), [])
+
+    def test_the_whole_seed_segment_is_the_literal(self):
+        block = seeds.blocks(seeds.load_seed(I, REPO))[0]
+        ov = overrides.parse({"identity": {"subscriber": {"last": "DOE"}}},
+                             I, 1)
+        (literal, must_occur, replace_n, replacement), = \
+            G.identity_edits(I, ov, block)
+        self.assertEqual(literal,
+                         "NM1*IL*1*NISHIMURA*WILLIAM****MI*909001333969")
+        self.assertEqual((must_occur, replace_n), (1, 1))
+        self.assertEqual(replacement,
+                         "NM1*IL*1*DOE*WILLIAM****MI*909001333969")
 
 
-def test_billing_provider_name_and_npi_are_replaced_in_every_claim_block(repo):
-    # T3-g: assert the whole resulting segment (name AND npi), not a
-    # substring - a wrong element index for npi would previously slip past
-    # the old substring-only assertion undetected.
-    out = _build(repo, {"identity": {"billingProvider": {
-        "name": "RIVERBEND MEDICAL GROUP", "npi": "1740283920"}}}, claims=2)
-    assert out.count(
-        "NM1*85*2*RIVERBEND MEDICAL GROUP*****XX*1740283920") == 2
-    # NM1*77 (service facility) also carries "JFK JOHNSON" text but is a
-    # different segment the override never named, so it is untouched - only
-    # the NM1*85 (billingProvider) segment itself must be gone.
-    assert "NM1*85*2*JFK JOHNSON REHAB INSTITUTE*****XX*1114932548" \
-        not in out
-
-
-def test_attending_provider_last_first_and_npi_are_replaced(repo):
-    # T3-g: NM1*71* had zero coverage before this fix.
-    out = _build(repo, {"identity": {"attendingProvider": {
-        "last": "SMITH", "first": "ROBERT", "npi": "1998877665"}}})
-    assert "NM1*71*1*SMITH*ROBERT****XX*1998877665" in out
-    assert not [s for s in out if "NIZAM" in s]
-
-
-def test_tax_id_is_replaced(repo):
-    # T3-g: REF*EI* had zero coverage before this fix.
-    out = _build(repo, {"identity": {"taxId": "998877665"}})
-    assert "REF*EI*998877665" in out
-    assert not [s for s in out if "B03000684" in s]
-
-
-def test_837p_billing_provider_subscriber_and_tax_id_are_replaced(repo):
-    # T3-g: no test in this file touched the 837P profile before this fix.
-    # 837P's seed has no NM1*71 (attendingProvider) in any block, so that
-    # address is not exercised here - check_identity_targets would raise if
-    # a caller declared it, which is covered by check_identity_targets's own
-    # existing test.
-    out = _build_p(repo, {"identity": {
-        "subscriber": {"last": "DOE", "first": "JANE",
-                       "memberId": "W987654321", "dob": "19850412"},
-        "billingProvider": {"name": "RIVERBEND MEDICAL GROUP",
-                            "npi": "1740283920"},
-        "taxId": "998877665"}})
-    assert "NM1*IL*1*DOE*JANE****MI*W987654321" in out
-    assert "DMG*D8*19850412*F" in out
-    assert "NM1*85*2*RIVERBEND MEDICAL GROUP*****XX*1740283920" in out
-    assert "REF*EI*998877665" in out
-    assert not [s for s in out if "RAHLFF" in s]
-
-
-def test_principal_diagnosis_is_replaced_without_touching_secondaries(repo):
-    out = _build(repo, {"claims": [{"n": 1, "principalDiagnosis": "E119"}]})
-    # Minor 2: scope the ABF assertion to the overridden block itself
-    # (claim 1). With claims=2 the old assertion ("some HI*ABF: exists
-    # anywhere in out") would still pass even if claim 1's own secondaries
-    # had been wiped, because claim 2's untouched block would satisfy it.
-    claim1 = _blocks(out)[0]
-    assert "HI*ABK:E119:::::::U" in claim1
-    assert [s for s in claim1 if s.startswith("HI*ABF:")]
-
-
-def test_a_frozen_segment_that_is_not_overridden_still_asserts(repo):
-    # Corrupt the seed in memory; the literal must no longer be found.
-    profile = seeds.get("I")
-    segs = [s.replace("PO BOX 30532", "PO BOX 99999")
-            for s in seeds.load_seed(profile, repo)]
-    try:
-        generate.build(segs, profile, _fake_alloc(1), 1,
-                       overrides.parse({}, profile, 1))
-    except generate.BuildError:
-        return
-    raise AssertionError("drift in an unoverridden frozen segment was not caught")
-
-
-def test_an_unknown_field_name_in_a_declared_group_is_rejected(repo):
-    # T3-e: a declared group with a misspelled/made-up field name must not
-    # silently no-op - the reviewer's repro used lastName/firstName/
-    # member_id/dateOfBirth instead of last/first/memberId/dob.
-    profile = seeds.get("I")
-    ov = overrides.parse(
-        {"identity": {"subscriber": {
-            "lastName": "DOE", "firstName": "JANE",
-            "member_id": "W1", "dateOfBirth": "19850412"}}},
-        profile, claims=1)
-    segs = seeds.load_seed(profile, repo)
-    try:
-        generate.build(segs, profile, _fake_alloc(1), 1, ov)
-    except generate.BuildError as exc:
-        assert "unknown field" in str(exc)
-        return
-    raise AssertionError("an unrecognized field name was silently accepted")
-
-
-def test_subscriber_dob_is_accepted_even_though_it_is_not_an_nm1_il_field(repo):
-    # dob addresses DMG*D8*, not NM1*IL*, so it must not be rejected as an
-    # "unknown field" of the subscriber group.
-    out = _build(repo, {"identity": {"subscriber": {"dob": "19850412"}}})
-    assert "DMG*D8*19850412*F" in out
-
-
-# T3-k (fix round 2): each identity group has exactly one legal JSON shape -
-# an object for subscriber/billingProvider/attendingProvider, a bare string
-# for taxId. A bare string for an object-shaped group used to slip past
-# check_identity_targets entirely: swap() maps it to {key: value}, whose only
-# key ("subscriber", "billingProvider", "attendingProvider") never matches
-# that group's fields tuple, so identity_edits emitted no edit and nothing
-# raised - the user's declared edit silently shipped as a no-op. taxId only
-# ever looked correct by accident, since its single field name equals its
-# own group key.
-
-def _assert_shape_rejected(repo, doc):
-    profile = seeds.get("I")
-    ov = overrides.parse(doc, profile, claims=1)
-    segs = seeds.load_seed(profile, repo)
-    try:
-        generate.build(segs, profile, _fake_alloc(1), 1, ov)
-    except generate.BuildError as exc:
-        assert "must be a JSON" in str(exc)
-        return
-    raise AssertionError("a wrong-shape identity value was silently accepted")
-
-
-def test_subscriber_as_a_bare_string_is_rejected(repo):
-    _assert_shape_rejected(repo, {"identity": {"subscriber": "DOE"}})
-
-
-def test_billing_provider_as_a_bare_string_is_rejected(repo):
-    _assert_shape_rejected(
-        repo, {"identity": {"billingProvider": "RIVERBEND MEDICAL GROUP"}})
-
-
-def test_attending_provider_as_a_bare_string_is_rejected(repo):
-    _assert_shape_rejected(repo, {"identity": {"attendingProvider": "SMITH"}})
-
-
-def test_tax_id_as_a_dict_is_rejected(repo):
-    _assert_shape_rejected(repo, {"identity": {"taxId": {"taxId": "998877665"}}})
-
-
-def test_tax_id_as_a_string_still_works(repo):
-    # The one shape that must keep functioning - assert the whole resulting
-    # segment, not a substring, same as the other address tests.
-    out = _build(repo, {"identity": {"taxId": "998877665"}}, claims=1)
-    assert "REF*EI*998877665" in out
-
-
-def test_a_null_identity_group_is_rejected(repo):
-    _assert_shape_rejected(repo, {"identity": {"subscriber": None}})
-
-
-def test_a_list_identity_group_is_rejected(repo):
-    _assert_shape_rejected(repo, {"identity": {"billingProvider": ["x"]}})
-    _assert_shape_rejected(repo, {"identity": {"taxId": ["998877665"]}})
-
-
-# Fix round 1, item 7a: dob addresses DMG*D8*, not NM1*IL* (docstring at
-# generate.py:210-212), so identity_edits' check against the group's own
-# `prefix` (NM1*IL* for subscriber) does not protect it. A block that
-# carries NM1*IL* but no DMG*D8* segment used to pass that check and then
-# silently produce no edit at all - the declared dob change never landed.
-# Constructed directly per the brief, rather than hunting for a seed block
-# shaped that way.
-
-def test_subscriber_dob_against_a_block_with_no_dmg_segment_is_rejected():
-    profile = seeds.get("I")
-    ov = overrides.Overrides({"subscriber": {"dob": "19850412"}}, {})
-    payload = ["NM1*IL*1*DOE*JANE****MI*W123456789"]   # no DMG*D8* segment
-    with pytest.raises(generate.BuildError) as exc:
-        generate.check_identity_targets(profile, ov, payload, 1)
-    msg = str(exc.value)
-    assert "claim 1" in msg
-    assert "dob" in msg
-    assert "DMG*D8*" in msg
-
-
-# Fix round 1, item 8: two generate.py raises with zero prior test coverage.
-
-def test_check_identity_targets_raises_when_the_groups_own_segment_is_missing():
-    # generate.py:220 (approx.) - the group's own prefix (NM1*IL* for
-    # subscriber) is absent from the block entirely.
-    profile = seeds.get("I")
-    ov = overrides.Overrides({"subscriber": {"last": "DOE"}}, {})
-    payload = ["SE*1*000000001"]                       # no NM1*IL* at all
-    with pytest.raises(generate.BuildError) as exc:
-        generate.check_identity_targets(profile, ov, payload, 1)
-    msg = str(exc.value)
-    assert "claim 1" in msg
-    assert "subscriber" in msg
-    assert "NM1*IL*" in msg
-
-
-def test_diagnosis_edits_raises_when_the_seed_has_no_abk_principal_diagnosis():
-    # generate.py:276 - the block has an HI* segment, but no ABK: composite.
-    profile = seeds.get("I")
-    ov = overrides.Overrides({}, {1: {"principalDiagnosis": "E119",
-                                      "lines": []}})
-    payload = ["HI*ABF:E119"]                           # no HI*ABK:
-    with pytest.raises(generate.BuildError) as exc:
-        generate.diagnosis_edits(profile, ov, payload, 1)
-    msg = str(exc.value)
-    assert "claim 1" in msg
-    assert "ABK" in msg
+if __name__ == "__main__":
+    unittest.main()

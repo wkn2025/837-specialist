@@ -1,0 +1,142 @@
+Post-integration re-verification of EDI1/Batch 7
+================================================
+date   : 2026-08-23
+branch : integration/837p-seed-registration
+state  : merge of 837p-seed-registration into main, resolved, NOT yet committed
+
+Why this file exists
+--------------------
+Batch 7 was generated on main on 2026-08-22 and its evidence recorded a clean
+validator run. The integration made 837p-seed-registration authoritative for
+the generator and generator UI, and that branch's generator fabricates extra
+service lines by a different rule than main's. Batch 7 is the only committed
+artifact that exercises that rule, so it no longer validates. Its evidence
+was rewritten to say so rather than left claiming a pass it no longer earns.
+
+The artifact was preserved
+--------------------------
+EDI1/Batch 7/fromUHCG-837I-WKN_3claims.x12
+  sha256 5055aabd1854382f6800704c2448770e260517375f3ea36b260603724c67b769
+EDI1/Batch 7/fromUHCG-837I-WKN_3claims.manifest.json
+  sha256 84c04e282787b8449a613d6aa52515e7bb9374fd6337ac73dfc1e5b7c8a852a5
+
+Both identical to the values recorded at generation. Nothing in EDI1/Batch 7
+was regenerated, re-enveloped or re-identified, and no new identifier was
+allocated: EDI1/masterfile.json sha256 is
+c243f781a10677390f9b43345f8bf23da75ee8e464405bff7414f624bad5ab49, unchanged
+by every command run for this verification.
+
+Current validator result
+------------------------
+python skill/generating-uhcg-edi-files/scripts/validate.py --repo . \
+  --file "EDI1/Batch 7/fromUHCG-837I-WKN_3claims.x12" \
+  --manifest "EDI1/Batch 7/fromUHCG-837I-WKN_3claims.manifest.json"
+
+exit 1, FAILED checks [8, 9, 14]
+
+  PASS  1  ST..SE sets and CLM01 order
+  PASS  2  envelope geometry and control numbers
+  PASS  3  guide identifiers 005010X223A2
+  PASS  4  SE01 / SE02 / ST02
+  PASS  5  BHT03 length, uniqueness, envelope stamp
+  PASS  6  HL sequence and parents
+  PASS  7  identifier uniqueness vs every .x12 on disk and every prior run
+  FAIL  8  declared-date exemptions misalign on claim 2's three line dates
+  FAIL  9  claim 2 line 3 is not what the authoritative splice would produce
+  PASS 10  payload unit shapes cycle the seed blocks
+  PASS 11  CLM02 sums its lines; every HCP is an 85/15 split
+  PASS 12  the 9 frozen identity segments, exact bytes, in every claim
+  PASS 13  ASCII, no BOM, LF only, trailing newline
+  FAIL 14  regeneration does not reproduce the file (inherits 9)
+  PASS 15  seed hash unchanged
+
+Full output in 01-validate.txt.
+
+Root cause, stated precisely
+----------------------------
+Batch 7 claim 2 declares three service lines over seed block 2, which has
+two loops, so line 3 is fabricated. The two merged implementations disagree:
+
+  main            generate.py: copies the block's ORIGINAL loops round-robin
+                  (its comments cite an internal "Ruling T5-f"), so line 3 is
+                  a copy of seed line 1:
+                    SV2*0430*HC:97530*100.00*UN*3
+                    HCP*10*85.00*15.00*9327*0.00**0.00****UN*3
+
+  837p-seed-      generate.py splice_to(): "Added loops are copies of the
+  registration    block's last loop", so it expects a copy of seed line 2:
+  (authoritative)   SV2*0440*HC:92507*...*UN*1
+                    HCP*10*326.40*57.60*9327*0.00**0.00****UN*1
+
+Neither rule is a UHCG requirement. Nothing in
+docs/reference/umr-uhcg-837/ constrains how a synthetic test fixture
+fabricates an extra service line; "Ruling T5-f" appears only in main's own
+lineage and in no guide. This is a fixture-construction policy, and the
+integration policy makes 837p-seed-registration's version authoritative.
+
+Proof that this is a policy divergence, not a corrupt artifact
+-------------------------------------------------------------
+Each branch's validator accepts its own branch's batch and rejects the
+other's. Both validators were run against both artifacts on 2026-08-23
+(main's scripts extracted read-only from git into a temp directory; the
+working tree was not modified):
+
+                        Batch 6 (.x12 from 837p)   Batch 7 (.x12 from main)
+  merged validator      exit 0, 15/15 PASS         exit 1, FAILED [8, 9, 14]
+  main's validator      exit 1, FAILED [9, 14]     exit 0, 15/15 PASS
+
+A corrupt file would fail both. Batch 7 fails only the checks that compare it
+against a generator it was not produced by, and passes every check that reads
+the file on its own terms - envelope, identifiers, math, identity, encoding.
+
+What was deliberately NOT done
+------------------------------
+- scripts/generate.py splice_to() was NOT changed to make Batch 7 pass.
+- main's round-robin fabrication was NOT ported back.
+- Batch 7 was NOT retired, tombstoned or regenerated.
+- No identifier was consumed and no new batch was created.
+- validate.py was NOT weakened, and no check was skipped or downgraded.
+
+Only the evidence text was changed, so that what is committed matches what
+the committed code actually does.
+
+Batch 6 remains valid
+---------------------
+python skill/generating-uhcg-edi-files/scripts/validate.py --repo . \
+  --file "EDI1/Batch 6/fromUHCG-837I-WKN_3claims.x12" \
+  --manifest "EDI1/Batch 6/fromUHCG-837I-WKN_3claims.manifest.json"
+exit 0, all 15 checks passed.
+
+Suites at this commit-candidate
+-------------------------------
+generator pytest          335 passed
+EDI2 pytest (fixtures on) 217 passed, 135 subtests, 0 skipped
+mutation suite            exit 0, 62 mutations, all caught
+vitest                    5 files, 83 tests passed
+tsc --noEmit              exit 0
+npm run build             exit 0
+npm run build:server      exit 0
+git diff --check          clean
+
+Identifier safety is unaffected
+-------------------------------
+Batch 7's run survives in EDI1/masterfile.json as run 5 of 7 with its
+identifiers intact, so none of them can be reissued. Collisions against all
+six other runs: 0. Validator check 7 independently rescans every .x12 on disk
+and agrees. See 04-identifiers.txt.
+
+Files changed in this directory
+-------------------------------
+01-validate.txt   rewritten: real failing run plus the explanation above
+02-mutations.txt  rewritten: the merged mutation suite's actual families
+04-identifiers.txt updated: generation-time figures date-framed, current
+                  masterfile position and hashes re-verified
+05-suite.txt      updated: generation-time figures date-framed, the false
+                  "exit 0; all 15 checks passed" line corrected, current
+                  suite results added
+06-post-integration-revalidation.txt  new (this file)
+03-browser-e2e.txt  UNCHANGED. It is a dated transcript of the browser
+                  session that generated the batch. Its service-date readings
+                  and totals were re-checked against the preserved .x12 on
+                  2026-08-23 and all still match, so the merge does not
+                  falsify it.

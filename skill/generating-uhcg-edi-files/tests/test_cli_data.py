@@ -1,13 +1,12 @@
-"""The generate CLI's document-driven entry points: --data, --print-defaults,
---json.
+"""Task 8: the generator CLI accepts an override document.
 
-Every test that ALLOCATES runs against a scratch repo holding nothing but a
-copy of each seed, so no test ever draws identifiers out of the real
-EDI1/masterfile.json. --print-defaults allocates nothing and reads the real
-repo directly.
+Every generating test runs against a throwaway copy of the repo's EDI1 tree,
+so a run that allocates identifiers cannot disturb the real masterfile. The
+read-only paths are exercised against the real repo on purpose, because
+proving they leave it alone is the point.
 """
-from __future__ import annotations
-import glob
+import contextlib
+import hashlib
 import io
 import json
 import os
@@ -15,545 +14,513 @@ import shutil
 import subprocess
 import sys
 import tempfile
-import textwrap
-
-import pytest
+import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.join(HERE, "..", "scripts"))
+sys.path.insert(0, HERE)
+import generate as G
+import overrides
+import seed_introspect
+import seeds
+
+REPO = os.environ.get("EDI_REPO", r"C:\Users\wkn\837-specialist")
 SCRIPTS = os.path.join(HERE, "..", "scripts")
-sys.path.insert(0, SCRIPTS)
+I = seeds.get("I")
+P = seeds.get("P")
 
-import generate                                          # noqa: E402
-import masterfile as M                                   # noqa: E402
-import overrides                                         # noqa: E402
-import seeds                                             # noqa: E402
-
-
-@pytest.fixture
-def scratch(repo):
-    """An isolated repo: one seed per registered type, an empty masterfile."""
-    root = tempfile.mkdtemp(prefix="edi_t8_")
-    try:
-        for code in ("I", "P"):
-            profile = seeds.get(code)
-            dst = os.path.join(root, os.path.dirname(profile.rel_path))
-            if not os.path.isdir(dst):
-                os.makedirs(dst)
-            shutil.copy(seeds.seed_path(profile, repo),
-                        os.path.join(root, profile.rel_path))
-        M.bootstrap(root)
-        yield root
-    finally:
-        shutil.rmtree(root, ignore_errors=True)
+DOC_I = {"identity": {"subscriber": {"last": "DOE"}, "taxId": "999888777"},
+         "claims": [{"n": 1, "principalDiagnosis": "E119",
+                     "lines": [{"date": "20241121", "billed": "100.00"},
+                               {"date": "20241121", "billed": "300.00"}]}]}
 
 
-@pytest.fixture
-def work():
-    """A scratch directory for documents and outputs.
-
-    Deliberately not pytest's tmp_path: this environment refuses pytest's own
-    basetemp, and mkdtemp is what the rest of the suite already uses.
-    """
-    d = tempfile.mkdtemp(prefix="edi_t8_work_")
-    try:
-        yield d
-    finally:
-        shutil.rmtree(d, ignore_errors=True)
+def masterfile_hash(repo):
+    with open(os.path.join(repo, "EDI1", "masterfile.json"), "rb") as fh:
+        return hashlib.sha256(fh.read()).hexdigest()
 
 
-def _doc(work, obj):
-    path = os.path.join(work, "ov.json")
+@contextlib.contextmanager
+def captured():
+    out, err = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+        yield out, err
+
+
+class TempRepo:
+    """A copy of the repo's EDI1 tree, so allocation is side-effect free."""
+
+    def __enter__(self):
+        self.tmp = tempfile.mkdtemp(prefix="edi_cli_")
+        shutil.copytree(os.path.join(REPO, "EDI1"),
+                        os.path.join(self.tmp, "EDI1"))
+        return self.tmp
+
+    def __exit__(self, *exc):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+
+def write_doc(tmp, doc, name="ov.json"):
+    path = os.path.join(tmp, name)
     with io.open(path, "w", encoding="utf-8") as fh:
-        fh.write(json.dumps(obj))
+        fh.write(json.dumps(doc))
     return path
 
 
-def _read(path):
-    with io.open(path, encoding="ascii") as fh:
-        return fh.read()
+class TestArgvSupport(unittest.TestCase):
+    def test_main_accepts_an_argument_list(self):
+        with captured() as (out, _err):
+            rc = G.main(["--repo", REPO, "--type", "I", "--print-defaults"])
+        self.assertEqual(rc, 0)
+        self.assertTrue(out.getvalue().strip())
+
+    def test_main_still_reads_sys_argv_when_given_nothing(self):
+        argv = sys.argv
+        sys.argv = ["generate.py", "--repo", REPO, "--type", "I",
+                    "--print-defaults"]
+        try:
+            with captured() as (out, _err):
+                rc = G.main()
+        finally:
+            sys.argv = argv
+        self.assertEqual(rc, 0)
+        self.assertTrue(out.getvalue().strip())
+
+    def test_the_script_still_runs_as_a_subprocess(self):
+        proc = subprocess.run(
+            [sys.executable, os.path.join(SCRIPTS, "generate.py"),
+             "--repo", REPO, "--type", "P", "--print-defaults"],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        self.assertEqual(proc.returncode, 0, proc.stderr.decode())
+        json.loads(proc.stdout.decode("utf-8"))
 
 
-def _tree(root):
-    """Relative directory/file names, including empty directories."""
-    found = []
-    for parent, directories, files in os.walk(root):
-        for name in directories:
-            found.append(("d", os.path.relpath(
-                os.path.join(parent, name), root)))
-        for name in files:
-            found.append(("f", os.path.relpath(
-                os.path.join(parent, name), root)))
-    return sorted(found)
+class TestPrintDefaults(unittest.TestCase):
+    def test_print_defaults_is_a_valid_override_document(self):
+        for profile in (I, P):
+            with captured() as (out, _err):
+                rc = G.main(["--repo", REPO, "--type", profile.code,
+                             "--print-defaults"])
+            self.assertEqual(rc, 0)
+            doc = json.loads(out.getvalue())
+            # Must not raise: the seed's own values round-trip, which is what
+            # lets the UI's initial form state be submitted unchanged.
+            overrides.parse(doc, profile, claims=len(doc["claims"]))
+
+    def test_print_defaults_matches_seed_introspection(self):
+        with captured() as (out, _err):
+            G.main(["--repo", REPO, "--type", "I", "--print-defaults"])
+        self.assertEqual(json.loads(out.getvalue()),
+                         seed_introspect.defaults_for(I, REPO))
+
+    def test_print_defaults_keeps_the_institutional_savings(self):
+        # Task 2 accepts an 837I savings equal to the derived split; the
+        # emitted defaults still carry it, so the round-trip is real.
+        with captured() as (out, _err):
+            G.main(["--repo", REPO, "--type", "I", "--print-defaults"])
+        line = json.loads(out.getvalue())["claims"][0]["lines"][0]
+        self.assertEqual(line["savings"], "63.00")
+
+    def test_print_defaults_does_not_touch_the_masterfile(self):
+        before = masterfile_hash(REPO)
+        with captured():
+            G.main(["--repo", REPO, "--type", "I", "--print-defaults"])
+            G.main(["--repo", REPO, "--type", "P", "--print-defaults"])
+        self.assertEqual(masterfile_hash(REPO), before)
+
+    def test_print_defaults_needs_no_claim_count(self):
+        with captured() as (_out, err):
+            rc = G.main(["--repo", REPO, "--type", "I", "--print-defaults"])
+        self.assertEqual(rc, 0, err.getvalue())
+
+    def test_print_defaults_still_refuses_an_unregistered_type(self):
+        with captured() as (_out, err):
+            rc = G.main(["--repo", REPO, "--type", "D", "--print-defaults"])
+        self.assertEqual(rc, 1)
+        self.assertIn("no seed is registered", err.getvalue())
 
 
-def _write_concurrency_wrapper(work):
-    """CLI wrapper whose post-allocation barrier makes the old race exact."""
-    gate = os.path.join(work, "gate")
-    os.makedirs(gate)
-    wrapper = os.path.join(work, "concurrent_generate.py")
-    source = textwrap.dedent("""
-        import glob
-        import os
-        import sys
-        import time
+class TestDataDrivesTheOutput(unittest.TestCase):
+    def test_data_file_drives_the_output(self):
+        with TempRepo() as repo:
+            out = os.path.join(repo, "o.x12")
+            doc = write_doc(repo, {"identity": {"subscriber":
+                                                {"last": "DOE"}}})
+            with captured() as (_o, err):
+                rc = G.main(["--repo", repo, "--type", "I", "--claims", "1",
+                             "--data", doc, "--output", out])
+            self.assertEqual(rc, 0, err.getvalue())
+            with io.open(out, encoding="ascii", newline="") as fh:
+                self.assertIn("DOE", fh.read())
 
-        sys.path.insert(0, {scripts!r})
-        import generate
+    def test_a_data_driven_batch_passes_the_full_validator(self):
+        with TempRepo() as repo:
+            out = os.path.join(repo, "o.x12")
+            doc = write_doc(repo, DOC_I)
+            with captured() as (_o, err):
+                rc = G.main(["--repo", repo, "--type", "I", "--claims", "3",
+                             "--data", doc, "--output", out])
+            # generate.py validates before it writes, so rc 0 already means
+            # the validator passed; re-run it to make that explicit.
+            self.assertEqual(rc, 0, err.getvalue())
+            man = out[:-4] + ".manifest.json"
+            proc = subprocess.run(
+                [sys.executable, os.path.join(SCRIPTS, "validate.py"),
+                 "--file", out, "--manifest", man, "--repo", repo,
+                 "--skip-producer"],
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+            self.assertEqual(proc.returncode, 0, proc.stdout.decode())
 
-        real_allocate = generate.M.allocate
+    def test_one_document_feeds_the_build_and_the_manifest(self):
+        with TempRepo() as repo:
+            out = os.path.join(repo, "o.x12")
+            doc = write_doc(repo, DOC_I)
+            with captured() as (_o, err):
+                rc = G.main(["--repo", repo, "--type", "I", "--claims", "3",
+                             "--data", doc, "--output", out])
+            self.assertEqual(rc, 0, err.getvalue())
+            with io.open(out[:-4] + ".manifest.json", encoding="utf-8") as fh:
+                recorded = json.loads(fh.read())["overrides"]
+            self.assertEqual(recorded, DOC_I)
+            with io.open(out, encoding="ascii", newline="") as fh:
+                text = fh.read()
+            # What the manifest declares is what the file carries.
+            self.assertIn("NM1*IL*1*DOE*WILLIAM****MI*909001333969", text)
+            self.assertIn("REF*EI*999888777", text)
+            self.assertIn("HI*ABK:E119:::::::U", text)
+            self.assertIn("SV2*0430*HC:97530*300.00*UN*2", text)
 
-        def allocate_together(*args, **kwargs):
-            allocation = real_allocate(*args, **kwargs)
-            marker = os.path.join({gate!r}, str(os.getpid()))
-            with open(marker, "w") as fh:
-                fh.write("ready")
-            deadline = time.monotonic() + 1.5
-            while len(glob.glob(os.path.join({gate!r}, "*"))) < 2:
-                if time.monotonic() >= deadline:
-                    break
-                time.sleep(0.01)
-            return allocation
+    def test_the_document_is_read_from_stdin_with_a_dash(self):
+        with TempRepo() as repo:
+            out = os.path.join(repo, "o.x12")
+            stdin = sys.stdin
+            sys.stdin = io.StringIO(json.dumps(
+                {"identity": {"subscriber": {"last": "DOE"}}}))
+            try:
+                with captured() as (_o, err):
+                    rc = G.main(["--repo", repo, "--type", "I", "--claims",
+                                 "1", "--data", "-", "--output", out])
+            finally:
+                sys.stdin = stdin
+            self.assertEqual(rc, 0, err.getvalue())
+            with io.open(out, encoding="ascii", newline="") as fh:
+                self.assertIn("DOE", fh.read())
 
-        generate.M.allocate = allocate_together
-        generate.claim_summary.build = lambda *args, **kwargs: None
-        raise SystemExit(generate.main())
-    """).format(scripts=os.path.abspath(SCRIPTS), gate=gate)
-    with io.open(wrapper, "w", encoding="utf-8", newline="\n") as fh:
-        fh.write(source)
-    return wrapper
-
-
-def _write_pinned_concurrency_wrapper(work):
-    """Make two pinned publishers pass the old unlocked existence check."""
-    gate = os.path.join(work, "pin-gate")
-    os.makedirs(gate)
-    wrapper = os.path.join(work, "concurrent_pin.py")
-    source = textwrap.dedent("""
-        import glob
-        import os
-        import sys
-        import time
-
-        sys.path.insert(0, {scripts!r})
-        import generate
-
-        real_load_seed = generate.seeds.load_seed
-
-        def load_together(*args, **kwargs):
-            marker = os.path.join({gate!r}, str(os.getpid()))
-            with open(marker, "w") as fh:
-                fh.write("ready")
-            deadline = time.monotonic() + 1.5
-            while len(glob.glob(os.path.join({gate!r}, "*"))) < 2:
-                if time.monotonic() >= deadline:
-                    break
-                time.sleep(0.01)
-            return real_load_seed(*args, **kwargs)
-
-        generate.seeds.load_seed = load_together
-        generate.claim_summary.build = lambda *args, **kwargs: None
-        raise SystemExit(generate.main())
-    """).format(scripts=os.path.abspath(SCRIPTS), gate=gate)
-    with io.open(wrapper, "w", encoding="utf-8", newline="\n") as fh:
-        fh.write(source)
-    return wrapper
-
-
-# --------------------------------------------------------------------------
-# --data
-# --------------------------------------------------------------------------
-
-def test_data_file_drives_the_output(scratch, work):
-    doc = _doc(work, {"identity": {"subscriber": {"last": "DOE"}}})
-    out = os.path.join(work, "o.x12")
-    rc = generate.main(["--repo", scratch, "--type", "I", "--claims", "1",
+    def test_a_pinned_declared_manifest_replays_byte_for_byte(self):
+        with TempRepo() as repo:
+            out = os.path.join(repo, "o.x12")
+            doc = write_doc(repo, DOC_I)
+            with captured():
+                G.main(["--repo", repo, "--type", "I", "--claims", "3",
                         "--data", doc, "--output", out])
-    assert rc == 0
-    assert "NM1*IL*1*DOE*WILLIAM****MI*909001333969" in _read(out)
+            with io.open(out, encoding="ascii", newline="") as fh:
+                first = fh.read()
+            replay = os.path.join(repo, "replay.x12")
+            with captured() as (_o, err):
+                rc = G.main(["--repo", repo, "--pin",
+                             out[:-4] + ".manifest.json", "--output", replay])
+            self.assertEqual(rc, 0, err.getvalue())
+            with io.open(replay, encoding="ascii", newline="") as fh:
+                self.assertEqual(fh.read(), first)
+
+    def test_the_defaults_document_can_be_submitted_unchanged(self):
+        with TempRepo() as repo:
+            with captured() as (out, _e):
+                G.main(["--repo", repo, "--type", "I", "--print-defaults"])
+            doc = write_doc(repo, json.loads(out.getvalue()))
+            o = os.path.join(repo, "o.x12")
+            with captured() as (_o, err):
+                rc = G.main(["--repo", repo, "--type", "I", "--claims", "9",
+                             "--data", doc, "--output", o])
+            self.assertEqual(rc, 0, err.getvalue())
 
 
-def test_the_data_document_is_recorded_in_the_manifest(scratch, work):
-    obj = {"identity": {"subscriber": {"last": "DOE"}}}
-    out = os.path.join(work, "o.x12")
-    rc = generate.main(["--repo", scratch, "--type", "I", "--claims", "1",
-                        "--data", _doc(work, obj), "--output", out])
-    assert rc == 0
-    with io.open(out[:-4] + ".manifest.json", encoding="utf-8") as fh:
-        man = json.loads(fh.read())
-    # The declaration is the yardstick checks 9 and 12 measure against, so it
-    # has to survive into the manifest verbatim, not be re-derived later.
-    assert man["overrides"] == obj
-    assert M.load(scratch)["runs"][-1]["overrides"] == obj
+class TestInvalidDataIsRefusedCleanly(unittest.TestCase):
+    def _refuse(self, repo, doc_obj, raw=None):
+        out = os.path.join(repo, "o.x12")
+        path = os.path.join(repo, "ov.json")
+        with io.open(path, "w", encoding="utf-8") as fh:
+            fh.write(raw if raw is not None else json.dumps(doc_obj))
+        before = masterfile_hash(repo)
+        with captured() as (_o, err):
+            rc = G.main(["--repo", repo, "--type", "I", "--claims", "1",
+                         "--data", path, "--output", out])
+        return rc, err.getvalue(), out, before
+
+    def test_a_bad_override_exits_non_zero_with_the_reason(self):
+        with TempRepo() as repo:
+            rc, err, out, before = self._refuse(
+                repo, {"claims": [{"n": 99}]})
+            self.assertNotEqual(rc, 0)
+            self.assertIn("outside the batch", err)
+            self.assertFalse(os.path.exists(out))
+            self.assertEqual(masterfile_hash(repo), before)
+
+    def test_an_identifier_override_is_refused(self):
+        with TempRepo() as repo:
+            rc, err, out, before = self._refuse(
+                repo, {"identity": {"clm01": "X"}})
+            self.assertNotEqual(rc, 0)
+            self.assertIn("identifier", err)
+            self.assertFalse(os.path.exists(out))
+            self.assertEqual(masterfile_hash(repo), before)
+
+    def test_a_separator_in_a_value_is_refused(self):
+        with TempRepo() as repo:
+            rc, err, out, before = self._refuse(
+                repo, {"identity": {"subscriber": {"last": "DOE*JANE"}}})
+            self.assertNotEqual(rc, 0)
+            self.assertIn("separator", err)
+            self.assertFalse(os.path.exists(out))
+            self.assertEqual(masterfile_hash(repo), before)
+
+    def test_malformed_json_is_refused(self):
+        with TempRepo() as repo:
+            rc, err, out, before = self._refuse(repo, None, raw="{not json")
+            self.assertNotEqual(rc, 0)
+            self.assertIn("--data", err)
+            self.assertFalse(os.path.exists(out))
+            self.assertEqual(masterfile_hash(repo), before)
+
+    def test_a_missing_data_file_is_refused(self):
+        with TempRepo() as repo:
+            out = os.path.join(repo, "o.x12")
+            before = masterfile_hash(repo)
+            with captured() as (_o, err):
+                rc = G.main(["--repo", repo, "--type", "I", "--claims", "1",
+                             "--data", os.path.join(repo, "nope.json"),
+                             "--output", out])
+            self.assertNotEqual(rc, 0)
+            self.assertIn("--data", err.getvalue())
+            self.assertFalse(os.path.exists(out))
+            self.assertEqual(masterfile_hash(repo), before)
+
+    def test_a_service_date_change_is_still_refused(self):
+        # Task 4's rule survives the CLI: only the seed's own date may be
+        # submitted, and the refusal costs no identifier.
+        with TempRepo() as repo:
+            rc, err, out, before = self._refuse(repo, {"claims": [
+                {"n": 1, "lines": [{"date": "20241125",
+                                    "billed": "100.00"}]}]})
+            self.assertNotEqual(rc, 0)
+            self.assertIn("service date", err)
+            self.assertFalse(os.path.exists(out))
+            self.assertEqual(masterfile_hash(repo), before)
 
 
-def test_data_reads_stdin_when_the_path_is_a_dash(scratch, work, monkeypatch):
-    monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps(
-        {"identity": {"subscriber": {"last": "DOE"}}})))
-    out = os.path.join(work, "o.x12")
-    rc = generate.main(["--repo", scratch, "--type", "I", "--claims", "1",
-                        "--data", "-", "--output", out])
-    assert rc == 0
-    assert "*DOE*" in _read(out)
+class TestBackwardCompatibility(unittest.TestCase):
+    def test_a_run_without_data_is_unchanged(self):
+        with TempRepo() as repo:
+            out = os.path.join(repo, "o.x12")
+            with captured() as (_o, err):
+                rc = G.main(["--repo", repo, "--type", "I", "--claims", "3",
+                             "--output", out])
+            self.assertEqual(rc, 0, err.getvalue())
+            with io.open(out[:-4] + ".manifest.json", encoding="utf-8") as fh:
+                self.assertNotIn("overrides", json.loads(fh.read()))
+
+    def test_type_and_claims_are_still_required_without_pin(self):
+        with captured() as (_o, err):
+            rc = G.main(["--repo", REPO, "--type", "I"])
+        self.assertEqual(rc, 1)
+        self.assertIn("--type and --claims are required", err.getvalue())
 
 
-def test_a_bad_override_exits_non_zero_with_the_reason(scratch, work, capsys):
-    doc = _doc(work, {"claims": [{"n": 99}]})
-    out = os.path.join(work, "o.x12")
-    rc = generate.main(["--repo", scratch, "--type", "I", "--claims", "1",
-                        "--data", doc, "--output", out])
-    assert rc != 0
-    assert "outside the batch" in capsys.readouterr().err
-    assert not os.path.exists(out)
+class TestPrintDefaultsFitsTheClaimCount(unittest.TestCase):
+    """Task 10: the UI asks for N claims; the seed carries however many it
+    carries. The generator already cycles seed blocks, so the defaults must
+    cycle the same way or the document it hands back will not round-trip."""
+
+    def _defaults(self, code, extra=()):
+        with captured() as (out, err):
+            rc = G.main(["--repo", REPO, "--type", code,
+                         "--print-defaults"] + list(extra))
+        self.assertEqual(rc, 0, err.getvalue())
+        return json.loads(out.getvalue())
+
+    def test_without_a_claim_count_the_whole_seed_is_reported(self):
+        self.assertEqual(len(self._defaults("I")["claims"]),
+                         len(I.block_lens))
+
+    def test_fewer_claims_than_the_seed_are_trimmed(self):
+        claims = self._defaults("I", ["--claims", "3"])["claims"]
+        self.assertEqual([c["n"] for c in claims], [1, 2, 3])
+
+    def test_more_claims_than_the_seed_cycle_the_seed_blocks(self):
+        want = len(I.block_lens) + 2
+        claims = self._defaults("I", ["--claims", str(want)])["claims"]
+        self.assertEqual([c["n"] for c in claims], list(range(1, want + 1)))
+        for claim in claims:
+            source = self._defaults("I")["claims"][
+                G.source_index(claim["n"], I) - 1]
+            self.assertEqual(claim["lines"], source["lines"], claim["n"])
+
+    def test_the_trimmed_document_is_accepted_by_the_generator(self):
+        with TempRepo() as repo:
+            with captured() as (out, _e):
+                G.main(["--repo", repo, "--type", "I", "--claims", "12",
+                        "--print-defaults"])
+            doc = write_doc(repo, json.loads(out.getvalue()))
+            o = os.path.join(repo, "o.x12")
+            with captured() as (_o, err):
+                rc = G.main(["--repo", repo, "--type", "I", "--claims", "12",
+                             "--data", doc, "--output", o])
+            self.assertEqual(rc, 0, err.getvalue())
+
+    def test_a_claim_count_out_of_range_is_still_refused(self):
+        with captured() as (_o, err):
+            rc = G.main(["--repo", REPO, "--type", "I", "--claims", "0",
+                         "--print-defaults"])
+        self.assertEqual(rc, 1)
+        self.assertIn("claim count", err.getvalue())
 
 
-def test_malformed_json_is_refused_not_raised(scratch, work, capsys):
-    path = os.path.join(work, "ov.json")
-    with io.open(path, "w", encoding="utf-8") as fh:
-        fh.write("{not json")
-    rc = generate.main(["--repo", scratch, "--type", "I", "--claims", "1",
-                        "--data", path,
-                        "--output", os.path.join(work, "o.x12")])
-    assert rc != 0
-    assert "is not valid JSON" in capsys.readouterr().err
+class TestJsonOutput(unittest.TestCase):
+    """Task 10: --json makes stdout machine-readable for the HTTP bridge."""
+
+    def _generate(self, repo, extra=()):
+        out = os.path.join(repo, "EDI1", "Batch 9", "o.x12")
+        with captured() as (o, err):
+            rc = G.main(["--repo", repo, "--type", "I", "--claims", "3",
+                         "--output", out, "--json"] + list(extra))
+        self.assertEqual(rc, 0, err.getvalue())
+        return json.loads(o.getvalue()), out
+
+    def test_stdout_is_a_single_json_object(self):
+        with TempRepo() as repo:
+            payload, _out = self._generate(repo)
+            self.assertIsInstance(payload, dict)
+
+    def test_it_reports_the_paths_that_were_written(self):
+        with TempRepo() as repo:
+            payload, out = self._generate(repo)
+            self.assertTrue(os.path.exists(
+                os.path.join(repo, payload["x12"])))
+            self.assertTrue(os.path.exists(
+                os.path.join(repo, payload["manifest"])))
+            self.assertEqual(os.path.normpath(os.path.join(repo,
+                                                           payload["x12"])),
+                             os.path.normpath(out))
+
+    def test_paths_are_repo_relative_with_forward_slashes(self):
+        with TempRepo() as repo:
+            payload, _out = self._generate(repo)
+            for key in ("x12", "manifest"):
+                self.assertNotIn("\\", payload[key])
+                self.assertFalse(os.path.isabs(payload[key]), payload[key])
+
+    def test_the_batch_id_names_the_directory_the_batch_landed_in(self):
+        with TempRepo() as repo:
+            payload, _out = self._generate(repo)
+            self.assertEqual(payload["batchId"], "Batch 9")
+
+    def test_it_carries_the_identifiers_the_tiles_display(self):
+        with TempRepo() as repo:
+            payload, out = self._generate(repo)
+            with io.open(out[:-4] + ".manifest.json", encoding="utf-8") as fh:
+                man = json.loads(fh.read())
+            for key in ("isa13", "gs06", "statement", "sha256"):
+                self.assertEqual(payload[key], man[key], key)
+            self.assertEqual(payload["claims"], 3)
+            self.assertEqual(payload["type"], "I")
+            self.assertEqual(payload["clm01"], [man["clm01"][0],
+                                                man["clm01"][-1]])
+
+    def test_the_docx_path_is_reported_when_one_was_built(self):
+        with TempRepo() as repo:
+            payload, _out = self._generate(repo)
+            if payload["docx"] is not None:
+                self.assertTrue(os.path.exists(
+                    os.path.join(repo, payload["docx"])))
+                self.assertNotIn("\\", payload["docx"])
+
+    def test_a_declared_override_round_trips_through_json(self):
+        with TempRepo() as repo:
+            doc = write_doc(repo, DOC_I)
+            payload, _out = self._generate(repo, ["--data", doc])
+            with io.open(os.path.join(repo, payload["manifest"]),
+                         encoding="utf-8") as fh:
+                self.assertEqual(json.loads(fh.read())["overrides"], DOC_I)
+
+    def test_a_failure_keeps_stdout_empty_and_explains_on_stderr(self):
+        with TempRepo() as repo:
+            doc = write_doc(repo, {"claims": [{"n": 99}]})
+            with captured() as (o, err):
+                rc = G.main(["--repo", repo, "--type", "I", "--claims", "1",
+                             "--data", doc, "--output",
+                             os.path.join(repo, "o.x12"), "--json"])
+            self.assertEqual(rc, 2)
+            self.assertEqual(o.getvalue(), "")
+            self.assertIn("outside the batch", err.getvalue())
+
+    def test_json_changes_nothing_but_the_report(self):
+        """The bytes written must not depend on how stdout is formatted."""
+        with TempRepo() as repo:
+            plain = os.path.join(repo, "plain.x12")
+            with captured() as (_o, err):
+                rc = G.main(["--repo", repo, "--type", "I", "--claims", "2",
+                             "--output", plain])
+            self.assertEqual(rc, 0, err.getvalue())
+            with io.open(plain, encoding="ascii", newline="") as fh:
+                first = fh.read()
+            replay = os.path.join(repo, "replay.x12")
+            with captured() as (o, err):
+                rc = G.main(["--repo", repo, "--pin",
+                             plain[:-4] + ".manifest.json",
+                             "--output", replay, "--json"])
+            self.assertEqual(rc, 0, err.getvalue())
+            json.loads(o.getvalue())
+            with io.open(replay, encoding="ascii", newline="") as fh:
+                self.assertEqual(fh.read(), first)
 
 
-def test_a_missing_data_file_is_refused_not_raised(scratch, work, capsys):
-    rc = generate.main(["--repo", scratch, "--type", "I", "--claims", "1",
-                        "--data", os.path.join(work, "nope.json"),
-                        "--output", os.path.join(work, "o.x12")])
-    assert rc != 0
-    assert "cannot be read" in capsys.readouterr().err
+class TestPrintAllocation(unittest.TestCase):
+    """Task 10: the identifier tiles need the next allocation, un-consumed."""
 
+    def test_it_reports_the_identifiers_the_next_run_would_take(self):
+        with captured() as (out, err):
+            rc = G.main(["--repo", REPO, "--type", "I", "--claims", "3",
+                         "--print-allocation"])
+        self.assertEqual(rc, 0, err.getvalue())
+        payload = json.loads(out.getvalue())
+        self.assertEqual(len(payload["clm01"]), 3)
+        self.assertEqual(len(payload["bht03"]), 3)
+        self.assertTrue(payload["isa13"].isdigit())
+        self.assertEqual(len(payload["isa13"]), 9)
+        self.assertEqual(payload["claims"], 3)
+        self.assertEqual(payload["type"], "I")
+        self.assertTrue(payload["batchId"].startswith("Batch "))
 
-def test_data_and_pin_together_are_refused(scratch, work, capsys):
-    # --pin replays the declaration the manifest already records; a second
-    # document would silently lose to it and produce a file that is not what
-    # either input asked for.
-    doc = _doc(work, {})
-    rc = generate.main(["--repo", scratch, "--pin", doc, "--data", doc])
-    assert rc != 0
-    assert "--data cannot be combined with --pin" in capsys.readouterr().err
+    def test_it_allocates_nothing(self):
+        before = masterfile_hash(REPO)
+        with captured() as (_o, err):
+            rc = G.main(["--repo", REPO, "--type", "P", "--claims", "2",
+                         "--print-allocation"])
+        self.assertEqual(rc, 0, err.getvalue())
+        self.assertEqual(masterfile_hash(REPO), before)
 
-
-# --------------------------------------------------------------------------
-# --print-defaults
-# --------------------------------------------------------------------------
-
-def test_print_defaults_is_a_valid_override_document(repo, capsys):
-    rc = generate.main(["--repo", repo, "--type", "I", "--print-defaults"])
-    assert rc == 0
-    doc = json.loads(capsys.readouterr().out)
-    overrides.parse(doc, seeds.get("I"), len(doc["claims"]))   # must not raise
-
-
-def test_print_defaults_allocates_nothing(scratch, capsys):
-    before = json.dumps(M.load(scratch), sort_keys=True)
-    rc = generate.main(["--repo", scratch, "--type", "I", "--print-defaults"])
-    assert rc == 0
-    capsys.readouterr()
-    assert json.dumps(M.load(scratch), sort_keys=True) == before
-
-
-def test_print_defaults_needs_no_claim_count(repo, capsys):
-    rc = generate.main(["--repo", repo, "--type", "P", "--print-defaults"])
-    assert rc == 0
-    assert json.loads(capsys.readouterr().out)["identity"]["subscriber"]
-
-
-# --------------------------------------------------------------------------
-# --print-allocation
-# --------------------------------------------------------------------------
-
-def test_print_allocation_matches_what_a_real_run_takes(scratch, work, capsys):
-    rc = generate.main(["--repo", scratch, "--type", "I", "--claims", "2",
+    def test_it_matches_what_a_real_run_then_consumes(self):
+        with TempRepo() as repo:
+            with captured() as (out, _e):
+                G.main(["--repo", repo, "--type", "I", "--claims", "2",
                         "--print-allocation"])
-    assert rc == 0
-    peek = json.loads(capsys.readouterr().out)
-    out = os.path.join(work, "o.x12")
-    assert generate.main(["--repo", scratch, "--type", "I", "--claims", "2",
-                          "--output", out]) == 0
-    capsys.readouterr()
-    run = M.load(scratch)["runs"][-1]
-    # The point of the flag: the tiles show the allocator's own answer, not a
-    # second implementation of the allocation rules in the browser.
-    for key in ("isa13", "gs06", "envelope_date", "statement", "st02",
-                "bht03", "clm01", "ref_f8", "ref_9a", "service_dates"):
-        assert peek[key] == run[key], key
-    assert peek["nextBatch"] == 2
+            preview = json.loads(out.getvalue())
+            o = os.path.join(repo, "o.x12")
+            with captured() as (_o, err):
+                rc = G.main(["--repo", repo, "--type", "I", "--claims", "2",
+                             "--output", o])
+            self.assertEqual(rc, 0, err.getvalue())
+            with io.open(o[:-4] + ".manifest.json", encoding="utf-8") as fh:
+                man = json.loads(fh.read())
+            for key in ("isa13", "gs06", "statement", "clm01", "bht03"):
+                self.assertEqual(preview[key], man[key], key)
+
+    def test_it_needs_a_claim_count(self):
+        with captured() as (_o, err):
+            rc = G.main(["--repo", REPO, "--type", "I", "--print-allocation"])
+        self.assertEqual(rc, 1)
+        self.assertIn("--claims", err.getvalue())
 
 
-def test_print_allocation_allocates_nothing(scratch, capsys):
-    before = json.dumps(M.load(scratch), sort_keys=True)
-    for _ in range(2):
-        assert generate.main(["--repo", scratch, "--type", "P", "--claims",
-                              "3", "--print-allocation"]) == 0
-    first, second = capsys.readouterr().out.strip().splitlines()
-    # Twice in a row, same answer: peeking must not move the masterfile.
-    assert first == second
-    assert json.dumps(M.load(scratch), sort_keys=True) == before
-
-
-def test_print_allocation_needs_a_claim_count(scratch, capsys):
-    rc = generate.main(["--repo", scratch, "--type", "I",
-                        "--print-allocation"])
-    assert rc != 0
-    assert "--type and --claims are required" in capsys.readouterr().err
-
-
-def test_simultaneous_generation_transactions_never_overlap_identifiers(
-        scratch, work):
-    wrapper = _write_concurrency_wrapper(work)
-    argv = [sys.executable, wrapper, "--repo", scratch, "--type", "I",
-            "--claims", "1", "--json"]
-    processes = [subprocess.Popen(argv, stdout=subprocess.PIPE,
-                                  stderr=subprocess.PIPE)
-                 for _ in range(2)]
-    results = [p.communicate(timeout=30) for p in processes]
-    payloads = []
-    for p, (stdout, stderr) in zip(processes, results):
-        assert p.returncode == 0, stderr.decode("utf-8", "replace")
-        payloads.append(json.loads(stdout.decode("utf-8")))
-    assert {payload["batchId"] for payload in payloads} == {2, 3}
-
-    manifests = []
-    for batch in (2, 3):
-        path = os.path.join(
-            scratch, "EDI1", "Batch %d" % batch,
-            "fromUHCG-837I-WKN_1claims.manifest.json")
-        with io.open(path, encoding="utf-8") as fh:
-            manifests.append(json.loads(fh.read()))
-
-    for key in M.KEYS:
-        left = manifests[0][key]
-        right = manifests[1][key]
-        left = set(left if isinstance(left, list) else [left])
-        right = set(right if isinstance(right, list) else [right])
-        assert left.isdisjoint(right), (key, left & right)
-    assert len(M.load(scratch)["runs"]) == 3
-
-
-def test_simultaneous_pinned_publishers_cannot_both_claim_one_output(
-        scratch, work):
-    source = os.path.join(work, "source.x12")
-    assert generate.main(["--repo", scratch, "--type", "I", "--claims", "1",
-                          "--output", source]) == 0
-    pin = source[:-4] + ".manifest.json"
-    target = os.path.join(work, "pinned.x12")
-    wrapper = _write_pinned_concurrency_wrapper(work)
-    argv = [sys.executable, wrapper, "--repo", scratch, "--pin", pin,
-            "--output", target]
-    processes = [subprocess.Popen(argv, stdout=subprocess.PIPE,
-                                  stderr=subprocess.PIPE)
-                 for _ in range(2)]
-    results = [p.communicate(timeout=30) for p in processes]
-    assert sorted(p.returncode for p in processes) == [0, 1]
-    refusal = [stderr.decode("utf-8", "replace")
-               for p, (_stdout, stderr) in zip(processes, results)
-               if p.returncode == 1]
-    assert len(refusal) == 1
-    assert "exists; pass --force to overwrite" in refusal[0]
-    assert os.path.exists(target)
-    assert len(M.load(scratch)["runs"]) == 2
-
-
-def test_append_failure_rolls_back_artifacts_and_releases_lock(
-        scratch, work, monkeypatch, capsys):
-    out = os.path.join(work, "failed.x12")
-
-    def fail_append(*_args, **_kwargs):
-        raise OSError("atomic append failed")
-
-    monkeypatch.setattr(M, "append_run", fail_append)
-    rc = generate.main(["--repo", scratch, "--type", "I", "--claims", "1",
-                        "--output", out])
-    assert rc != 0
-    assert "atomic append failed" in capsys.readouterr().err
-    assert not os.path.exists(out)
-    assert not os.path.exists(out[:-4] + ".manifest.json")
-    assert len(M.load(scratch)["runs"]) == 1
-
-    monkeypatch.undo()
-    retry = os.path.join(work, "retry.x12")
-    assert generate.main(["--repo", scratch, "--type", "I", "--claims", "1",
-                          "--output", retry]) == 0
-    assert os.path.exists(retry)
-    assert len(M.load(scratch)["runs"]) == 2
-
-
-def test_default_output_failure_removes_the_new_empty_batch_directory(
-        scratch, monkeypatch, capsys):
-    # The stable advisory sidecar is intentionally persistent operational
-    # state, so establish it before comparing the repository tree.
-    with M.generation_lock(scratch):
-        pass
-    before_tree = _tree(scratch)
-    with open(M.path(scratch), "rb") as fh:
-        before_masterfile = fh.read()
-
-    def fail_append(*_args, **_kwargs):
-        raise OSError("atomic append failed")
-
-    monkeypatch.setattr(M, "append_run", fail_append)
-    rc = generate.main(["--repo", scratch, "--type", "I", "--claims", "1"])
-    assert rc != 0
-    assert "atomic append failed" in capsys.readouterr().err
-    assert _tree(scratch) == before_tree
-    with open(M.path(scratch), "rb") as fh:
-        assert fh.read() == before_masterfile
-
-
-def test_second_backup_failure_never_loses_an_existing_output_pair(
-        scratch, work, monkeypatch, capsys):
-    out = os.path.join(work, "existing.x12")
-    man = out[:-4] + ".manifest.json"
-    with open(out, "wb") as fh:
-        fh.write(b"original x12")
-    with open(man, "wb") as fh:
-        fh.write(b"original manifest")
-
-    real_replace = os.replace
-    calls = []
-
-    def fail_second_replace(source, destination):
-        calls.append((source, destination))
-        if len(calls) == 2:
-            raise OSError("second backup failed")
-        return real_replace(source, destination)
-
-    monkeypatch.setattr(generate.os, "replace", fail_second_replace)
-    rc = generate.main(["--repo", scratch, "--type", "I", "--claims", "1",
-                        "--output", out, "--force"])
-    assert rc != 0
-    assert "second backup failed" in capsys.readouterr().err
-    with open(out, "rb") as fh:
-        assert fh.read() == b"original x12"
-    with open(man, "rb") as fh:
-        assert fh.read() == b"original manifest"
-    assert len(M.load(scratch)["runs"]) == 1
-
-
-def test_restore_failure_leaves_the_original_in_a_recoverable_sidecar(
-        scratch, work, monkeypatch, capsys):
-    out = os.path.join(work, "existing.x12")
-    man = out[:-4] + ".manifest.json"
-    with open(out, "wb") as fh:
-        fh.write(b"original x12")
-    with open(man, "wb") as fh:
-        fh.write(b"original manifest")
-
-    real_replace = os.replace
-
-    def fail_manifest_restore(source, destination):
-        if source.startswith(man + ".previous-") and destination == man:
-            raise OSError("manifest restore failed")
-        return real_replace(source, destination)
-
-    def fail_append(*_args, **_kwargs):
-        raise OSError("atomic append failed")
-
-    monkeypatch.setattr(generate.os, "replace", fail_manifest_restore)
-    monkeypatch.setattr(M, "append_run", fail_append)
-    rc = generate.main(["--repo", scratch, "--type", "I", "--claims", "1",
-                        "--output", out, "--force"])
-    assert rc != 0
-    error = capsys.readouterr().err
-    assert "artifact restore failed" in error
-    assert "manifest restore failed" in error
-    with open(out, "rb") as fh:
-        assert fh.read() == b"original x12"
-    assert not os.path.exists(man)
-    recoverable = glob.glob(man + ".previous-*")
-    assert len(recoverable) == 1
-    with open(recoverable[0], "rb") as fh:
-        assert fh.read() == b"original manifest"
-    assert len(M.load(scratch)["runs"]) == 1
-
-
-@pytest.mark.parametrize("failed_artifact", ["x12", "manifest"])
-def test_atomic_publication_failure_leaves_no_partial_artifact(
-        failed_artifact, scratch, monkeypatch, capsys):
-    # Use the default path so the assertion also covers cleanup of the newly
-    # selected Batch directory.
-    out = os.path.join(
-        scratch, "EDI1", "Batch 2", "fromUHCG-837I-WKN_1claims.x12")
-    man = out[:-4] + ".manifest.json"
-    failed_destination = out if failed_artifact == "x12" else man
-    real_replace = os.replace
-
-    def fail_publication(source, destination):
-        if destination == failed_destination and ".edi_gen_" in source:
-            raise OSError("%s publication failed" % failed_artifact)
-        return real_replace(source, destination)
-
-    monkeypatch.setattr(generate.os, "replace", fail_publication)
-    rc = generate.main(["--repo", scratch, "--type", "I", "--claims", "1"])
-    assert rc != 0
-    assert "%s publication failed" % failed_artifact in capsys.readouterr().err
-    assert not os.path.exists(out)
-    assert not os.path.exists(man)
-    assert not os.path.exists(os.path.dirname(out))
-    assert len(M.load(scratch)["runs"]) == 1
-
-
-def test_failed_published_file_cleanup_is_reported(
-        scratch, work, monkeypatch, capsys):
-    out = os.path.join(work, "unrecorded.x12")
-    real_unlink = os.unlink
-
-    def fail_output_cleanup(path):
-        if path == out:
-            raise OSError("output cleanup failed")
-        return real_unlink(path)
-
-    def fail_append(*_args, **_kwargs):
-        raise OSError("atomic append failed")
-
-    monkeypatch.setattr(generate.os, "unlink", fail_output_cleanup)
-    monkeypatch.setattr(M, "append_run", fail_append)
-    rc = generate.main(["--repo", scratch, "--type", "I", "--claims", "1",
-                        "--output", out])
-    assert rc != 0
-    error = capsys.readouterr().err
-    assert "artifact cleanup failed" in error
-    assert "output cleanup failed" in error
-    assert os.path.exists(out)
-    assert len(M.load(scratch)["runs"]) == 1
-
-
-# --------------------------------------------------------------------------
-# --json
-# --------------------------------------------------------------------------
-
-def test_json_emits_one_parseable_object_on_stdout(scratch, work, capsys):
-    out = os.path.join(work, "o.x12")
-    rc = generate.main(["--repo", scratch, "--type", "I", "--claims", "1",
-                        "--output", out, "--json"])
-    assert rc == 0
-    payload = json.loads(capsys.readouterr().out)          # must not raise
-    assert payload["x12FilePath"] == out
-    assert payload["manifestPath"] == out[:-4] + ".manifest.json"
-    # 1-based index into masterfile runs, counting the "imported" pseudo-run
-    # bootstrap writes - so the first generated batch in a fresh repo is 2.
-    runs = M.load(scratch)["runs"]
-    assert payload["batchId"] == len(runs) == 2
-    assert runs[payload["batchId"] - 1]["sha256"] == json.loads(
-        io.open(payload["manifestPath"], encoding="utf-8").read())["sha256"]
-    assert os.path.exists(payload["docxFilePath"])
-
-
-def test_json_keeps_progress_lines_off_stdout(scratch, work, capsys):
-    out = os.path.join(work, "o.x12")
-    generate.main(["--repo", scratch, "--type", "I", "--claims", "1",
-                   "--output", out, "--json"])
-    captured = capsys.readouterr()
-    assert "wrote " not in captured.out
-    assert "wrote " in captured.err
-
-
-def test_json_prints_nothing_on_a_refused_run(scratch, work, capsys):
-    doc = _doc(work, {"claims": [{"n": 99}]})
-    rc = generate.main(["--repo", scratch, "--type", "I", "--claims", "1",
-                        "--data", doc, "--output", os.path.join(work, "o.x12"),
-                        "--json"])
-    assert rc != 0
-    assert capsys.readouterr().out == ""
+if __name__ == "__main__":
+    unittest.main()

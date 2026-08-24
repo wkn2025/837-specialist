@@ -1,0 +1,17 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "outDir": "server/dist",
+    "rootDir": "server",
+    "module": "NodeNext",
+    "moduleResolution": "nodenext",
+    // The bridge's own modules import each other with .ts specifiers so the
+    // strip-types entry point works without a build; on this compiled path
+    // TypeScript rewrites those specifiers to .js in the emitted output.
+    "allowImportingTsExtensions": true,
+    "rewriteRelativeImportExtensions": true,
+    "types": ["node"]
+  },
+  "include": ["server/api.ts", "server/edi2.ts", "server/index.ts"]
+}

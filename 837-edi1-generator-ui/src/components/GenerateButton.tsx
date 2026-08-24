@@ -1,74 +1,67 @@
 /**
- * Section 06. Three states, in the handoff's own words: gray "Complete
- * Required Fields" while something is missing, blue "Generate File" when
- * the batch is valid, green "✓ File Generated" once it is on disk. Any
- * edit takes it back - a generated file describes the form as it was, not
- * as it is now.
+ * Section 06: the generate-button state machine.
+ *
+ * gray "Complete Required Fields" -> blue "Generate File" -> green pill
+ * "✓ File Generated", with a 300ms transition and an elastic pop on the flip.
+ * Any edit reverts it, which the hook enforces by clearing `generated`.
  */
-import type { GeneratedBatch } from '@/api/types';
-import { basename, downloadUrl } from '@/api/client';
+import { useEffect, useRef, useState } from 'react';
+import { mono } from '../styles/ui.js';
 
-export function GenerateButton({
-  canGenerate, generated, working, error, result, onGenerate,
-}: {
+interface Props {
   canGenerate: boolean;
   generated: boolean;
-  working: boolean;
-  error: string | null;
-  result: GeneratedBatch | null;
+  busy: boolean;
   onGenerate: () => void;
-}) {
-  const label = generated
-    ? '✓  File Generated'
-    : working
-      ? 'Generating…'
+}
+
+export function GenerateButton(
+  { canGenerate, generated, busy, onGenerate }: Props,
+) {
+  const [popping, setPopping] = useState(false);
+  const wasGenerated = useRef(generated);
+
+  useEffect(() => {
+    if (generated && !wasGenerated.current) {
+      setPopping(true);
+      const t = setTimeout(() => setPopping(false), 500);
+      return () => clearTimeout(t);
+    }
+    wasGenerated.current = generated;
+    return undefined;
+  }, [generated]);
+
+  useEffect(() => { wasGenerated.current = generated; }, [generated]);
+
+  const enabled = canGenerate && !busy;
+  const label = busy
+    ? 'Generating…'
+    : generated
+      ? '✓  File Generated'
       : canGenerate ? 'Generate File' : 'Complete Required Fields';
 
   return (
-    <div>
-      <div className="generate">
-        <button
-          type="button"
-          className={`btn-generate${generated ? ' is-done' : ''}`}
-          disabled={!canGenerate || working || generated}
-          onClick={onGenerate}
-        >
-          {label}
-        </button>
-        {generated && result && (
-          <>
-            <a
-              className="btn-outline"
-              href={downloadUrl(result.batchId, 'x12')}
-            >
-              Download .x12
-            </a>
-            <a
-              className="btn-outline"
-              href={downloadUrl(result.batchId, 'docx')}
-            >
-              Download Claim Detail Report (.docx)
-            </a>
-          </>
-        )}
-      </div>
-
-      {generated && result && (
-        <div className="caption">
-          Batch {result.batchId} · <strong>{basename(result.x12FilePath)}</strong>
-          {' · '}{basename(result.docxFilePath)}
-          <br />
-          Identifiers recorded in {basename(result.manifestPath)}; the batch
-          keeps them for good.
-        </div>
-      )}
-
-      {error && (
-        <div className="notice" role="alert">
-          <strong>The batch was not generated</strong>
-          {error}
-        </div>
-      )}
-    </div>
+    <button
+      type="button"
+      disabled={!enabled && !generated}
+      onClick={() => { if (enabled) onGenerate(); }}
+      style={{
+        padding: '13px 28px',
+        borderRadius: generated ? 24 : 7,
+        fontSize: 14.5,
+        fontWeight: 600,
+        cursor: enabled ? 'pointer' : 'not-allowed',
+        border: 'none',
+        background: generated ? '#5b8c1f' : (canGenerate ? '#0084cc' : '#c3c8d1'),
+        color: '#fff',
+        fontFamily: mono,
+        opacity: canGenerate || generated ? 1 : 0.7,
+        transform: popping ? 'scale(1.06)' : 'scale(1)',
+        transition: 'background .3s, border-radius .3s, '
+          + 'transform .5s cubic-bezier(.34,1.56,.64,1)',
+      }}
+    >
+      {label}
+    </button>
   );
 }

@@ -1,31 +1,32 @@
 /**
- * The identifiers the next run would take.
+ * The identifier tiles.
  *
- * Every value comes from the allocator itself (--print-allocation), which
- * reads the masterfile without moving it. The browser never computes an
- * identifier: a second implementation of the allocation rules here could
- * disagree with the one that writes the file, and the tiles would then be
- * confidently wrong.
+ * The prototype derived these from the length of the history table. They are
+ * real never-reused identifiers, so they come from the allocator instead:
+ * GET /api/masterfile previews exactly what the next run would take, without
+ * consuming it.
  */
 import { useEffect, useState } from 'react';
-import { fetchAllocation } from '@/api/client';
-import type { Allocation, TxType } from '@/api/types';
+import { getMasterfile } from '../api/client.js';
+import type { AllocationPreview, TxType } from '../api/types.js';
 
 export function useMasterfile(type: TxType, claims: number) {
-  const [alloc, setAlloc] = useState<Allocation | null>(null);
+  const [preview, setPreview] = useState<AllocationPreview | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [nonce, setNonce] = useState(0);
 
   useEffect(() => {
-    let live = true;
-    // The slider fires on every step and each peek spawns the generator, so
-    // only the value the user rests on is asked for.
-    const timer = setTimeout(() => {
-      fetchAllocation(type, claims)
-        .then((a) => { if (live) { setAlloc(a); setError(null); } })
-        .catch((e: Error) => { if (live) { setAlloc(null); setError(e.message); } });
-    }, 200);
-    return () => { live = false; clearTimeout(timer); };
-  }, [type, claims]);
+    let cancelled = false;
+    getMasterfile(type, claims)
+      .then((p) => { if (!cancelled) { setPreview(p); setError(null); } })
+      .catch((e: unknown) => {
+        if (!cancelled) {
+          setPreview(null);
+          setError(e instanceof Error ? e.message : String(e));
+        }
+      });
+    return () => { cancelled = true; };
+  }, [type, claims, nonce]);
 
-  return { alloc, error };
+  return { preview, error, refresh: () => setNonce((n) => n + 1) };
 }

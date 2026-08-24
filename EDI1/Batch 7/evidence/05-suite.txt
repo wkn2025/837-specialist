@@ -1,5 +1,7 @@
-Fresh post-generation verification on 2026-08-22
+Suite verification for EDI1/Batch 7
 
+AT GENERATION (2026-08-22, on main, before the 837p-seed-registration integration)
+---------------------------------------------------------------------------------
 Python generator suite
 command: EDI_REPO=<this worktree> .venv/Scripts/python.exe -m pytest skill/generating-uhcg-edi-files/tests/ -q
 result : 282 passed in 38.01s
@@ -27,6 +29,57 @@ result : 5/5 passed; no identifier overlap
 
 Batch 7 independent validator
 result : exit 0; all 15 checks passed
+
+Claim summary DOCX
+zip integrity: testzip returned None
+entries      : 17
+document XML : present
+
+RE-VERIFIED AFTER THE INTEGRATION (2026-08-23)
+----------------------------------------------
+The counts above are a record of main's tree on 2026-08-22 and no longer
+describe this repo: the merge brought in 837p-seed-registration's generator,
+generator UI and tests alongside main's EDI2 Validator, so every suite grew.
+The line "Batch 7 independent validator result: exit 0; all 15 checks passed"
+is the one entry above that is now WRONG rather than merely dated, and it is
+corrected here and in 01-validate.txt.
+
+Python generator suite
+command: python -m pytest skill/generating-uhcg-edi-files/tests/ -q
+result : 335 passed in 34.47s
+
+EDI2 Python suite (fixture-backed tests enabled)
+command: EDI2_FIXTURES=<repo root> python -m pytest skill/assessing-edi2-files/tests/ -q
+result : 217 passed, 135 subtests passed, 0 skipped, in 2.11s
+
+Frontend tests
+command: npm test  (vitest run)
+result : 5 files passed; 83 tests passed
+
+TypeScript
+command: npm run typecheck  (tsc --noEmit)
+result : exit 0
+
+Production build
+command: npm run build
+result : exit 0; 39 modules transformed; built in 466ms
+
+Server build
+command: npm run build:server  (tsc -p tsconfig.server.json)
+result : exit 0
+
+Mutation suite
+command: python skill/generating-uhcg-edi-files/scripts/mutations.py --repo .
+result : exit 0; 62 mutations, every one caught by the check that owns it
+         (see 02-mutations.txt)
+
+Batch 7 independent validator
+result : exit 1; FAILED checks [8, 9, 14]; checks 1-7, 10-13 and 15 pass
+         The .x12 is unchanged. The failures are the deliberate consequence
+         of making 837p-seed-registration's service-line splice policy
+         authoritative; main's round-robin fabrication was not ported back
+         and the policy was not relaxed to make this file pass. Full
+         explanation in 01-validate.txt and 06-post-integration-revalidation.txt.
 
 Claim summary DOCX
 zip integrity: testzip returned None

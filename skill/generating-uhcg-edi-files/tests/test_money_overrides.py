@@ -1,531 +1,276 @@
-"""Tests for generate.money_edits and the CLM02/claim_total wiring in
-edits_for (task 4: service-line amount overrides).
+"""Task 4: service-line amounts, both HCP levels and CLM02 move as one unit.
 
-conftest.py has no fake-allocation or on-disk-build helpers (and is off
-limits to edit for this task), so this file carries its own - mirroring the
-pattern already established in test_identity_overrides.py.
+The money rule ties them, so validate.py is the authority every assertion
+here defers to: a generated block is fed straight back into the checker that
+guards the real files.
 """
 import os
 import sys
-from decimal import Decimal
+import unittest
+from decimal import Decimal as D
 
-import pytest
-
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                "..", "scripts"))
-import generate
-import masterfile as M
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.join(HERE, "..", "scripts"))
+sys.path.insert(0, HERE)
+import generate as G
 import overrides
+import seed_introspect
 import seeds
 import validate
 import x12_parse as X
 
+from test_generate import fake_alloc, fake_alloc_p
 
-def _blocks(segs):
-    return [segs[st:se + 1] for st, se in X.transaction_sets(segs)]
-
-
-def _fake_alloc_i(claims):
-    yymmdd = "240115"
-    return M.Allocation(
-        isa13="900000900", gs06="900",
-        envelope_date="20240115", envelope_time="0930",
-        window_start="20240101", window_end="20240107",
-        statement="20240101-20240107",
-        service_dates=["2024010%d" % d for d in range(1, 8)],
-        st02=["%09d" % (900000900 + i) for i in range(claims)],
-        bht03=["%s%04d" % (yymmdd, i + 1) for i in range(claims)],
-        clm01=["TEST%s%03d" % (yymmdd, i + 1) for i in range(claims)],
-        ref_f8=["%011d" % (90012154900 + i) for i in range(claims)],
-        ref_9a=["E2E%s12125%03d" % (yymmdd, i + 1) for i in range(claims)])
+REPO = os.environ.get("EDI_REPO", r"C:\Users\wkn\837-specialist")
+I = seeds.get("I")
+P = seeds.get("P")
 
 
-def _fake_alloc_p(claims):
-    return M.Allocation(
-        isa13="900000901", gs06="901",
-        envelope_date="20240215", envelope_time="0930",
-        window_start="20240201", window_end="20240208",
-        statement="20240201-20240208",
-        service_dates=["2024020%d" % d for d in range(1, 9)],
-        st02=["%09d" % (12900201 + i) for i in range(claims)],
-        bht03=["%09d" % (12900201 + i) for i in range(claims)],
-        clm01=["TEST240215%03d" % (i + 1) for i in range(claims)],
-        ref_f8=["%011d" % (90012155900 + i) for i in range(claims)],
-        ref_9a=["%d" % (12900201 + i) for i in range(claims)])
+def _build(doc, claims=1, profile=I):
+    ov = None if doc is None else overrides.parse(doc, profile, claims)
+    segs = seeds.load_seed(profile, REPO)
+    alloc = fake_alloc(claims) if profile is I else fake_alloc_p(claims)
+    return G.build(segs, profile, alloc, claims, ov)
 
 
-def _build_I(repo, doc, claims=1):
-    profile = seeds.get("I")
-    ov = overrides.parse(doc, profile, claims)
-    alloc = _fake_alloc_i(claims)
-    segs = seeds.load_seed(profile, repo)
-    return generate.build(segs, profile, alloc, claims, ov)
+def _money_ok(out, profile):
+    """Run the real validator's money rule over a generated file."""
+    check = validate.MONEY_RULES[profile.money_rule][0]
+    return check(seeds.blocks(out), profile)
 
 
-def _build_P(repo, doc, claims=1):
-    profile = seeds.get("P")
-    ov = overrides.parse(doc, profile, claims)
-    alloc = _fake_alloc_p(claims)
-    segs = seeds.load_seed(profile, repo)
-    return generate.build(segs, profile, alloc, claims, ov)
+def _i_doc(billed, n=1, date="20241121"):
+    return {"claims": [{"n": n, "lines": [{"date": date,
+                                           "billed": billed}]}]}
 
 
-def test_institutional_line_amount_keeps_the_85_15_split(repo):
-    doc = {"claims": [{"n": 1, "lines":
-           [{"date": "20241121", "billed": "1000.00"}]}]}
-    out = _build_I(repo, doc, claims=1)
-    assert "SV2*0430*HC:97530*1000.00*UN*2" in out
-    assert [s for s in out if s.startswith("HCP*10*850.00*150.00")]
+class TestInstitutionalAmounts(unittest.TestCase):
+    def test_institutional_line_amount_keeps_the_85_15_split(self):
+        out = _build(_i_doc("1000.00"))
+        self.assertIn("SV2*0430*HC:97530*1000.00*UN*2", out)
+        self.assertTrue([s for s in out
+                         if s.startswith("HCP*10*850.00*150.00")])
+
+    def test_clm02_follows_the_line_total(self):
+        out = _build(_i_doc("1000.00"))
+        clm = next(s for s in out if s.startswith("CLM*"))
+        self.assertEqual(X.elems(clm)[2], "1000.00")
+
+    def test_the_allocated_claim_id_survives_the_amount_edit(self):
+        # CLM01 and CLM02 are one segment; the allocator still owns CLM01.
+        alloc = fake_alloc(1)
+        out = _build(_i_doc("1000.00"))
+        clm = next(s for s in out if s.startswith("CLM*"))
+        self.assertEqual(X.elems(clm)[1], alloc.clm01[0])
+
+    def test_the_claim_hcp_is_the_split_of_the_total_not_the_line_sum(self):
+        # Two lines of 0.10: each line's savings rounds to 0.01 (sum 0.02),
+        # but the claim's is round(0.20 * 0.15, 2) = 0.03. validate.py checks
+        # the claim HCP against the total, so the line sum would fail.
+        doc = {"claims": [{"n": 3, "lines": [
+            {"date": "20241121", "billed": "0.10"},
+            {"date": "20241122", "billed": "0.10"},
+            {"date": "20241123", "billed": "0.10"}]}]}
+        out = _build(doc, claims=3)
+        ok, detail = _money_ok(out, I)
+        self.assertTrue(ok, detail)
+
+    def test_repeated_identical_lines_get_their_own_amounts(self):
+        # Block 9 carries the same SV2 six times, so a whole-segment literal
+        # cannot name one line. Dates come from the seed - only the amounts
+        # are overridden here.
+        seed = seed_introspect.defaults_for(I, REPO)["claims"][8]["lines"]
+        lines = [{"date": l["date"], "billed": "%d.00" % (j + 1)}
+                 for j, l in enumerate(seed)]
+        out = _build({"claims": [{"n": 9, "lines": lines}]}, claims=9)
+        block = seeds.blocks(out)[8]
+        charges = [X.elems(s)[3] for s in block if s.startswith("SV2*")]
+        self.assertEqual(charges, ["%d.00" % (j + 1) for j in range(9)])
+
+    def test_the_generated_block_passes_the_money_validator(self):
+        for billed in ("1234.56", "0.01", "0.10", "999999.99", "7.77"):
+            out = _build(_i_doc(billed))
+            ok, detail = _money_ok(out, I)
+            self.assertTrue(ok, "%s: %s" % (billed, detail))
+
+    def test_a_sweep_of_amounts_all_satisfy_the_validator(self):
+        for cents in range(1, 600):
+            out = _build(_i_doc("%.2f" % (D(cents) / D(100))))
+            ok, detail = _money_ok(out, I)
+            self.assertTrue(ok, "%d cents: %s" % (cents, detail))
 
 
-def test_clm02_follows_the_line_total(repo):
-    doc = {"claims": [{"n": 1, "lines":
-           [{"date": "20241121", "billed": "1000.00"}]}]}
-    out = _build_I(repo, doc, claims=1)
-    clm = next(s for s in out if s.startswith("CLM*"))
-    assert clm.split("*")[2] == "1000.00"
+class TestProfessionalAmounts(unittest.TestCase):
+    def test_professional_savings_is_honoured_verbatim(self):
+        doc = {"claims": [{"n": 1, "lines": [{"date": "20260130",
+                                              "billed": "500.00",
+                                              "savings": "123.45"}]}]}
+        out = _build(doc, claims=1, profile=P)
+        self.assertTrue([s for s in out if "*376.55*123.45*" in s])
+
+    def test_the_professional_block_passes_the_money_validator(self):
+        doc = {"claims": [{"n": 1, "lines": [{"date": "20260130",
+                                              "billed": "500.00",
+                                              "savings": "123.45"}]}]}
+        ok, detail = _money_ok(_build(doc, claims=1, profile=P), P)
+        self.assertTrue(ok, detail)
+
+    def test_the_claim_hcp_is_the_sum_of_its_lines(self):
+        # 837P: UHCG_Validation_Rules_Professional.csv makes the claim HCP the
+        # sum of the line HCPs, not a split of the total.
+        dates = ["20260205"] * 6
+        doc = {"claims": [{"n": 6, "lines": [
+            {"date": d, "billed": "10.01", "savings": "0.07"}
+            for d in dates]}]}
+        out = _build(doc, claims=6, profile=P)
+        block = seeds.blocks(out)[5]
+        chcp = X.elems(validate.claim_hcp(block))
+        self.assertEqual((chcp[2], chcp[3]), ("59.64", "0.42"))
+        ok, detail = _money_ok(out, P)
+        self.assertTrue(ok, detail)
 
 
-def test_the_generated_file_passes_the_money_validator(repo):
-    # T4 note: the brief's literal Step 1 code was
-    #     path = _generate_to_disk(repo, tmp_path, doc, claims=1)
-    #     assert validate.main(["--file", str(path)]) == 0
-    # This cannot work as written, for two independent reasons: (1)
-    # validate.main() takes no parameters - it reads sys.argv itself via
-    # argparse.ArgumentParser().parse_args() with no args, so passing a list
-    # raises TypeError before argparse even runs; (2) even with sys.argv
-    # patched and --manifest/--repo supplied (both `required=True` in
-    # validate.py's parser), the full pipeline still cannot return 0 here:
-    # check 9 ("every payload segment is byte-identical to its seed block
-    # once the declared edits are reversed") does not know how to reverse a
-    # money edit - it only reverses ST02/BHT03/CLM01/REF*F8/REF*9A/dates, so
-    # a CLM02 or HCP change this task makes will always be reported as an
-    # unreversed diff. Teaching validate.py's reversal (and its check 9) about
-    # money edits is Task 6's job, per the brief's own "Decisions already
-    # made" section 3, and this task must not touch validate.py.
-    #
-    # So this test instead exercises what its name actually promises - the
-    # money validator - by calling validate.MONEY_RULES directly (the exact
-    # function check 11 in validate.py's main() dispatches to), which is a
-    # frozen public building block of validate.py and does not require
-    # editing that file or running its full 15-check pipeline.
-    #
-    # Review finding 1: the MONEY_RULES check above only proves internal
-    # self-consistency of whatever numbers happen to be in the output - it
-    # never compares against the override's declared value, so this test
-    # used to pass even with money_edits/claim_total monkeypatched to
-    # no-ops (confirmed during the review, and re-confirmed while fixing
-    # this finding: see task-4-fix-1-report.md). Pin the actual override
-    # value landing in all four places money_edits/claim_total touch,
-    # each as a whole-segment assertion, so removing the feature fails
-    # this test for the right reason.
-    #
-    # 1234.56 is not an arbitrary round number: when this test was written
-    # the generator derived savings with Decimal ROUND_HALF_UP (overrides.py's
-    # `_money()` + T2-b) while validate.py re-derived the same 85/15 ratio in
-    # float (`round(x * 0.15, 2)`), and the two disagreed on ~2.4% of amounts
-    # - e.g. 0.50, 0.90 and 1.10 made a generated 837I file fail its own
-    # validator. 1234.56 -> savings 185.18 is an amount where both agree, so
-    # the test could be written without tripping over that defect. Task 6
-    # commit A aligned validate.py to Decimal, so the workaround is no longer
-    # needed here (the divergent cents now have their own tests at the foot of
-    # this file); 1234.56 is kept so this assertion stays a stable pin.
-    doc = {"claims": [{"n": 1, "lines":
-           [{"date": "20241121", "billed": "1234.56"}]}]}
-    out = _build_I(repo, doc, claims=1)
-    profile = seeds.get("I")
-    fn, _label = validate.MONEY_RULES[profile.money_rule]
-    ok, detail = fn(_blocks(out), profile)
-    assert ok, detail
+class TestSeedDefaultsAreANoOp(unittest.TestCase):
+    """Submitting the seed's own values must change nothing."""
 
-    claim = _blocks(out)[0]
-    assert "SV2*0430*HC:97530*1234.56*UN*2" in claim
-    lx_at = [j for j, s in enumerate(claim) if s.startswith("LX*")]
-    claim_hcp = [s for s in claim[:lx_at[0]] if s.startswith("HCP*")]
-    line_hcp = [s for s in claim[lx_at[0]:] if s.startswith("HCP*")]
-    assert claim_hcp == ["HCP*10*1049.38*185.18*9327*******UN*1"]
-    assert line_hcp == ["HCP*10*1049.38*185.18*9327*0.00**0.00****UN*2"]
-    clm = next(s for s in claim if s.startswith("CLM*"))
-    assert clm == "CLM*TEST240115001*1234.56***13:A:1**A*Y*Y"
+    def test_the_institutional_defaults_produce_no_money_edit(self):
+        payload = seeds.blocks(seeds.load_seed(I, REPO))[8]
+        doc = seed_introspect.defaults_for(I, REPO)
+        ov = overrides.parse(doc, I, claims=9)
+        self.assertEqual(G.money_edits(I, ov, payload, 9), [])
+
+    def test_the_professional_defaults_produce_no_money_edit(self):
+        blocks = seeds.blocks(seeds.load_seed(P, REPO))
+        doc = seed_introspect.defaults_for(P, REPO)
+        ov = overrides.parse(doc, P, claims=8)
+        for i, payload in enumerate(blocks):
+            self.assertEqual(G.money_edits(P, ov, payload, i + 1), [],
+                             "block %d" % (i + 1))
+
+    def test_a_defaults_build_is_byte_identical_to_no_override(self):
+        # Only the claims half of the defaults is compared. defaults_for
+        # reads identity from the first block alone, so replaying it across a
+        # seed whose blocks carry different providers - the professional one
+        # does - legitimately rewrites them. That is Task 3's behaviour.
+        for profile, claims in ((I, 9), (P, 8)):
+            doc = seed_introspect.defaults_for(profile, REPO)
+            self.assertEqual(_build({"claims": doc["claims"]}, claims, profile),
+                             _build(None, claims, profile),
+                             profile.code)
+
+    def test_the_full_institutional_defaults_are_byte_identical(self):
+        # Every institutional block shares one identity, so there the whole
+        # defaults document round-trips.
+        doc = seed_introspect.defaults_for(I, REPO)
+        self.assertEqual(_build(doc, 9, I), _build(None, 9, I))
 
 
-def test_professional_savings_is_honoured_verbatim(repo):
-    # Review finding 4: the original assertion was a bare substring match
-    # on "*376.55*123.45*", which cannot tell the claim-level HCP from the
-    # line-level HCP on a single-line claim - both compute to the same
-    # allowed/savings pair here (376.55 / 123.45), so a substring match
-    # could not rule out corruption of a segment's trailing elements. Anchor
-    # on the whole segment instead. The two HCPs are still distinguishable
-    # even though the numbers match: the claim-level HCP (before LX*1) has
-    # no trailing padding element in this seed, the line-level HCP (inside
-    # LX*1) keeps the seed's trailing "*0.00".
-    doc = {"claims": [{"n": 1, "lines":
-           [{"date": "20260212", "billed": "500.00", "savings": "123.45"}]}]}
-    out = _build_P(repo, doc, claims=1)
-    claim = _blocks(out)[0]
-    assert "HCP*10*376.55*123.45*9327" in claim          # claim-level
-    assert "HCP*10*376.55*123.45*9327*0.00" in claim     # line-level (LX*1)
+class TestLineCountAndShape(unittest.TestCase):
+    def test_money_edits_refuse_a_block_whose_line_count_disagrees(self):
+        # build() reconciles the counts by splicing (Task 5), so this guard
+        # is an invariant on money_edits itself: it must never be handed a
+        # block it was not computed against.
+        payload = seeds.blocks(seeds.load_seed(I, REPO))[0]
+        doc = {"claims": [{"n": 1, "lines": [
+            {"date": "20241121", "billed": "10.00"},
+            {"date": "20241121", "billed": "10.00"}]}]}
+        ov = overrides.parse(doc, I, 1)
+        with self.assertRaisesRegex(G.BuildError, "service line"):
+            G.money_edits(I, ov, payload, 1)
+
+    def test_a_claim_with_no_line_override_is_untouched(self):
+        out = _build({"claims": [{"n": 1, "principalDiagnosis": "E119"}]})
+        self.assertIn("SV2*0430*HC:97530*420.00*UN*2", out)
+        self.assertIn("CLM*%s*420.00***13:A:1**A*Y*Y" % fake_alloc(1).clm01[0],
+                      out)
 
 
-# The four tests above are the brief's Step 1 verbatim. The tests below fill
-# gaps the brief's own decisions flagged as risk areas that the brief's tests
-# do not pin: element-index discipline (decision 6) and claim-level vs
-# line-level HCP scoping on a genuinely multi-line claim (decision 5).
+class TestServiceDateOverrides(unittest.TestCase):
+    """The allocator owns the service window: generate.py maps every seed date
+    onto alloc.service_dates. A line date that differs from the seed's cannot
+    be honoured, so it is refused rather than silently ignored."""
 
-def test_professional_sv1_line_amount_lands_at_the_correct_element(repo):
-    # SV1's billed amount is at element index 2, not SV2's index 3 (decision
-    # 6). Asserting the whole segment - not a substring - is what would have
-    # caught the wrong index: a hardcoded index 3 write would corrupt the
-    # UN*1 units element instead of the charge, and a substring assertion on
-    # just the HCP segment (as in test_professional_savings_is_honoured_
-    # verbatim above) would not notice.
-    doc = {"claims": [{"n": 1, "lines":
-           [{"date": "20260212", "billed": "500.00", "savings": "123.45"}]}]}
-    out = _build_P(repo, doc, claims=1)
-    assert "SV1*HC:99222*500.00*UN*1*21**1:2:3**N" in out
+    def test_the_seed_date_is_accepted_and_remapped_to_the_allocation(self):
+        alloc = fake_alloc(1)
+        out = _build(_i_doc("1000.00", date="20241121"))
+        self.assertIn("DTP*472*D8*" + alloc.service_dates[0], out)
+        self.assertEqual([s for s in out if s == "DTP*472*D8*20241121"], [])
 
+    def test_a_changed_service_date_is_refused(self):
+        with self.assertRaisesRegex(G.BuildError, "service date"):
+            _build(_i_doc("1000.00", date="20241125"))
 
-def test_institutional_multi_line_claim_keeps_claim_and_line_hcp_distinct(repo):
-    # Seed block 2 (claim 2 with claims=2) has two service lines under one
-    # claim-level HCP - the shape decision 5 calls out as the one Task 1 got
-    # wrong. Line 1: billed 100.00 -> savings 15.00 (85/15), allowed 85.00.
-    # Line 2: billed 200.00 -> savings 30.00, allowed 170.00. Claim total
-    # 300.00, claim-level savings 45.00 (sum of the two lines), claim-level
-    # allowed 255.00 - and the claim-level HCP must carry that aggregate,
-    # not either line's own figures.
-    doc = {"claims": [{"n": 2, "lines": [
-           {"date": "20241121", "billed": "100.00"},
-           {"date": "20241122", "billed": "200.00"}]}]}
-    out = _build_I(repo, doc, claims=2)
-    claim2 = _blocks(out)[1]
-    assert "SV2*0430*HC:97530*100.00*UN*3" in claim2
-    assert "SV2*0440*HC:92507*200.00*UN*1" in claim2
-    assert "HCP*10*85.00*15.00*9327*0.00**0.00****UN*3" in claim2
-    assert "HCP*10*170.00*30.00*9327*0.00**0.00****UN*1" in claim2
-    # The claim-level HCP (no LX-loop suffix elements) carries the aggregate.
-    assert "HCP*10*255.00*45.00*9327*******UN*1" in claim2
-    clm = next(s for s in claim2 if s.startswith("CLM*"))
-    assert clm.split("*")[2] == "300.00"
-    # Claim 1, untouched by the override, must keep its seed amount - proof
-    # that the claim-2 edit did not leak across claims.
-    claim1 = _blocks(out)[0]
-    clm1 = next(s for s in claim1 if s.startswith("CLM*"))
-    assert clm1.split("*")[2] == "420.00"
+    def test_the_refusal_names_the_allocated_window(self):
+        with self.assertRaisesRegex(G.BuildError, "allocat"):
+            _build(_i_doc("1000.00", date="20241125"))
+
+    def test_a_professional_line_date_is_checked_the_same_way(self):
+        doc = {"claims": [{"n": 1, "lines": [{"date": "20991231",
+                                              "billed": "500.00",
+                                              "savings": "123.45"}]}]}
+        with self.assertRaisesRegex(G.BuildError, "service date"):
+            _build(doc, claims=1, profile=P)
 
 
-def test_ov_none_still_leaves_money_untouched(repo):
-    # T4-4: ov=None must remain byte-for-byte inert (test_identity_
-    # overrides.py's fixture test pins the whole-file case; this pins that
-    # money_edits and claim_total specifically no-op on ov=None without
-    # going through that fixture).
-    profile = seeds.get("I")
-    alloc = _fake_alloc_i(1)
-    segs = seeds.load_seed(profile, repo)
-    out = generate.build(segs, profile, alloc, 1, ov=None)
-    seed_block = seeds.blocks(segs)[0]
-    assert "SV2*0430*HC:97530*420.00*UN*2" in out
-    assert any(s.startswith("HCP*10*357.00*63.00*9327*******UN*1")
-              for s in out)
-    clm = next(s for s in out if s.startswith("CLM*"))
-    assert clm.split("*")[2] == "420.00"
-    assert generate.money_edits(profile, None, seed_block, 1) == []
-    assert generate.claim_total(None, 1) is None
+class TestPositionalEditSafety(unittest.TestCase):
+    def test_edits_from_one_block_cannot_be_applied_to_another(self):
+        # The expected literal is what stops a positional edit landing on a
+        # segment it was not computed against - the overlap guard build()
+        # relies on when it applies these after the literal edits.
+        blocks = seeds.blocks(seeds.load_seed(I, REPO))
+        ov = overrides.parse(_i_doc("1000.00"), I, 1)
+        ed = G.money_edits(I, ov, blocks[0], 1)
+        self.assertTrue(ed)
+        with self.assertRaisesRegex(G.BuildError, "expected"):
+            G.apply_positional_edits(blocks[4], ed, "5")
+
+    def test_apply_positional_edits_refuses_an_unexpected_literal(self):
+        with self.assertRaisesRegex(G.BuildError, "expected"):
+            G.apply_positional_edits(["A", "B"], [(1, "C", "D")], "1")
+
+    def test_apply_positional_edits_refuses_an_index_off_the_block(self):
+        with self.assertRaisesRegex(G.BuildError, "outside"):
+            G.apply_positional_edits(["A"], [(5, "A", "B")], "1")
+
+    def test_apply_positional_edits_rewrites_by_index(self):
+        self.assertEqual(
+            G.apply_positional_edits(["A", "B", "A"], [(2, "A", "Z")], "1"),
+            ["A", "B", "Z"])
 
 
-# Review findings 2, 3, 5, 6: the gaps the review found in the tests above -
-# the line-count BuildError is untested, there is no 837P multi-line money
-# test, the next()-lookups in money_edits raise a bare StopIteration instead
-# of a labeled BuildError, and _money_fmt formats through float.
+class TestDerivedAmounts(unittest.TestCase):
+    def test_derived_allowed_matches_the_validator(self):
+        # validate.py:141 compares against round(charge * 0.85, 2).
+        for cents in range(1, 4000):
+            billed = D(cents) / D(100)
+            got = overrides.derived_allowed(billed)
+            self.assertEqual(float(got), round(float(billed) * 0.85, 2),
+                             "billed %.2f" % billed)
 
-# Task 5 note: the two tests below used to be named
-# test_money_override_with_too_{many,few}_lines_raises_build_error and
-# asserted that a line-count mismatch through _build_I()/generate.build()
-# raised BuildError from money_edits' line-count check. Task 5 added
-# generate.splice_lines, which runs before money_edits and grows/shrinks the
-# seed block's LX loops to match the override's line count - reconciling
-# exactly the mismatch these tests used to force. That is the intended,
-# documented behavior of Task 5 (add/remove service lines), not a
-# regression, so by the time money_edits runs through build() the counts can
-# never disagree - the two tests' original premise is obsolete. Renamed to
-# assert the new integration behavior (the block splices instead of
-# erroring); the line-count guard inside money_edits itself is still real
-# and still reachable when money_edits is called directly without going
-# through splice_lines first (see
-# test_money_edits_raises_build_error_on_line_count_mismatch_when_called_
-# directly below, and skill/generating-uhcg-edi-files/tests/
-# test_line_splice.py for splice_lines' own coverage).
+    def test_allowed_is_not_simply_billed_minus_savings(self):
+        # 0.50 -> allowed 0.42, savings 0.07, which sum to 0.49. Deriving
+        # allowed as billed - savings would give 0.43 and fail the validator.
+        # split_85_15 checks each half against the charge independently, so
+        # the two halves are not required to sum to it.
+        self.assertEqual(overrides.derived_allowed(D("0.50")), D("0.42"))
+        self.assertEqual(overrides.derived_savings(D("0.50")), D("0.07"))
+        self.assertNotEqual(overrides.derived_allowed(D("0.50")),
+                            D("0.50") - overrides.derived_savings(D("0.50")))
 
-def test_money_override_with_more_lines_than_the_seed_now_splices(repo):
-    doc = {"claims": [{"n": 1, "lines": [
-           {"date": "20241121", "billed": "100.00"},
-           {"date": "20241122", "billed": "200.00"}]}]}
-    out = _build_I(repo, doc, claims=1)
-    claim1 = _blocks(out)[0]
-    assert [s for s in claim1 if s.startswith("LX*")] == ["LX*1", "LX*2"]
-    assert [s.split("*")[3] for s in claim1 if s.startswith("SV2*")] == \
-        ["100.00", "200.00"]
+    def test_the_split_halves_need_not_sum_to_the_charge(self):
+        divergent = [c for c in range(1, 20000)
+                     if overrides.derived_allowed(D(c) / D(100))
+                     + overrides.derived_savings(D(c) / D(100))
+                     != D(c) / D(100)]
+        self.assertGreater(len(divergent), 500)
 
-
-def test_money_override_with_fewer_lines_than_the_seed_now_splices(repo):
-    doc = {"claims": [{"n": 2, "lines": [
-           {"date": "20241121", "billed": "100.00"}]}]}
-    out = _build_I(repo, doc, claims=2)
-    claim2 = _blocks(out)[1]
-    assert [s for s in claim2 if s.startswith("LX*")] == ["LX*1"]
-    assert [s.split("*")[3] for s in claim2 if s.startswith("SV2*")] == \
-        ["100.00"]
+    def test_every_divergent_amount_still_satisfies_the_validator(self):
+        for cents in (50, 70, 90, 110, 150, 190):
+            billed = D(cents) / D(100)
+            out = _build(_i_doc("%.2f" % billed))
+            ok, detail = _money_ok(out, I)
+            self.assertTrue(ok, "%s: %s" % (billed, detail))
 
 
-def test_money_edits_raises_build_error_on_line_count_mismatch_when_called_directly(repo):
-    # money_edits' own line-count guard - unreachable through build() as of
-    # Task 5, since splice_lines reconciles the count first - still protects
-    # any caller that invokes money_edits directly against a payload whose
-    # LX-loop count was never spliced (as several tests in this file already
-    # do for other guards, e.g. test_money_edits_raises_build_error_when_
-    # line_segment_is_missing above).
-    profile = seeds.get("I")
-    ov = overrides.Overrides({}, {1: {"principalDiagnosis": None, "lines": [
-        {"date": "20241121", "billed": Decimal("100.00"),
-         "savings": Decimal("15.00")},
-        {"date": "20241122", "billed": Decimal("200.00"),
-         "savings": Decimal("30.00")},
-    ]}})
-    segs = seeds.load_seed(profile, repo)
-    seed_block = seeds.blocks(segs)[0]        # exactly one LX loop, unspliced
-    with pytest.raises(generate.BuildError) as exc:
-        generate.money_edits(profile, ov, seed_block, 1)
-    msg = str(exc.value)
-    assert "claim 1" in msg
-    assert "2 lines" in msg
-    assert "seed block has 1" in msg
-
-
-def test_professional_multi_line_claim_overrides_every_line_distinctly(repo):
-    # Review finding 3: no 837P multi-line money-override test existed. The
-    # P seed's per-block LX-loop counts are [1, 2, 1, 2, 1, 6, 2, 2] (block 6
-    # - claim 6 under claims=6 - has six lines; confirmed by reading the
-    # seed directly, not assumed). Override every one of those six lines
-    # with a DIFFERENT billed and savings value and assert whole segments:
-    # each SV1 charge at index 2, each line-level HCP, and the claim-level
-    # HCP as the sum, none of which any existing test exercised on the P
-    # profile with more than one line.
-    #
-    #   line  billed   savings  allowed
-    #   1     100.00   10.00    90.00
-    #   2     200.00   25.00    175.00
-    #   3     150.00   15.00    135.00
-    #   4     80.00    8.00     72.00
-    #   5     220.00   22.50    197.50
-    #   6     50.00    5.00     45.00
-    #   claim total 800.00, claim savings 85.50, claim allowed 714.50
-    doc = {"claims": [{"n": 6, "lines": [
-           {"date": "20260205", "billed": "100.00", "savings": "10.00"},
-           {"date": "20260205", "billed": "200.00", "savings": "25.00"},
-           {"date": "20260205", "billed": "150.00", "savings": "15.00"},
-           {"date": "20260205", "billed": "80.00", "savings": "8.00"},
-           {"date": "20260205", "billed": "220.00", "savings": "22.50"},
-           {"date": "20260205", "billed": "50.00", "savings": "5.00"},
-    ]}]}
-    out = _build_P(repo, doc, claims=6)
-    claim = _blocks(out)[5]
-
-    assert "SV1*HC:80053*100.00*UN*1*81**1**N" in claim
-    assert "SV1*HC:80061*200.00*UN*1*81**1**N" in claim
-    assert "SV1*HC:83695*150.00*UN*1*81**1**N" in claim
-    assert "SV1*HC:86141*80.00*UN*1*81**1**N" in claim
-    assert "SV1*HC:83090*220.00*UN*1*81**1**N" in claim
-    assert "SV1*HC:82172*50.00*UN*1*81**1**N" in claim
-
-    assert "HCP*10*90.00*10.00*9327*0.00" in claim
-    assert "HCP*10*175.00*25.00*9327*0.00" in claim
-    assert "HCP*10*135.00*15.00*9327*0.00" in claim
-    assert "HCP*10*72.00*8.00*9327*0.00" in claim
-    assert "HCP*10*197.50*22.50*9327*0.00" in claim
-    assert "HCP*10*45.00*5.00*9327*0.00" in claim
-
-    # Claim-level HCP (before LX*1) carries the aggregate, not any line's own
-    # figures, and has no trailing "*0.00" (matching this seed block's shape,
-    # confirmed by reading it - not assumed uniform with the I profile).
-    assert "HCP*10*714.50*85.50*9327" in claim
-
-    clm = next(s for s in claim if s.startswith("CLM*"))
-    assert clm == "CLM*TEST240215006*800.00***81:B:1*N*C*Y*Y*P"
-
-
-def test_money_edits_raises_build_error_when_line_segment_is_missing(repo):
-    # Review finding 5: money_edits' next(...) lookups for the SV segment and
-    # the HCP segment used to raise a bare, uncaught StopIteration when a
-    # block lacked one - not in the (SeedMismatch, MasterfileError,
-    # BuildError) tuple main() catches, so it would have surfaced as an
-    # unhandled crash. This calls money_edits directly (bypassing the seed
-    # hash gate that guarantees real seed shape today) with a synthetic
-    # payload missing the SV segment after LX*1, and confirms the guard now
-    # raises a labeled BuildError naming the claim and what is missing.
-    profile = seeds.get("I")
-    ov = overrides.Overrides({}, {1: {"principalDiagnosis": None, "lines": [
-        {"date": "20241121", "billed": Decimal("100.00"),
-         "savings": Decimal("15.00")}]}})
-    payload = ["LX*1"]  # no SV2 segment follows
-    with pytest.raises(generate.BuildError) as exc:
-        generate.money_edits(profile, ov, payload, 1)
-    msg = str(exc.value)
-    assert "claim 1" in msg
-    assert "line 1" in msg
-    assert "SV2" in msg
-
-
-def test_money_edits_raises_build_error_when_hcp_segment_is_missing(repo):
-    # Same as above, but the SV2 segment is present and the HCP is missing.
-    profile = seeds.get("I")
-    ov = overrides.Overrides({}, {1: {"principalDiagnosis": None, "lines": [
-        {"date": "20241121", "billed": Decimal("100.00"),
-         "savings": Decimal("15.00")}]}})
-    payload = ["LX*1", "SV2*0430*HC:97530*100.00*UN*2"]  # no HCP follows
-    with pytest.raises(generate.BuildError) as exc:
-        generate.money_edits(profile, ov, payload, 1)
-    msg = str(exc.value)
-    assert "claim 1" in msg
-    assert "line 1" in msg
-    assert "HCP" in msg
-
-
-def test_override_on_block_9_lands_each_amount_on_the_correct_line(repo):
-    # Fix round 1, item 3 - regression test. Every money test above this one
-    # used claims=1 or claims=2, and 837I seed block 1 has exactly one SV2
-    # segment: the one shape where a literal-addressed (4-tuple) edit still
-    # works. Blocks 3-9 of the 837I seed each contain two or more SV2
-    # segments but only 2 distinct values among them (confirmed by reading
-    # the seed directly), so blocks 3-9 all contain byte-identical repeats -
-    # exactly the shape apply_edits' literal-substitution form cannot
-    # express (a BuildError this generator hit on an older commit, fixed by
-    # the index-addressed 3-tuple form money_edits emits). This pins that
-    # fix so it cannot silently regress: override every line of block 9 at
-    # claims=9 (nine SV2 segments) with nine distinct billed amounts and
-    # assert each landed on the correct line - splitting the segment and
-    # comparing element index 3 explicitly, not a substring, so a value
-    # landing in the wrong element cannot pass.
-    amounts = ["100.00", "200.00", "300.00", "400.00", "500.00",
-               "600.00", "700.00", "800.00", "900.00"]
-    doc = {"claims": [{"n": 9, "lines":
-           [{"date": "20241121", "billed": a} for a in amounts]}]}
-    out = _build_I(repo, doc, claims=9)
-    claim9 = _blocks(out)[8]
-    sv2 = [s for s in claim9 if s.startswith("SV2*")]
-    assert len(sv2) == 9
-    landed = [X.elems(s)[3] for s in sv2]
-    assert landed == amounts
-
-
-def test_money_edits_raises_build_error_when_claim_level_hcp_is_missing(repo):
-    # Fix round 1, item 6: the two per-line lookups above already got a
-    # labeled BuildError (review finding 5); this third bare next() - the
-    # claim-level HCP lookup, scanning backward from before the first LX
-    # loop - was missed. A payload whose only HCP segments sit inside LX
-    # loops (no claim-level HCP before the first LX*) used to raise an
-    # uncaught StopIteration here, which main()'s (SeedMismatch,
-    # MasterfileError, BuildError) except tuple does not catch, so it
-    # surfaced as an unhandled traceback. This is the brief's own minimal
-    # repro payload.
-    profile = seeds.get("I")
-    ov = overrides.Overrides({}, {1: {"principalDiagnosis": None, "lines": [
-        {"date": "20241121", "billed": Decimal("100.00"),
-         "savings": Decimal("15.00")}]}})
-    payload = ["LX*1", "SV2*0430*HC:97530*100.00*UN*2",
-               "HCP*10*85.00*15.00*9327*0.00**0.00****UN*2"]
-    with pytest.raises(generate.BuildError) as exc:
-        generate.money_edits(profile, ov, payload, 1)
-    msg = str(exc.value)
-    assert "claim 1" in msg
-    assert "no claim-level HCP" in msg
-
-
-def test_money_fmt_is_pure_decimal_never_float(repo):
-    # Review finding 6: _money_fmt used to be "%.2f" % v, which converts the
-    # Decimal to a float before formatting - a literal violation of
-    # CLAUDE.md's "Money is Decimal... never float" on the money path. The
-    # replacement quantizes with ROUND_HALF_UP and calls str() - no float in
-    # the path at all. Exercise a value already at two places, one with more
-    # precision than two places, and zero.
-    assert generate._money_fmt(Decimal("123.45")) == "123.45"
-    assert generate._money_fmt(Decimal("1234.567")) == "1234.57"
-    assert generate._money_fmt(Decimal("0")) == "0.00"
-
-
-# --------------------------------------------------------------------------
-# Task 6, commit A: validate._check_money_split derives the split in Decimal
-# --------------------------------------------------------------------------
-
-# Controller-measured divergences between the generator's Decimal derivation
-# (savings first, allowed = charge - savings) and validate.py's former float
-# derivation (each side rounded independently). At 0.50, 0.90 and 1.10 the
-# float pair does not even reconcile to the charge.
-#
-#   charge | Decimal allowed/savings (sums to) | float allowed/savings
-#   0.50   | 0.42 / 0.08  -> 0.50              | 0.42 / 0.07  -> 0.49
-#   0.90   | 0.76 / 0.14  -> 0.90              | 0.77 / 0.14  -> 0.91
-#   1.10   | 0.93 / 0.17  -> 1.10              | 0.94 / 0.17  -> 1.11
-_DIVERGENT = [
-    ("0.50", "0.42", "0.08", "0.42", "0.07"),
-    ("0.90", "0.76", "0.14", "0.77", "0.14"),
-    ("1.10", "0.93", "0.17", "0.94", "0.17"),
-]
-
-
-def _one_line_block(charge, allowed, savings):
-    """A minimal ST..SE 837I block carrying one service line."""
-    return [
-        "ST*837*000000001*005010X223A2",
-        "CLM*TESTX*%s***13:A:1**A*Y*Y" % charge,
-        "HCP*10*%s*%s*9327*******UN*1" % (allowed, savings),
-        "LX*1",
-        "SV2*0430*HC:97530*%s*UN*2" % charge,
-        "HCP*10*%s*%s*9327*0.00**0.00****UN*2" % (allowed, savings),
-        "SE*6*000000001",
-    ]
-
-
-def test_money_split_accepts_the_decimal_derivation_on_divergent_cents():
-    profile = seeds.get("I")
-    for charge, allowed, savings, _fa, _fs in _DIVERGENT:
-        ok, detail = validate._check_money_split(
-            [_one_line_block(charge, allowed, savings)], profile)
-        assert ok, "charge %s rejected: %s" % (charge, detail)
-
-
-def test_money_split_rejects_the_old_float_derivation_on_divergent_cents():
-    # The non-vacuous half: the float expectation must now be REJECTED. At
-    # 0.50 and 0.90 the float pair differs from the Decimal one; at 1.10 it
-    # differs in the allowed element only. All three must be red.
-    profile = seeds.get("I")
-    for charge, _a, _s, float_allowed, float_savings in _DIVERGENT:
-        ok, detail = validate._check_money_split(
-            [_one_line_block(charge, float_allowed, float_savings)], profile)
-        assert not ok, "charge %s: float split %s/%s was accepted" % (
-            charge, float_allowed, float_savings)
-        assert detail
-
-
-def test_split_85_15_always_reconciles_to_the_charge():
-    # The property the float form broke: allowed + savings == charge, for
-    # every cent. Sweep a band that contains all three divergent values.
-    for cents in range(1, 2001):
-        charge = Decimal(cents).scaleb(-2)
-        allowed, savings = validate.split_85_15(charge)
-        assert allowed + savings == charge
-
-
-def test_generated_837i_with_a_divergent_charge_passes_its_own_validator(repo):
-    # End to end: the generator writes 0.50/0.90/1.10 and the money rule the
-    # validator dispatches to (check 11) accepts it. Under the old float
-    # derivation each of these three builds failed its own validator.
-    profile = seeds.get("I")
-    fn, _label = validate.MONEY_RULES[profile.money_rule]
-    for charge, allowed, savings, _fa, _fs in _DIVERGENT:
-        doc = {"claims": [{"n": 1, "lines":
-               [{"date": "20241121", "billed": charge}]}]}
-        out = _build_I(repo, doc, claims=1)
-        ok, detail = fn(_blocks(out), profile)
-        assert ok, "charge %s: %s" % (charge, detail)
-        claim = _blocks(out)[0]
-        assert "SV2*0430*HC:97530*%s*UN*2" % charge in claim
-        assert "HCP*10*%s*%s*9327*******UN*1" % (allowed, savings) in claim
+if __name__ == "__main__":
+    unittest.main()

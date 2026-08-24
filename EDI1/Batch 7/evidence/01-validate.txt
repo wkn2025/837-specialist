@@ -1,8 +1,49 @@
-command  : .venv/Scripts/python.exe skill/generating-uhcg-edi-files/scripts/validate.py --repo . --file "EDI1/Batch 7/fromUHCG-837I-WKN_3claims.x12" --manifest "EDI1/Batch 7/fromUHCG-837I-WKN_3claims.manifest.json"
-exit     : 0
-file     : EDI1/Batch 7/fromUHCG-837I-WKN_3claims.x12
-manifest : EDI1/Batch 7/fromUHCG-837I-WKN_3claims.manifest.json
-seed     : EDI1/Batch 1/fromUHCG-837I-WKN_9claims.x12
+command  : python skill/generating-uhcg-edi-files/scripts/validate.py --repo . --file "EDI1/Batch 7/fromUHCG-837I-WKN_3claims.x12" --manifest "EDI1/Batch 7/fromUHCG-837I-WKN_3claims.manifest.json"
+date     : 2026-08-23
+exit     : 1
+result   : FAILED checks [8, 9, 14]; checks 1-7, 10-13 and 15 pass
+
+This file was rewritten at the 837p-seed-registration integration. It
+previously recorded "exit 0, all checks passed", which was true under main's
+generator but is NOT true under the generator this repo now carries. The run
+below is the real, current output.
+
+Why 8, 9 and 14 fail
+--------------------
+Batch 7's claim 2 declares three service lines over a seed block that has
+two, so line 3 is fabricated. The two implementations that were merged
+fabricate it differently:
+
+  main (produced this .x12)  copies the block's ORIGINAL loops round-robin,
+                             so line 3 is a copy of seed line 1
+                             -> SV2*0430*HC:97530*100.00*UN*3
+  837p-seed-registration     copies the block's LAST loop
+  (authoritative)            -> expects a copy of seed line 2
+                             -> SV2*0440*HC:92507*...*UN*1
+
+Neither rule comes from a UHCG guide; it is a synthetic-fixture policy. The
+integration made 837p-seed-registration authoritative for the generator
+(scripts/generate.py splice_to), so this .x12 is no longer reproducible by
+the generator that validates it. Check 9 reports the mismatch, check 14
+inherits it from the regeneration attempt, and check 8's declared-date
+exemptions misalign for the same claim.
+
+What this does NOT mean
+-----------------------
+- The .x12 is unmodified: sha256 5055aabd1854382f6800704c2448770e260517375f3ea36b260603724c67b769,
+  identical to the value recorded when it was generated.
+- The failures are a generator-policy divergence, not corruption, and not an
+  identifier or envelope defect. Check 7 (identifier uniqueness against every
+  .x12 on disk and every prior masterfile run) still passes.
+- The splice policy was deliberately NOT changed to make this file pass, and
+  main's round-robin behaviour was deliberately NOT ported back.
+
+See 06-post-integration-revalidation.txt for the full re-verification.
+
+--- captured output ---
+file     : C:\Users\wkn\837-specialist\EDI1\Batch 7\fromUHCG-837I-WKN_3claims.x12
+manifest : C:\Users\wkn\837-specialist\EDI1\Batch 7\fromUHCG-837I-WKN_3claims.manifest.json
+seed     : .\EDI1\Batch 1\fromUHCG-837I-WKN_9claims.x12
 sha256   : 5055aabd1854382f6800704c2448770e260517375f3ea36b260603724c67b769
 
 PASS   1  3 ST..SE sets, CLM01 matches the manifest in order
@@ -12,13 +53,19 @@ PASS   4  SE01 = segment count, SE02 = ST02, ST02 matches the manifest
 PASS   5  BHT03 is <= 10 characters, unique, and matches the manifest; BHT04/BHT05 match the envelope stamp
 PASS   6  HL starts at 1, increments, parents resolve, no self-parent
 PASS   7  no identifier collides with another .x12 on disk or a prior masterfile run
-PASS   8  every date is inside 2024 (1 declared DOB(s) and 2 declared service date(s) excepted), undeclared line dates inside 20240115-20240121
-PASS   9  every payload segment is what its seed block plus the manifest's declared edits produces, byte for byte
-PASS  10  3 payload units whose shapes cycle the seed blocks, as declared
+FAIL   8  every date is inside 2024 (1 declared DOB(s) excepted), line dates inside 20240115-20240121
+        claim 2 line date 20241121 outside 20240115-20240121; claim 2 line date 20241122 outside 20240115-20240121; claim 2 line date 20241122 outside 20240115-20240121
+FAIL   9  every payload segment is byte-identical to its seed block once the declared edits are reversed
+        claim 2 differs from seed block 2: [('SV2*0430*HC:97530*100.00*UN*3', 'SV2*0440*HC:92507*384.00*UN*1'), ('HCP*10*85.00*15.00*9327*0.00**0.00****UN*3', 'HCP*10*326.40*57.60*9327*0.00**0.00****UN*1')]
+PASS  10  3 payload units whose shapes cycle the seed blocks
 PASS  11  CLM02 equals the sum of its service lines and every HCP is an 85%/15% split
-PASS  12  the 9 frozen identity segments appear, exact bytes, in every claim - overridden where the manifest declares an override
+PASS  12  the 9 frozen identity segments appear, exact bytes, in every claim
 PASS  13  ASCII, no BOM, LF only, one segment per line, trailing newline
-PASS  14  regenerating from the manifest reproduces the file byte for byte
+FAIL  14  regenerating from the manifest reproduces the file byte for byte
+        file     : C:\Users\wkn\AppData\Local\Temp\edi_gen_tkg_5jxw\fromUHCG-837I-WKN_3claims.x12
+manifest : C:\Users\wkn\AppData\Local\Temp\edi_gen_tkg_5jxw\fromUHCG-837I-WKN_3claims.manifest.json
+seed     : C:\Users\wkn\837-specialist\EDI1\Batch 1\fromUHCG-837I-WKN_9claims.x12
+sha256   : 1bc3db290de
 PASS  15  seed hash unchanged by this run
 
-all checks passed
+FAILED checks: [8, 9, 14]

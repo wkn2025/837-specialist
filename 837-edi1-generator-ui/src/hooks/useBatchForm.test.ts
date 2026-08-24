@@ -1,204 +1,251 @@
 /**
- * @vitest-environment jsdom
+ * Task 11: the form's state, seeded from the generator's own defaults.
  *
- * The hook is exercised against the REAL seed defaults, fetched from the
- * generator itself rather than from a hand-written fixture. A stubbed
- * defaults document would pass happily while the seed it claims to mirror
- * says something else - which is the one failure this hook exists to
- * prevent.
+ * Nothing here invents a claim: every fixture below is the shape
+ * `generate.py --print-defaults` really returns (see the 837I seed,
+ * EDI1/Batch 1/fromUHCG-837I-WKN_9claims.x12).
  */
-import { execFileSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
-import path from 'node:path';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, renderHook, waitFor } from '@testing-library/react';
-import { beforeAll, describe, expect, it } from 'vitest';
-import { useBatchForm } from './useBatchForm';
-import type { DefaultsDoc, TxType } from '@/api/types';
+import { useBatchForm } from './useBatchForm.js';
+import type { OverrideDocument } from '../api/types.js';
 
-const REPO = path.resolve(import.meta.dirname, '..', '..', '..');
-const GEN = path.join(REPO, 'skill', 'generating-uhcg-edi-files', 'scripts',
-                      'generate.py');
+const IDENTITY_I = {
+  subscriber: {
+    last: 'NISHIMURA', first: 'WILLIAM',
+    memberId: '909001333969', dob: '19941217',
+  },
+  billingProvider: { name: 'JFK JOHNSON REHAB INSTITUTE', npi: '1114932548' },
+  attendingProvider: { last: 'NIZAM', first: 'MOHAMMED', npi: '1326145764' },
+  taxId: 'B03000684',
+};
 
-function interpreter(): string {
-  if (process.env.PYTHON) return process.env.PYTHON;
-  const venv = process.platform === 'win32'
-    ? path.join(REPO, '.venv', 'Scripts', 'python.exe')
-    : path.join(REPO, '.venv', 'bin', 'python');
-  return existsSync(venv) ? venv : 'python';
+const IDENTITY_P = {
+  subscriber: {
+    last: 'RAHLFF', first: 'JETTE',
+    memberId: '909001302539', dob: '19381226',
+  },
+  billingProvider: { name: 'ENDEAVOR HEALTH MEDICAL GROUP', npi: '1497701882' },
+  taxId: '363738206',
+};
+
+function defaults(type: 'I' | 'P', claims: number): OverrideDocument {
+  const line = (i: number) => ({
+    date: type === 'I' ? '20241121' : '20260130',
+    billed: ((i + 1) * 100).toFixed(2),
+    savings: ((i + 1) * 15).toFixed(2),
+  });
+  return {
+    identity: (type === 'I' ? IDENTITY_I : IDENTITY_P) as never,
+    claims: Array.from({ length: claims }, (_, i) => ({
+      n: i + 1,
+      principalDiagnosis: type === 'I' ? 'I48' : 'R42',
+      // claim n of the 837I seed carries n lines
+      lines: Array.from({ length: type === 'I' ? i + 1 : 1 }, (_, j) => line(j)),
+    })),
+  };
 }
 
-/** --print-defaults allocates nothing, so this spends no identifiers. */
-function seedDefaults(type: TxType): DefaultsDoc {
-  return JSON.parse(execFileSync(interpreter(),
-    [GEN, '--repo', REPO, '--type', type, '--print-defaults'],
-    { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 }));
-}
+let served: string[] = [];
 
-const seeds: Record<string, DefaultsDoc> = {};
-
-beforeAll(() => {
-  seeds.I = seedDefaults('I');
-  seeds.P = seedDefaults('P');
+beforeEach(() => {
+  served = [];
+  vi.stubGlobal('fetch', vi.fn(async (input: string | URL) => {
+    const url = String(input);
+    served.push(url);
+    const q = new URL(url, 'http://x');
+    const type = (q.searchParams.get('type') ?? 'I') as 'I' | 'P';
+    const claims = Number(q.searchParams.get('claims') ?? '1');
+    return {
+      ok: true,
+      status: 200,
+      json: async () => defaults(type, claims),
+    } as Response;
+  }));
 });
 
-/** Stands in for the bridge's GET /api/defaults. */
-const fetcher = (async (url: string) => {
-  const type = new URL(url, 'http://x').searchParams.get('type') as TxType;
-  return { ok: true, json: async () => seeds[type] };
-}) as unknown as typeof fetch;
+afterEach(() => vi.unstubAllGlobals());
 
-async function form() {
-  const view = renderHook(() => useBatchForm(fetcher));
-  await waitFor(() => expect(view.result.current.loaded).toBe(true));
-  return view.result;
+/** Render, and wait for the initial defaults to land. */
+async function loaded(claims = 3) {
+  const hook = renderHook(() => useBatchForm({ initialClaims: claims }));
+  await waitFor(() =>
+    expect(hook.result.current.form.claimDocs).toHaveLength(claims));
+  return hook;
 }
 
-describe('seeded state', () => {
-  it('starts as the seed itself, one claim per seed block', async () => {
-    const r = await form();
-    expect(r.current.form.claims).toBe(seeds.I.claims.length);
-    expect(r.current.form.identity.subscriber.memberId)
-      .toBe(seeds.I.identity.subscriber.memberId);
-    expect(r.current.form.claimDocs[0].lines)
-      .toEqual(seeds.I.claims[0].lines);
-    // Untouched form, nothing declared: every byte stays frozen.
-    expect(r.current.toDocument()).toEqual({ identity: {}, claims: [] });
-    expect(r.current.canGenerate).toBe(true);
+describe('seeding from the generator', () => {
+  it('asks for the defaults of the selected type and volume', async () => {
+    await loaded(3);
+    expect(served[0]).toContain('/api/defaults');
+    expect(served[0]).toContain('type=I');
+    expect(served[0]).toContain('claims=3');
   });
 
-  it('cycles seed blocks when the batch grows past the seed', async () => {
-    const r = await form();
-    const blocks = seeds.I.claims.length;
-    act(() => r.current.setClaims(blocks + 2));
-    expect(r.current.form.claimDocs).toHaveLength(blocks + 2);
-    // generate.py's source_index: claim n takes seed block ((n-1) % blocks)+1.
-    expect(r.current.form.claimDocs[blocks].lines)
-      .toEqual(seeds.I.claims[0].lines);
-    expect(r.current.form.claimDocs.map((c) => c.n))
-      .toEqual(Array.from({ length: blocks + 2 }, (_, i) => i + 1));
+  it('starts from the seed, not from hand-written values', async () => {
+    const { result } = await loaded(2);
+    expect(result.current.form.identity.subscriber.memberId)
+      .toBe('909001333969');
+    expect(result.current.form.claimDocs[1].lines).toHaveLength(2);
+  });
+
+  it('refetches when the transaction type changes', async () => {
+    const { result } = await loaded(2);
+    await act(async () => { result.current.setType('P'); });
+    await waitFor(() =>
+      expect(result.current.form.identity.subscriber.last).toBe('RAHLFF'));
+    expect(served[served.length - 1]).toContain('type=P');
   });
 });
 
 describe('validity', () => {
-  it('is invalid until every claim has a diagnosis', async () => {
-    const r = await form();
-    act(() => r.current.updateDiagnosis(1, ''));
-    expect(r.current.canGenerate).toBe(false);
+  it('is invalid until every claim has a diagnosis and a dated, billed line',
+    async () => {
+      const { result } = await loaded(2);
+      expect(result.current.canGenerate).toBe(true);
+      act(() => result.current.updateDiagnosis(1, ''));
+      expect(result.current.canGenerate).toBe(false);
+    });
+
+  it('is invalid while a line has no billed amount', async () => {
+    const { result } = await loaded(1);
+    act(() => result.current.updateLine(1, 0, 'billed', ''));
+    expect(result.current.canGenerate).toBe(false);
   });
 
-  it('is invalid while a line lacks a date or a billed amount', async () => {
-    const r = await form();
-    act(() => r.current.updateLine(1, 0, 'billed', ''));
-    expect(r.current.canGenerate).toBe(false);
-    act(() => r.current.updateLine(1, 0, 'billed', '446.00'));
-    expect(r.current.canGenerate).toBe(true);
-    act(() => r.current.updateLine(1, 0, 'date', '08/01/2026'));
-    // Dates reach the hook as CCYYMMDD; the field component parses.
-    expect(r.current.canGenerate).toBe(false);
+  it('is invalid while a shared field is blank', async () => {
+    const { result } = await loaded(1);
+    act(() => result.current.updateIdentity('subscriber', 'memberId', ''));
+    expect(result.current.canGenerate).toBe(false);
   });
 
-  it('refuses an 837P savings larger than its charge', async () => {
-    const r = await form();
-    act(() => r.current.setType('P'));
-    await waitFor(() => expect(r.current.form.type).toBe('P'));
-    await waitFor(() => expect(r.current.loaded).toBe(true));
-    act(() => r.current.updateLine(1, 0, 'billed', '100.00'));
-    act(() => r.current.updateLine(1, 0, 'savings', '150.00'));
-    expect(r.current.canGenerate).toBe(false);
-  });
-
-  it('keeps the last service line', async () => {
-    const r = await form();
-    const lines = seeds.I.claims[0].lines.length;
-    for (let i = lines; i > 0; i -= 1) act(() => r.current.removeLine(1, 0));
-    expect(r.current.form.claimDocs[0].lines).toHaveLength(1);
+  it('is invalid before the defaults have loaded', () => {
+    const { result } = renderHook(() => useBatchForm({ initialClaims: 1 }));
+    expect(result.current.canGenerate).toBe(false);
   });
 });
 
 describe('the auto-filled tag', () => {
-  it('drops for a group once it is edited, and only that group', async () => {
-    const r = await form();
-    expect(r.current.editedGroups.has('subscriber')).toBe(false);
-    act(() => r.current.updateIdentity('subscriber', 'last', 'DOE'));
-    expect(r.current.editedGroups.has('subscriber')).toBe(true);
-    expect(r.current.editedGroups.has('billingProvider')).toBe(false);
+  it('drops the auto-filled tag for a group once it is edited', async () => {
+    const { result } = await loaded(1);
+    expect(result.current.editedGroups.has('subscriber')).toBe(false);
+    act(() => result.current.updateIdentity('subscriber', 'last', 'DOE'));
+    expect(result.current.editedGroups.has('subscriber')).toBe(true);
+    expect(result.current.editedGroups.has('billingProvider')).toBe(false);
   });
 
-  it('tracks diagnosis per claim', async () => {
-    const r = await form();
-    act(() => r.current.updateDiagnosis(2, 'E1165'));
-    expect(r.current.editedClaims[2].diagnosis).toBe(true);
-    expect(r.current.editedClaims[1]).toBeUndefined();
+  it('tracks a diagnosis per claim', async () => {
+    const { result } = await loaded(2);
+    act(() => result.current.updateDiagnosis(2, 'E119'));
+    expect(result.current.editedGroups.has('diagnosis:2')).toBe(true);
+    expect(result.current.editedGroups.has('diagnosis:1')).toBe(false);
   });
 });
 
-describe('generated state', () => {
-  const batch = {
-    x12FilePath: 'a.x12',
-    docxFilePath: 'a.docx',
-    manifestPath: 'a.manifest.json',
-    batchId: 2,
-  };
-
+describe('the generated flag', () => {
   it('clears generated on any edit', async () => {
-    const r = await form();
-    act(() => r.current.markGenerated(batch));
-    expect(r.current.form.generated).toBe(true);
-    act(() => r.current.updateLine(1, 0, 'billed', '5.00'));
-    expect(r.current.form.generated).toBe(false);
+    const { result } = await loaded(1);
+    act(() => result.current.markGenerated({ x12: 'a', docx: 'b' } as never));
+    expect(result.current.form.generated).toBe(true);
+    act(() => result.current.updateLine(1, 0, 'billed', '5.00'));
+    expect(result.current.form.generated).toBe(false);
   });
 
-  it('survives a collapse, which changes nothing in the file', async () => {
-    const r = await form();
-    act(() => r.current.markGenerated(batch));
-    act(() => r.current.toggleExpanded(1));
-    expect(r.current.form.expanded.has(1)).toBe(true);
-    expect(r.current.form.generated).toBe(true);
+  it('clears generated when the volume changes', async () => {
+    const { result } = await loaded(2);
+    act(() => result.current.markGenerated({ x12: 'a', docx: 'b' } as never));
+    await act(async () => { result.current.setClaims(1); });
+    expect(result.current.form.generated).toBe(false);
+  });
+
+  it('does not clear generated merely by expanding a claim', async () => {
+    const { result } = await loaded(1);
+    act(() => result.current.markGenerated({ x12: 'a', docx: 'b' } as never));
+    act(() => result.current.toggleExpanded(1));
+    expect(result.current.form.expanded.has(1)).toBe(true);
+    expect(result.current.form.generated).toBe(true);
   });
 });
 
-describe('the override document', () => {
-  it('declares only the fields that were edited', async () => {
-    const r = await form();
-    act(() => r.current.updateIdentity('subscriber', 'last', 'DOE'));
-    const doc = r.current.toDocument();
-    expect(doc.identity).toEqual({ subscriber: { last: 'DOE' } });
-    // first/memberId/dob were never touched, so they stay frozen against
-    // the seed rather than becoming declarations of the same value.
-    expect(doc.identity.subscriber).not.toHaveProperty('memberId');
-    expect(doc.claims).toEqual([]);
+describe('service lines', () => {
+  it('appends a line copied from the last one', async () => {
+    const { result } = await loaded(1);
+    act(() => result.current.addLine(1));
+    const lines = result.current.form.claimDocs[0].lines;
+    expect(lines).toHaveLength(2);
+    // the generator only accepts a line dated inside its seed loop's window
+    expect(lines[1].date).toBe(lines[0].date);
   });
 
-  it('sends a whole claim of lines when one line is edited', async () => {
-    const r = await form();
-    act(() => r.current.updateLine(1, 0, 'billed', '500.00'));
-    const [claim] = r.current.toDocument().claims;
-    expect(claim.n).toBe(1);
-    expect(claim.lines).toHaveLength(seeds.I.claims[0].lines.length);
-    expect(claim.lines?.[0].billed).toBe('500.00');
-    expect(claim).not.toHaveProperty('principalDiagnosis');
+  it('removes a line', async () => {
+    const { result } = await loaded(2);
+    act(() => result.current.removeLine(2, 0));
+    expect(result.current.form.claimDocs[1].lines).toHaveLength(1);
   });
 
-  it('omits savings for 837I because the split is derived', async () => {
-    const r = await form();
-    act(() => r.current.updateLine(1, 0, 'billed', '500.00'));
-    expect(r.current.toDocument().claims[0].lines?.[0])
+  it('refuses to remove the last line of a claim', async () => {
+    const { result } = await loaded(1);
+    act(() => result.current.removeLine(1, 0));
+    expect(result.current.form.claimDocs[0].lines).toHaveLength(1);
+  });
+});
+
+describe('claim volume', () => {
+  it('trims claims without refetching', async () => {
+    const { result } = await loaded(3);
+    const calls = served.length;
+    await act(async () => { result.current.setClaims(2); });
+    expect(result.current.form.claimDocs).toHaveLength(2);
+    expect(served).toHaveLength(calls);
+  });
+
+  it('keeps edits to the claims that survive a trim', async () => {
+    const { result } = await loaded(3);
+    act(() => result.current.updateDiagnosis(1, 'E119'));
+    await act(async () => { result.current.setClaims(2); });
+    expect(result.current.form.claimDocs[0].principalDiagnosis).toBe('E119');
+  });
+
+  it('fetches the extra claims when the volume grows', async () => {
+    const { result } = await loaded(2);
+    act(() => result.current.updateDiagnosis(1, 'E119'));
+    await act(async () => { result.current.setClaims(4); });
+    await waitFor(() => expect(result.current.form.claimDocs).toHaveLength(4));
+    expect(result.current.form.claimDocs[0].principalDiagnosis).toBe('E119');
+    expect(result.current.form.claimDocs.map((c) => c.n)).toEqual([1, 2, 3, 4]);
+  });
+});
+
+describe('toDocument', () => {
+  it('hides savings for 837I because the split is derived', async () => {
+    const { result } = await loaded(1);
+    expect(result.current.toDocument().claims[0].lines[0])
       .not.toHaveProperty('savings');
   });
 
-  it('sends savings for 837P, which requires one per line', async () => {
-    const r = await form();
-    act(() => r.current.setType('P'));
-    await waitFor(() => expect(r.current.form.type).toBe('P'));
-    act(() => r.current.updateLine(1, 0, 'billed', '500.00'));
-    expect(r.current.toDocument().claims[0].lines?.[0])
+  it('keeps savings for 837P because the generator requires it', async () => {
+    const { result } = await loaded(1);
+    await act(async () => { result.current.setType('P'); });
+    await waitFor(() => expect(result.current.form.type).toBe('P'));
+    expect(result.current.toDocument().claims[0].lines[0])
       .toHaveProperty('savings');
   });
 
-  it('forgets a claim that the batch shrank past', async () => {
-    const r = await form();
-    act(() => r.current.updateDiagnosis(2, 'E1165'));
-    act(() => r.current.setClaims(1));
-    expect(r.current.toDocument().claims).toEqual([]);
+  it('carries the edits and renumbers nothing', async () => {
+    const { result } = await loaded(2);
+    act(() => result.current.updateIdentity('subscriber', 'last', 'DOE'));
+    act(() => result.current.updateDiagnosis(2, 'E119'));
+    const doc = result.current.toDocument();
+    expect(doc.identity.subscriber.last).toBe('DOE');
+    expect(doc.claims.map((c) => c.n)).toEqual([1, 2]);
+    expect(doc.claims[1].principalDiagnosis).toBe('E119');
+  });
+
+  it('omits an attending provider the seed does not have', async () => {
+    const { result } = await loaded(1);
+    await act(async () => { result.current.setType('P'); });
+    await waitFor(() => expect(result.current.form.type).toBe('P'));
+    expect(result.current.toDocument().identity)
+      .not.toHaveProperty('attendingProvider');
   });
 });

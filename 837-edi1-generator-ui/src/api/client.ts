@@ -1,44 +1,45 @@
-/**
- * Calls to the bridge. Errors keep the generator's own wording - it is the
- * only thing here that knows why a batch was refused.
- */
+/** Thin fetch wrappers over the Express bridge in server/api.ts. */
 import type {
-  Allocation, Edi2ValidationResult, GeneratedBatch, HistoryRow, OverrideDoc,
-  TxType,
-} from './types';
+  AllocationPreview, BatchRow, Edi2ValidationResult, GenerateResult,
+  OverrideDocument, TxType,
+} from './types.js';
 
-async function get<T>(url: string): Promise<T> {
-  const res = await fetch(url);
-  const body = await res.json();
-  if (!res.ok) throw new Error(body?.error ?? res.statusText);
-  return body as T;
+async function json<T>(res: Response): Promise<T> {
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error((body as { error?: string }).error ?? `HTTP ${res.status}`);
+  }
+  return (await res.json()) as T;
 }
 
-export function fetchAllocation(type: TxType, claims: number) {
-  return get<Allocation>(`/api/masterfile?type=${type}&claims=${claims}`);
+export async function getMasterfile(type: TxType, claims: number)
+: Promise<AllocationPreview> {
+  return json(await fetch(`/api/masterfile?type=${type}&claims=${claims}`));
 }
 
-export function fetchHistory() {
-  return get<HistoryRow[]>('/api/history');
+export async function getHistory(): Promise<BatchRow[]> {
+  return json(await fetch('/api/history'));
 }
 
-export async function generateBatch(
-  type: TxType, claims: number, overrides: OverrideDoc,
-): Promise<GeneratedBatch> {
-  const res = await fetch('/api/generate', {
+export async function generate(
+  type: TxType, claims: number, document: OverrideDocument,
+): Promise<GenerateResult> {
+  return json(await fetch('/api/generate', {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ type, claims, overrides }),
-  });
-  const body = await res.json();
-  if (!res.ok) throw new Error(body?.error ?? res.statusText);
-  return body as GeneratedBatch;
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ type, claims, document }),
+  }));
 }
 
-export function downloadUrl(batchId: number, kind: 'x12' | 'docx') {
-  return `/api/download/${batchId}/${kind}`;
+export function downloadUrl(batchId: string, kind: 'x12' | 'docx'): string {
+  return `/api/download/${encodeURIComponent(batchId)}/${kind}`;
 }
 
+/**
+ * EDI2 Validator (main): the response file is uploaded as raw bytes, never
+ * as a form field, and the server never rewrites it. The generator half of
+ * this module has nothing to do with it.
+ */
 export async function validateEdi2(file: File): Promise<Edi2ValidationResult> {
   const res = await fetch('/api/edi2/validate', {
     method: 'POST',
@@ -48,12 +49,5 @@ export async function validateEdi2(file: File): Promise<Edi2ValidationResult> {
     },
     body: file,
   });
-  const body = await res.json();
-  if (!res.ok) throw new Error(body?.error ?? res.statusText);
-  return body as Edi2ValidationResult;
-}
-
-/** The generator writes the path; the UI only ever shows its last segment. */
-export function basename(p: string) {
-  return p.split(/[\\/]/).pop() ?? p;
+  return json(res);
 }

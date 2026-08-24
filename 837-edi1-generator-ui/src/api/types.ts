@@ -1,101 +1,127 @@
-/**
- * The shapes that cross the bridge.
- *
- * These mirror the generator's own JSON: `DefaultsDoc` is exactly what
- * `--print-defaults` prints (seed_introspect.defaults_for), and
- * `OverrideDoc` is exactly what `--data` accepts (overrides.parse). Nothing
- * here restates an EDI rule; it only names the fields the form edits.
- */
+/** The contract between this UI and skill/generating-uhcg-edi-files. */
+
 export type TxType = 'I' | 'P';
 
+/** Amounts are strings end to end; the generator parses them with Decimal. */
 export interface Line {
-  /** CCYYMMDD, the only date form overrides.parse accepts. */
+  /** CCYYMMDD, as the seed carries it. Read-only in this build. */
   date: string;
   billed: string;
   savings: string;
 }
 
 export interface ClaimDoc {
-  /** 1-based claim number within the batch. */
   n: number;
   principalDiagnosis: string;
   lines: Line[];
 }
 
-export interface Person {
+export interface Subscriber {
   last: string;
   first: string;
   memberId: string;
   dob: string;
 }
-
-export interface Provider {
-  name?: string;
-  last?: string;
-  first?: string;
+export interface BillingProvider {
+  name: string;
+  npi: string;
+}
+export interface AttendingProvider {
+  last: string;
+  first: string;
   npi: string;
 }
 
 export interface Identity {
-  subscriber: Person;
-  billingProvider: Provider;
-  attendingProvider?: Provider;
-  /** A bare value, not a group - the seed may not carry a REF*EI at all. */
-  taxId?: string | null;
+  subscriber: Subscriber;
+  billingProvider: BillingProvider;
+  attendingProvider?: AttendingProvider;
+  taxId?: string;
 }
 
-/** The identity groups the "Auto-filled" tag is tracked against. */
-export type IdentityGroup = keyof Identity;
-
-/** GET /api/defaults?type= */
-export interface DefaultsDoc {
+/** What GET /api/defaults returns, and what POST /api/generate accepts. */
+export interface OverrideDocument {
   identity: Identity;
-  claims: ClaimDoc[];
-}
-
-/** POST /api/generate body.overrides - only what the user actually changed. */
-export interface OverrideDoc {
-  identity: Partial<Record<string, unknown>>;
   claims: Array<{
     n: number;
-    principalDiagnosis?: string;
-    lines?: Array<{ date: string; billed: string; savings?: string }>;
+    principalDiagnosis: string;
+    /** `savings` is omitted for 837I, where the generator derives it. */
+    lines: Array<{ date: string; billed: string; savings?: string }>;
   }>;
 }
 
-/** GET /api/masterfile?type=&claims= */
-export interface Allocation {
+export interface FormState {
+  type: TxType;
+  claims: number;
+  identity: Identity;
+  claimDocs: ClaimDoc[];
+  expanded: Set<number>;
+  generated: boolean;
+}
+
+/** The identity cards, plus one pseudo-group per claim's diagnosis. */
+export type IdentityGroup =
+  | 'subscriber'
+  | 'billingProvider'
+  | 'attendingProvider'
+  | 'taxId';
+
+/** POST /api/generate. */
+export interface GenerateResult {
+  batchId: string;
+  type: TxType;
+  claims: number;
+  x12: string;
+  manifest: string;
+  docx: string | null;
   isa13: string;
   gs06: string;
+  statement: string;
   envelope_date: string;
-  statement: string[];
-  st02: string[];
+  clm01: [string, string];
+  sha256: string;
+  timestamp: string;
+}
+
+/** GET /api/masterfile - the identifiers the next batch would take. */
+export interface AllocationPreview {
+  batchId: string;
+  type: TxType;
+  claims: number;
+  isa13: string;
+  gs06: string;
+  statement: string;
+  envelope_date: string;
   bht03: string[];
   clm01: string[];
+  st02: string[];
   ref_f8: string[];
   ref_9a: string[];
-  service_dates: string[][];
-  nextBatch: number;
+  service_dates: string[];
+  output: string;
 }
 
-/** POST /api/generate response. */
-export interface GeneratedBatch {
-  x12FilePath: string;
-  docxFilePath: string;
-  manifestPath: string;
-  batchId: number;
-}
-
-/** GET /api/history row. */
-export interface HistoryRow {
-  batchId: number;
-  type: string;
+/** GET /api/history. */
+export interface BatchRow {
+  batchId: string;
+  type: TxType;
   claims: number;
   output: string;
+  file: string;
   timestamp: string;
-  sha256?: string;
+  isa13: string;
+  gs06: string;
+  statement: string;
+  clm01: string[];
+  status: string;
 }
 
+/* -------------------------------------------------------------------------
+ * EDI2 Validator (main). The adjudication-return contract served by
+ * server/edi2.ts -> skill/assessing-edi2-files/validate_api.py. Nothing
+ * above this line is involved in it; nothing below it is involved in
+ * generation.
+ * ---------------------------------------------------------------------- */
 /** POST /api/edi2/validate response. Amounts remain exact X12 strings. */
 export type Edi2Status =
   | 'valid' | 'invalid' | 'indeterminate' | 'unparseable' | 'error';

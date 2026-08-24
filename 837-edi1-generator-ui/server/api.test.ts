@@ -1,22 +1,189 @@
+// @vitest-environment node
 /**
- * The bridge's own contract: argument refusals it owns, and the generator's
- * refusals it must forward rather than swallow.
- *
- * Nothing here generates a file. A real POST /api/generate would draw
- * identifiers out of the repo's masterfile, which is exactly the side effect
- * the generator exists to make permanent - so the happy path is proven in
- * the browser (task 13), not by a test that would spend real identifiers on
- * every run.
+ * Task 10: the bridge is the only thing between the browser and a CLI that
+ * allocates never-reused identifiers. Every test that could allocate runs
+ * against a throwaway copy of EDI1/, the same way the Python CLI tests do.
  */
-import { describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import request from 'supertest';
-import fs from 'node:fs/promises';
+import fs from 'node:fs';
+import fsp from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { gzipSync } from 'node:zlib';
-import { createApp, REPO } from './api';
+import { createApp, findRepo } from './api.js';
 
-const app = createApp();
+const REPO = findRepo();
+const app = createApp({ repo: REPO });
+
+/** A copy of EDI1/ so allocation cannot disturb the real masterfile. */
+function tempRepo(): string {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'edi-api-'));
+  fs.cpSync(path.join(REPO, 'EDI1'), path.join(tmp, 'EDI1'), {
+    recursive: true,
+  });
+  return tmp;
+}
+
+describe('GET /api/defaults', () => {
+  it('returns the seed as an override document', async () => {
+    const res = await request(app).get('/api/defaults?type=I');
+    expect(res.status).toBe(200);
+    expect(res.body.identity.subscriber.memberId).toBeTruthy();
+    expect(Array.isArray(res.body.claims)).toBe(true);
+  });
+
+  it('fits the document to the requested claim count', async () => {
+    const res = await request(app).get('/api/defaults?type=I&claims=3');
+    expect(res.status).toBe(200);
+    expect(res.body.claims.map((c: { n: number }) => c.n)).toEqual([1, 2, 3]);
+  });
+
+  it('rejects a transaction type it does not know', async () => {
+    const res = await request(app).get('/api/defaults?type=Z');
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/type/i);
+  });
+});
+
+describe('GET /api/masterfile', () => {
+  it('previews the identifiers the next batch would take', async () => {
+    const before = fs.readFileSync(path.join(REPO, 'EDI1/masterfile.json'));
+    const res = await request(app).get('/api/masterfile?type=I&claims=2');
+    expect(res.status).toBe(200);
+    expect(res.body.isa13).toMatch(/^\d{9}$/);
+    expect(res.body.clm01).toHaveLength(2);
+    expect(res.body.batchId).toMatch(/^Batch \d+$/);
+    // read-only: previewing must not consume an identifier
+    expect(fs.readFileSync(path.join(REPO, 'EDI1/masterfile.json')))
+      .toEqual(before);
+  });
+});
+
+describe('GET /api/history', () => {
+  it('lists generated batches, newest first', async () => {
+    const res = await request(app).get('/api/history');
+    expect(res.status).toBe(200);
+    expect(Array.isArray(res.body)).toBe(true);
+    expect(res.body.length).toBeGreaterThan(0);
+    const ts = res.body.map((b: { timestamp: string }) => b.timestamp);
+    expect([...ts].sort().reverse()).toEqual(ts);
+    for (const row of res.body) {
+      expect(row.batchId).toMatch(/^Batch \d+$/);
+      expect(['I', 'P']).toContain(row.type);
+    }
+  });
+});
+
+describe('POST /api/generate', () => {
+  it('rejects a claim count outside 1..200', async () => {
+    const res = await request(app).post('/api/generate')
+      .send({ type: 'I', claims: 201, document: {} });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/1\.\.200/);
+  });
+
+  it('rejects a transaction type that is not I or P', async () => {
+    const res = await request(app).post('/api/generate')
+      .send({ type: 'X', claims: 1, document: {} });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/must be I or P/);
+  });
+
+  it("surfaces the generator's own error message", async () => {
+    const res = await request(app).post('/api/generate')
+      .send({ type: 'I', claims: 1, document: { claims: [{ n: 99 }] } });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/outside the batch/);
+  });
+
+  it('leaves the real masterfile alone when the document is refused',
+    async () => {
+      const before = fs.readFileSync(path.join(REPO, 'EDI1/masterfile.json'));
+      await request(app).post('/api/generate')
+        .send({ type: 'I', claims: 1, document: { claims: [{ n: 99 }] } });
+      expect(fs.readFileSync(path.join(REPO, 'EDI1/masterfile.json')))
+        .toEqual(before);
+    });
+});
+
+describe('a real generated batch', () => {
+  let tmp: string;
+  let scoped: ReturnType<typeof createApp>;
+  let body: {
+    batchId: string; x12: string; manifest: string; docx: string | null;
+  };
+
+  beforeAll(async () => {
+    tmp = tempRepo();
+    scoped = createApp({ repo: tmp });
+    const res = await request(scoped).post('/api/generate').send({
+      type: 'I',
+      claims: 2,
+      document: { identity: { subscriber: { last: 'DOE' } } },
+    });
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    body = res.body;
+  }, 120_000);
+
+  afterAll(() => fs.rmSync(tmp, { recursive: true, force: true }));
+
+  it('writes the x12 and its manifest', () => {
+    expect(fs.existsSync(path.join(tmp, body.x12))).toBe(true);
+    expect(fs.existsSync(path.join(tmp, body.manifest))).toBe(true);
+  });
+
+  it('carries the edit that was submitted', () => {
+    expect(fs.readFileSync(path.join(tmp, body.x12), 'ascii'))
+      .toContain('NM1*IL*1*DOE*');
+  });
+
+  it('records the declaration in the manifest', () => {
+    const man = JSON.parse(fs.readFileSync(path.join(tmp, body.manifest),
+      'utf8'));
+    expect(man.overrides).toEqual({
+      identity: { subscriber: { last: 'DOE' } },
+    });
+  });
+
+  it('serves the batch back for download', async () => {
+    const res = await request(scoped)
+      .get(`/api/download/${encodeURIComponent(body.batchId)}/x12`);
+    expect(res.status).toBe(200);
+    // an .x12 is served as a download, so supertest hands back the bytes
+    expect(Buffer.from(res.body).toString('ascii')).toContain('ISA*');
+    expect(res.headers['content-disposition']).toMatch(/attachment/);
+  });
+
+  it('appears at the top of the history', async () => {
+    const res = await request(scoped).get('/api/history');
+    expect(res.body[0].batchId).toBe(body.batchId);
+  });
+});
+
+describe('GET /api/download', () => {
+  it('refuses a batch id that is not a batch id', async () => {
+    const res = await request(app).get('/api/download/..%2F..%2Fetc/x12');
+    expect(res.status).toBe(400);
+  });
+
+  it('refuses a kind it does not serve', async () => {
+    const res = await request(app).get('/api/download/Batch 1/passwd');
+    expect(res.status).toBe(400);
+  });
+
+  it('404s a batch that does not exist', async () => {
+    const res = await request(app).get('/api/download/Batch 9999/x12');
+    expect(res.status).toBe(404);
+  });
+});
+
+/* -------------------------------------------------------------------------
+ * The EDI2 Validator's read-only upload bridge (main). It shares createApp()
+ * with the generator routes above and nothing else: a different Python entry
+ * point, raw bytes rather than JSON, and never a write into the repo.
+ * ---------------------------------------------------------------------- */
+
 const BAD_I = path.join(
   REPO, 'edi2', 'batch1', 'UHCG_ECUSA_I_20260817174931.x12');
 const GOLDEN_P_ADJUSTMENT = path.join(
@@ -31,108 +198,9 @@ function upload(target: ReturnType<typeof createApp>, body: Buffer,
     .send(body);
 }
 
-describe('argument refusals', () => {
-  it('rejects a transaction type that is not I or P', async () => {
-    const res = await request(app).post('/api/generate')
-      .send({ type: 'D', claims: 1, overrides: {} });
-    expect(res.status).toBe(400);
-    expect(res.body.error).toMatch(/type must be I or P/);
-  });
-
-  it('rejects a claim count outside 1..200', async () => {
-    const res = await request(app).post('/api/generate')
-      .send({ type: 'I', claims: 201, overrides: {} });
-    expect(res.status).toBe(400);
-    expect(res.body.error).toMatch(/claims must be 1\.\.200/);
-  });
-
-  it('rejects a non-integer claim count', async () => {
-    const res = await request(app).post('/api/generate')
-      .send({ type: 'I', claims: 2.5, overrides: {} });
-    expect(res.status).toBe(400);
-  });
-
-  it('rejects a download kind that is not x12 or docx', async () => {
-    const res = await request(app).get('/api/download/2/pdf');
-    expect(res.status).toBe(400);
-    expect(res.body.error).toMatch(/kind must be x12 or docx/);
-  });
-
-  it('404s a batch id that no run holds', async () => {
-    const res = await request(app).get('/api/download/999999/x12');
-    expect(res.status).toBe(404);
-  });
-});
-
-describe('the generator speaks for itself', () => {
-  it("forwards the generator's own message for a bad override", async () => {
-    const res = await request(app).post('/api/generate')
-      .send({ type: 'I', claims: 1, overrides: { claims: [{ n: 99 }] } });
-    expect(res.status).toBe(400);
-    expect(res.body.error).toMatch(/outside the batch/);
-  });
-
-  it('refuses a bad type before spawning anything', async () => {
-    const res = await request(app).get('/api/defaults?type=D');
-    expect(res.status).toBe(400);
-  });
-});
-
-describe('reads that allocate nothing', () => {
-  it('serves the seed defaults as an override document', async () => {
-    const res = await request(app).get('/api/defaults?type=I');
-    expect(res.status).toBe(200);
-    expect(res.body.identity.subscriber.memberId).toMatch(/^\d+$/);
-    expect(Array.isArray(res.body.claims)).toBe(true);
-  });
-
-  it('serves the identifiers a run would take', async () => {
-    const res = await request(app).get('/api/masterfile?type=I&claims=3');
-    expect(res.status).toBe(200);
-    expect(res.body.isa13).toMatch(/^\d{9}$/);
-    expect(res.body.st02).toHaveLength(3);
-    expect(res.body.nextBatch).toBeGreaterThan(0);
-  });
-
-  it('peeking twice gives the same answer', async () => {
-    const first = await request(app).get('/api/masterfile?type=P&claims=2');
-    const second = await request(app).get('/api/masterfile?type=P&claims=2');
-    expect(first.body).toEqual(second.body);
-  });
-
-  it('lists history newest first, without the imported pseudo-run', async () => {
-    const res = await request(app).get('/api/history');
-    expect(res.status).toBe(200);
-    for (const run of res.body) {
-      expect(run.type === 'I' || run.type === 'P').toBe(true);
-      // batchId indexes the runs array, so it must survive the filter.
-      expect(run.batchId).toBeGreaterThan(0);
-    }
-    const ids = res.body.map((r: { batchId: number }) => r.batchId);
-    expect([...ids]).toEqual([...ids].sort((a, b) => b - a));
-  });
-
-  it('downloads the .x12 of a real past batch', async () => {
-    const history = await request(app).get('/api/history');
-    const batchId = history.body[0]?.batchId;
-    expect(batchId).toBeGreaterThan(0);
-    // .x12 has no registered media type, so supertest hands back a Buffer
-    // rather than parsed text.
-    const res = await request(app).get(`/api/download/${batchId}/x12`)
-      .buffer(true).parse((r, cb) => {
-        const chunks: Buffer[] = [];
-        r.on('data', (c: Buffer) => chunks.push(c));
-        r.on('end', () => cb(null, Buffer.concat(chunks)));
-      });
-    expect(res.status).toBe(200);
-    expect(res.headers['content-disposition']).toContain('.x12');
-    expect((res.body as Buffer).toString('ascii')).toContain('ISA*00*');
-  });
-});
-
 describe('read-only EDI2 uploads', () => {
   it('securely validates the returned Professional adjustment golden bytes', async () => {
-    const bytes = await fs.readFile(GOLDEN_P_ADJUSTMENT);
+    const bytes = await fsp.readFile(GOLDEN_P_ADJUSTMENT);
     const res = await upload(app, bytes, path.basename(GOLDEN_P_ADJUSTMENT));
 
     expect(res.status).toBe(200);
@@ -145,7 +213,7 @@ describe('read-only EDI2 uploads', () => {
   });
 
   it('returns an invalid analysis as HTTP 200', async () => {
-    const res = await upload(app, await fs.readFile(BAD_I));
+    const res = await upload(app, await fsp.readFile(BAD_I));
 
     expect(res.status).toBe(200);
     expect(res.body.status).toBe('invalid');
@@ -171,14 +239,14 @@ describe('read-only EDI2 uploads', () => {
   });
 
   it('uses exec argument metadata safely and removes its temp directory', async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'edi2-test-'));
+    const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'edi2-test-'));
     let observedArgs: string[] = [];
     const isolated = createApp({ edi2: {
       tempRoot,
       runPython: async (args) => {
         observedArgs = args;
         const input = args[args.indexOf('--file') + 1];
-        expect((await fs.stat(input)).isFile()).toBe(true);
+        expect((await fsp.stat(input)).isFile()).toBe(true);
         return JSON.stringify({
           status: 'valid',
           file: { filename: args[args.indexOf('--filename') + 1] },
@@ -193,9 +261,9 @@ describe('read-only EDI2 uploads', () => {
       expect(res.body.file.filename).toBe('patient.x12');
       expect(observedArgs[0]).toMatch(/validate_api\.py$/);
       expect(observedArgs).toContain('--file');
-      expect(await fs.readdir(tempRoot)).toEqual([]);
+      expect(await fsp.readdir(tempRoot)).toEqual([]);
     } finally {
-      await fs.rm(tempRoot, { recursive: true, force: true });
+      await fsp.rm(tempRoot, { recursive: true, force: true });
     }
   });
 
@@ -244,7 +312,7 @@ describe('read-only EDI2 uploads', () => {
   });
 
   it('fails safely when private upload cleanup cannot be confirmed', async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'edi2-cleanup-'));
+    const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'edi2-cleanup-'));
     let attempts = 0;
     const reportOperationalError = vi.fn();
     const isolated = createApp({ edi2: {
@@ -267,12 +335,12 @@ describe('read-only EDI2 uploads', () => {
       expect(reportOperationalError).toHaveBeenCalledWith(
         'EDI2 temporary upload cleanup failed');
     } finally {
-      await fs.rm(tempRoot, { recursive: true, force: true });
+      await fsp.rm(tempRoot, { recursive: true, force: true });
     }
   });
 
   it('cleans up and hides subprocess failures', async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'edi2-runner-'));
+    const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'edi2-runner-'));
     const isolated = createApp({ edi2: {
       tempRoot,
       runPython: async () => { throw new Error(`PRIVATE ${tempRoot}`); },
@@ -281,14 +349,14 @@ describe('read-only EDI2 uploads', () => {
       const res = await upload(isolated, Buffer.from('ISA*00*SAFE~'));
       expect(res.status).toBe(500);
       expect(res.text).not.toContain(tempRoot);
-      expect(await fs.readdir(tempRoot)).toEqual([]);
+      expect(await fsp.readdir(tempRoot)).toEqual([]);
     } finally {
-      await fs.rm(tempRoot, { recursive: true, force: true });
+      await fsp.rm(tempRoot, { recursive: true, force: true });
     }
   });
 
   it('reports cleanup failure even when validation already failed', async () => {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'edi2-both-'));
+    const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'edi2-both-'));
     const reportOperationalError = vi.fn();
     const isolated = createApp({ edi2: {
       tempRoot,
@@ -303,7 +371,7 @@ describe('read-only EDI2 uploads', () => {
       expect(reportOperationalError).toHaveBeenCalledWith(
         'EDI2 temporary upload cleanup failed');
     } finally {
-      await fs.rm(tempRoot, { recursive: true, force: true });
+      await fsp.rm(tempRoot, { recursive: true, force: true });
     }
   });
 });
