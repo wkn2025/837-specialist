@@ -32,6 +32,73 @@ file, no reserved identifiers.
 Report back: the output path, the manifest path, ISA13/GS06, the envelope
 stamp, the statement period, and the CLM01 range. All of it is printed.
 
+## Declaring edits: `--data`
+
+Anything the file may differ from the seed on must be *declared*. Start from
+the seed's own values, edit them, feed them back:
+
+```
+python scripts/generate.py --repo <repo> --type P --claims 5 --print-defaults > doc.json
+python scripts/generate.py --repo <repo> --type P --claims 5 --data doc.json
+```
+
+The document is copied into the manifest, and the validator measures the file
+against it - an undeclared change still fails check 9. Allocated identifiers
+(`clm01`, `st02`, `bht03`, `isa13`, `gs06`, `reff8`, `ref9a`) may never be
+named.
+
+| key | what it moves |
+|---|---|
+| `identity.subscriber` | `last`, `first`, `memberId`, `dob` (NM1\*IL and DMG) |
+| `identity.billingProvider` | `name`, `npi` (NM1\*85) |
+| `identity.attendingProvider` | `last`, `first`, `npi` (NM1\*71) |
+| `identity.taxId` | REF\*EI |
+| `claims[].principalDiagnosis` | the ABK composite |
+| `claims[].lines` | `date`, `billed`, `savings` - splices LX loops and rewrites both HCP levels |
+| `claims[].replaces` | void-and-replace, below |
+
+Identity is **per file, not per claim**: the 837P seed carries eight different
+billing providers, so declaring one rewrites it in every claim.
+
+### Rework / void-and-replace
+
+`"replaces": "<Original UHAP Claim ID>"` makes a claim the replacement of a
+previously sent one. CLM05-3 does **not** move - the professional companion
+guide fixes it ("UHCG will pass a value of 1 here"). Loop 2300 carries the
+link, and the claim is re-emitted in the guides' REF order:
+
+```
+REF*9F*<original uhap>                            <- inserted
+REF*F8*<CCN, inherited from the original>          <- not reallocated
+REF*9A*<new uhap>
+NTE*ADD*Rplcmnt fr Voided Clm <original uhap>     <- inserted
+```
+
+Two things differ from an ordinary claim:
+
+- **Order.** Both guides list loop 2300's REFs as 9F, F8, 9A (837P rows
+  591/596/602; 837I rows 693/701/709), and every `edi2/` file emits F8 before
+  9A. The professional seed is the outlier - it carries 9A before F8 - so a
+  replacement follows the guides, not the seed. Claims that are not
+  replacements keep the seed's order untouched.
+- **CCN.** UHCG assigns a Claim Control Number once per claim ("11 digit #
+  assigned to claim by UHCG", loop 2300 REF*F8) and keeps it however many
+  times the claim is reworked. The allocator's fresh CCN is discarded and the
+  original's is taken from the masterfile run that issued it - runs record
+  `ref_9a` and `ref_f8` index-aligned, so the UHAP names the CCN. Check 16
+  proves the file carries it; check 7 exempts that one deliberate repeat.
+
+Cited: `UHCG_837{I,P}_Companion_Guide_FULL.csv` loop 2300 (`9F` = "To identify
+voided and replacement claims", REF02 = "Original UHAP Claim ID", AN 1-50;
+`F8` = Claim Control Number) and `UHCG_Special_Instructions_NTE_Guide.md`
+(claim-level NTE01 = `ADD`, NTE02 <= 80 characters, example
+`Rplcmnt fr Voided Clm 12345678`).
+
+Refused: a seed block that already carries a `REF*9F` (loop 2300 allows one),
+a `replaces` naming a REF\*9A this same file is allocating, and a `replaces`
+naming a claim no recorded run ever issued - there is no CCN to inherit from
+a claim UHCG has never seen.
+
 The build also leaves a reference `.docx` beside the file:
 `<name>_ClaimSummary.docx`, one section per claim with its detail table, its
 service lines and a billed-vs-lines reconciliation. Every value in it is read

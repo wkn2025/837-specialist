@@ -146,9 +146,17 @@ FIXTURES = [
 # declared matters as much: the member id, the first name and claims 2 and 3
 # keep their seed values, which is what makes "altered beyond the
 # declaration" a distinct case from "altered".
+# The claim each declared fixture replaces. A replacement inherits the CCN
+# the original's run recorded (generate.inherit_replacement_ccns), so these
+# must be REF*9A values the masterfile actually issued: an invented id has no
+# CCN to inherit and the generator refuses it.
+#   E2E24011412125001 - EDI1/Batch 6, CCN 99012155022
+#   15641257          - EDI1/Batch 5, CCN 99012155012
+
 DECLARED_DOC_I = {
     "identity": {"subscriber": {"last": "DOE"}, "taxId": "999888777"},
     "claims": [{"n": 1, "principalDiagnosis": "E119",
+                "replaces": "E2E24011412125001",
                 "lines": [{"date": "20241121", "billed": "100.00"},
                           {"date": "20241121", "billed": "300.00"}]}],
 }
@@ -156,6 +164,7 @@ DECLARED_DOC_I = {
 DECLARED_DOC_P = {
     "identity": {"subscriber": {"last": "DOE"}, "taxId": "999888777"},
     "claims": [{"n": 1, "principalDiagnosis": "E119",
+                "replaces": "15641257",
                 "lines": [{"date": "20260130", "billed": "100.00",
                            "savings": "10.00"},
                           {"date": "20260130", "billed": "300.00",
@@ -199,6 +208,9 @@ def declared_fixture(profile, repo, tmp, doc=None, record_edit=None):
     doc = DECLARED_DOCS[profile.code] if doc is None else doc
     alloc = declared_alloc(profile, DECLARED_CLAIMS)
     ov = overrides.parse(doc, profile, DECLARED_CLAIMS)
+    # Reads the masterfile without advancing it: a declared replacement takes
+    # the CCN the original's run recorded, so the fixture cannot invent one.
+    G.inherit_replacement_ccns(M.load(repo), alloc, ov, DECLARED_CLAIMS)
     text = G.render(G.build(seeds.load_seed(profile, repo), profile, alloc,
                             DECLARED_CLAIMS, ov))
     record = alloc.as_record(profile.code, DECLARED_CLAIMS, "declared.x12",
@@ -245,6 +257,12 @@ DECLARED_TEXT_I = [
      "LX*2~\nSV2*0430*HC:97530*300.00*UN*2~\n", 1, 1, ""),
     ("a spliced line keeps a duplicate LX number", 9,
      "LX*2~", 3, 1, "LX*1~"),
+    ("a declared REF*9F points at a different original claim", 9,
+     "REF*9F*E2E24011412125001~", 1, 1, "REF*9F*E2EPRIORCLM09999~"),
+    ("a replacement is given a fresh CCN instead of the original's", 16,
+     "REF*F8*99012155022~", 1, 1, "REF*F8*77812154900~"),
+    ("the replacement note is dropped from the file", 10,
+     "NTE*ADD*Rplcmnt fr Voided Clm E2E24011412125001~\n", 1, 1, ""),
 ]
 
 DECLARED_TEXT_P = [
@@ -265,6 +283,12 @@ DECLARED_TEXT_P = [
      "HCP*10*271.00*30.00*9327*0.00~"),
     ("a declared service line is dropped from the file", 10,
      "LX*2~\nSV1*HC:99222*300.00*UN*1*21**1:2:3**N~\n", 1, 1, ""),
+    ("a declared REF*9F points at a different original claim", 9,
+     "REF*9F*15641257~", 1, 1, "REF*9F*15309999~"),
+    ("a replacement is given a fresh CCN instead of the original's", 16,
+     "REF*F8*99012155012~", 1, 1, "REF*F8*77812154900~"),
+    ("the replacement note is dropped from the file", 10,
+     "NTE*ADD*Rplcmnt fr Voided Clm 15641257~\n", 1, 1, ""),
 ]
 
 # name, expected failing check, edit(record) - the file stays valid and the
@@ -285,6 +309,11 @@ DECLARED_MANIFEST_I = [
     ("the manifest declares an override the generator would refuse", 9,
      lambda r: r["overrides"]["claims"][0]["lines"][0].__setitem__(
          "savings", "1.00")),
+    ("the manifest names an original claim the file does not point at", 9,
+     lambda r: r["overrides"]["claims"][0].__setitem__(
+         "replaces", "E2EPRIORCLM09999")),
+    ("the manifest drops the replacement declaration", 10,
+     lambda r: r["overrides"]["claims"][0].pop("replaces")),
 ]
 
 DECLARED_MANIFEST_P = [
@@ -296,6 +325,11 @@ DECLARED_MANIFEST_P = [
     ("the manifest declares fewer service lines than the file carries", 10,
      lambda r: r["overrides"]["claims"][0].__setitem__(
          "lines", r["overrides"]["claims"][0]["lines"][:1])),
+    ("the manifest names an original claim the file does not point at", 9,
+     lambda r: r["overrides"]["claims"][0].__setitem__(
+         "replaces", "15309999")),
+    ("the manifest drops the replacement declaration", 10,
+     lambda r: r["overrides"]["claims"][0].pop("replaces")),
 ]
 
 DECLARED_FIXTURES = [
@@ -357,6 +391,14 @@ def run_declared_manifest_case(profile, repo, tmp, case):
     return failing_checks(out), name, out
 
 
+def _unknown_replacement_doc(tmp):
+    """An override document naming an original no run ever issued."""
+    path = os.path.join(tmp, "unknown_replacement.json")
+    with io.open(path, "w", encoding="utf-8") as fh:
+        fh.write(json.dumps({"claims": [{"n": 1, "replaces": "15999999"}]}))
+    return path
+
+
 def guard_cases(repo, tmp):
     out = os.path.join(tmp, "out.x12")
     return [
@@ -377,6 +419,10 @@ def guard_cases(repo, tmp):
          ["--repo", repo, "--type", "P", "--claims", "3",
           "--output", FIXTURE_P],
          "pass --force to overwrite"),
+        ("refuses a replacement of a claim no run ever issued",
+         ["--repo", repo, "--type", "P", "--claims", "3",
+          "--data", _unknown_replacement_doc(tmp), "--output", out],
+         "no recorded run ever issued"),
         ("refuses --type without --claims",
          ["--repo", repo, "--type", "I", "--output", out],
          "--type and --claims are required"),

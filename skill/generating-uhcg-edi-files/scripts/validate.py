@@ -109,16 +109,33 @@ def declared_blocks(profile, man, seed_blocks, claims):
     """The seed block each output claim must match, after declared splices.
 
     A claim whose service lines were added to or removed from is longer or
-    shorter than its seed block. That is only allowed because the manifest
-    declares it: an undeclared change in segment count still fails, because
-    the expected shape is rebuilt from the declaration, never read off the
-    file being checked.
+    shorter than its seed block, and so is one declared a replacement - it
+    carries the REF*9F / NTE*ADD pair the seed block does not. Both are only
+    allowed because the manifest declares them: an undeclared change in
+    segment count still fails, because the expected shape is rebuilt from the
+    declaration, never read off the file being checked.
     """
     ov = declared_overrides(profile, man, claims)
     out = []
     for n in range(1, claims + 1):
         block = seed_blocks[G.source_index(n, profile) - 1]
-        out.append(G.splice_lines(profile, ov, block, n) if ov else block)
+        if ov:
+            block = G.splice_lines(profile, ov, block, n)
+            block = G.splice_replacement(profile, ov, block, n)
+        out.append(block)
+    return out
+
+
+def declared_replacements(ov, claims):
+    """{claim number: original UHAP} for every claim declared a replacement."""
+    out = {}
+    if not ov:
+        return out
+    for n in range(1, claims + 1):
+        c = ov.claim(n)
+        original = c.get("replaces") if c else None
+        if original:
+            out[n] = original
     return out
 
 
@@ -493,6 +510,25 @@ def main():
             if run.get(scalar):
                 others[scalar].add(run[scalar])
             others[scalar] |= set(run.get(plural) or [])
+    # A replacement claim keeps the CCN UHCG issued to the claim it replaces
+    # ("11 digit # assigned to claim by UHCG", loop 2300 REF*F8), so that one
+    # value is meant to appear in two runs. It is exempted only where the
+    # FILE itself carries the REF*9F the manifest declares and the CCN beside
+    # it is the one the original's run recorded; check 16 proves that
+    # separately, so the exemption cannot excuse a wrong CCN.
+    for n, original in sorted(declared_replacements(declared, claims).items()):
+        block = blocks[n - 1]
+        if ("REF*9F*%s" % original) not in block:
+            continue
+        f8 = [X.elems(seg)[2] for seg in block if seg.startswith("REF*F8*")]
+        try:
+            hits = M.ccn_for_uhap(mf, original)
+        except M.MasterfileError:
+            continue
+        for _run, ccn in hits:
+            if ccn in f8:
+                mine["ref_f8"].discard(ccn)
+
     clashes = {k: sorted(mine[k] & others[k]) for k in M.KEYS
                if mine[k] & others[k]}
     check(7, "no identifier collides with another .x12 on disk or a prior "
@@ -629,6 +665,43 @@ def main():
         after = hashlib.sha256(fh.read()).hexdigest()
     check(15, "seed hash unchanged by this run", seed_hash_before == after,
           "%s -> %s" % (seed_hash_before, after))
+
+    # 16 - a replacement inherits its original's CCN
+    replacements = declared_replacements(declared, claims)
+    if replacements:
+        bad = []
+        for n, original in sorted(replacements.items()):
+            block = blocks[n - 1]
+            f9 = [X.elems(seg)[2] for seg in block
+                  if seg.startswith("REF*9F*")]
+            f8 = [X.elems(seg)[2] for seg in block
+                  if seg.startswith("REF*F8*")]
+            if f9 != [original]:
+                bad.append("claim %d: manifest declares REF*9F %s, file "
+                           "carries %s" % (n, original, ", ".join(f9)
+                                           or "none"))
+                continue
+            try:
+                hits = M.ccn_for_uhap(mf, original)
+            except M.MasterfileError as exc:
+                bad.append("claim %d: %s" % (n, exc))
+                continue
+            ccns = sorted({ccn for _run, ccn in hits})
+            if not ccns:
+                bad.append("claim %d: no recorded run ever issued REF*9A %s"
+                           % (n, original))
+            elif len(ccns) > 1:
+                bad.append("claim %d: REF*9A %s carries CCNs %s across runs"
+                           % (n, original, ", ".join(ccns)))
+            elif f8 != ccns:
+                bad.append("claim %d: replaces %s, whose CCN is %s, but "
+                           "carries %s" % (n, original, ccns[0],
+                                           ", ".join(f8) or "none"))
+        check(16, "each of the %d replacement claims carries the CCN of the "
+                  "claim it replaces" % len(replacements),
+              not bad, "; ".join(bad[:4]) or "ok")
+    else:
+        print("SKIP  16  no claim is declared a replacement")
 
     print("")
     if FAILED:

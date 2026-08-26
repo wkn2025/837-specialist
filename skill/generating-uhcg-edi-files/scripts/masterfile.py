@@ -221,6 +221,38 @@ def used(mf, repo):
     return out
 
 
+def ccn_for_uhap(mf, uhap):
+    """Every (run output, CCN) a recorded run issued alongside this UHAP id.
+
+    A run records ref_9a and ref_f8 index-aligned, one entry per claim, so a
+    claim's Claim Control Number is the ref_f8 sitting at the same index as
+    its REF*9A. UHCG assigns a CCN once per claim - "11 digit # assigned to
+    claim by UHCG" (UHCG_837P_Companion_Guide_FULL.csv loop 2300 REF*F8;
+    UHCG_837I_Companion_Guide_FULL.csv likewise) - and keeps it across
+    reworks, so a replacement claim inherits the original's rather than being
+    issued a new one.
+
+    Bootstrap and retired runs are skipped: their lists are inventories of
+    what was found on disk, not per-claim allocations, so their indices line
+    up with nothing.
+    """
+    hits = []
+    for run in mf.get("runs", []):
+        if run.get("type") in ("imported", "retired"):
+            continue
+        nines = run.get("ref_9a") or []
+        f8s = run.get("ref_f8") or []
+        for i, value in enumerate(nines):
+            if value != uhap:
+                continue
+            if i >= len(f8s):
+                raise MasterfileError(
+                    "run %s records REF*9A %s as claim %d with no REF*F8 "
+                    "beside it" % (run.get("output", "?"), uhap, i + 1))
+            hits.append((run.get("output", "?"), f8s[i]))
+    return hits
+
+
 def used_envelope_dates(mf):
     return {r["envelope_date"] for r in mf.get("runs", [])
             if r.get("envelope_date")}

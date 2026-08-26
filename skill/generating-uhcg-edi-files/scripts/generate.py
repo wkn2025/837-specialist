@@ -275,6 +275,135 @@ def splice_lines(profile, ov, payload, n):
     return splice_to(profile, payload, len(c["lines"]), n)
 
 
+# Void-and-replace, at the claim level. UHCG_837{I,P}_Companion_Guide_FULL.csv
+# put REF*9F in loop 2300 ("9F=To identify voided and replacement claims",
+# REF02 = "Original UHAP Claim ID"), and UHCG_Special_Instructions_NTE_Guide.md
+# pairs it with a claim-level NTE*ADD whose example text is
+# "Rplcmnt fr Voided Clm 12345678". The professional seed's blocks 7 and 8 are
+# real ones, so the placement below is read off the seed rather than chosen:
+# REF*9F follows REF*9A, and the NTE follows REF*F8.
+REPLACEMENT_NTE = "NTE*ADD*Rplcmnt fr Voided Clm %s"
+# NTE02 "will not exceed 80 characters" (NTE guide, claim-level instructions).
+NTE02_MAX = 80
+
+
+def splice_replacement(profile, ov, payload, n):
+    """Re-emit loop 2300's REF run in guide order for a declared replacement.
+
+    Both companion guides list loop 2300's REF segments in the order 9F, F8,
+    9A (UHCG_837P_Companion_Guide_FULL.csv rows 591/596/602;
+    UHCG_837I_Companion_Guide_FULL.csv rows 693/701/709), and every EDI2 file
+    in the repo emits F8 before 9A. The professional seed is the outlier - it
+    carries 9A before F8 - so a claim declared a replacement is rebuilt in
+    guide order rather than copied in the seed's:
+
+        REF*9F*<original UHAP>
+        REF*F8*<CCN, inherited from the original>
+        REF*9A*<new UHAP>
+        NTE*ADD*Rplcmnt fr Voided Clm <original UHAP>
+
+    Loop 2300 allows one REF*9F ("Segment Repeat: 1"), so a block that
+    already carries one is refused rather than given a second. Like a line
+    splice this changes the block's segment count, so it runs before any edit
+    is computed and before SE01 is renumbered.
+    """
+    c = ov.claim(n) if ov else None
+    original = c.get("replaces") if c else None
+    if not original:
+        return payload
+
+    existing = [s for s in payload if s.startswith("REF*9F*")]
+    if existing:
+        raise BuildError(
+            "claim %d: seed block already carries %s - loop 2300 allows one "
+            "REF*9F, so it cannot also be declared a replacement"
+            % (n, existing[0]))
+
+    note = REPLACEMENT_NTE % original
+    if len(X.elems(note)[2]) > NTE02_MAX:
+        raise BuildError(
+            "claim %d: the replacement note is %d characters; NTE02 may not "
+            "exceed %d" % (n, len(X.elems(note)[2]), NTE02_MAX))
+
+    def only(prefix, what):
+        hits = [k for k, seg in enumerate(payload) if seg.startswith(prefix)]
+        if len(hits) != 1:
+            raise BuildError("claim %d: seed block carries %d %s segments "
+                             "(%s), expected exactly one"
+                             % (n, len(hits), prefix, what))
+        return hits[0]
+
+    i9a = only("REF*9A*", "claim identifier")
+    if8 = only("REF*F8*", "claim control number")
+    if if8 != i9a + 1:
+        raise BuildError(
+            "claim %d: seed block has REF*9A at %d and REF*F8 at %d; the "
+            "replacement rewrite needs them adjacent, 9A first" % (n, i9a, if8))
+
+    out = list(payload)
+    out[i9a:if8 + 1] = ["REF*9F*%s" % original, payload[if8], payload[i9a],
+                        note]
+    return out
+
+
+def assert_not_self_replacing(alloc, ov, claims):
+    """A file may not declare a claim as the replacement of one it allocates.
+
+    The allocator hands out never-reused identifiers, so a REF*9F pointing at
+    a REF*9A in this same file describes a claim that has never been sent -
+    incoherent, and a defect the byte-identity checks would not see.
+    """
+    if not ov:
+        return
+    mine = set(alloc.ref_9a[:claims])
+    for n in range(1, claims + 1):
+        c = ov.claim(n)
+        original = c.get("replaces") if c else None
+        if original and original in mine:
+            raise BuildError(
+                "claim %d: replaces %s, which this file allocates to itself"
+                % (n, original))
+
+
+def inherit_replacement_ccns(mf, alloc, ov, claims):
+    """Point each declared replacement at the CCN its original already holds.
+
+    The allocator hands every claim a fresh Claim Control Number, but UHCG
+    assigns a CCN once per claim and keeps it however many times the claim is
+    reworked - the professional seed's own replacement blocks carry the
+    original's CCN, not a new one. So the allocated value is overwritten here
+    before the file is built, and the manifest records the inherited value.
+
+    Refuses an original no recorded run ever issued: a replacement must name
+    a claim UHCG has already seen, and without the run there is no CCN to
+    inherit. Returns {claim number: CCN} for the claims that inherited one.
+    """
+    out = {}
+    if not ov:
+        return out
+    for n in range(1, claims + 1):
+        c = ov.claim(n)
+        original = c.get("replaces") if c else None
+        if not original:
+            continue
+        hits = M.ccn_for_uhap(mf, original)
+        if not hits:
+            raise BuildError(
+                "claim %d: replaces %s, which no recorded run ever issued - "
+                "a replacement must name a claim UHCG has already seen, and "
+                "there is no CCN to inherit from one that does not exist"
+                % (n, original))
+        ccns = sorted({ccn for _out, ccn in hits})
+        if len(ccns) > 1:
+            raise BuildError(
+                "claim %d: REF*9A %s appears in %d runs carrying different "
+                "CCNs (%s); the masterfile cannot say which to inherit"
+                % (n, original, len(hits), ", ".join(ccns)))
+        alloc.ref_f8[n - 1] = ccns[0]
+        out[n] = ccns[0]
+    return out
+
+
 def _fmt(v):
     return "%.2f" % v
 
@@ -462,6 +591,8 @@ def build(seed_segs, profile, alloc, claims, ov=None):
     gs = set_elem(gs, 5, alloc.envelope_time)
     gs = set_elem(gs, 6, alloc.gs06)
 
+    assert_not_self_replacing(alloc, ov, claims)
+
     body = []
     for n in range(1, claims + 1):
         payload = src_blocks[source_index(n, profile) - 1]
@@ -476,6 +607,7 @@ def build(seed_segs, profile, alloc, claims, ov=None):
         # segment count, so the date counts and the positional indices must
         # both be taken from the spliced block, never from the seed.
         payload = splice_lines(profile, ov, payload, n)
+        payload = splice_replacement(profile, ov, payload, n)
         edits = (edits_for(profile, alloc, n, claim_total(ov, n))
                  + _date_edits(payload, profile, alloc)
                  + identity_edits(profile, ov, payload)
@@ -713,6 +845,11 @@ def main(argv=None):
         else:
             mf = M.load(repo)
             alloc = M.allocate(mf, repo, profile, claims)
+            # Before build(), so the inherited CCNs are what the file
+            # carries and what the manifest records - the two are read from
+            # the same allocation object and cannot diverge. A pinned replay
+            # skips this: its manifest already carries them.
+            inherit_replacement_ccns(mf, alloc, ov, claims)
         text = render(build(seed_segs, profile, alloc, claims, ov))
     # overrides.OverrideError belongs here as well as at the parse gate
     # above: build() re-enters the override code while it applies the

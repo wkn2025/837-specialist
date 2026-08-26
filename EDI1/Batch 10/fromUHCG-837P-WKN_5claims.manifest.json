@@ -1,0 +1,146 @@
+{
+  "bht03": [
+    "015641282",
+    "015641283",
+    "015641284",
+    "015641285",
+    "015641286"
+  ],
+  "claims": 5,
+  "clm01": [
+    "TEST240217001",
+    "TEST240217002",
+    "TEST240217003",
+    "TEST240217004",
+    "TEST240217005"
+  ],
+  "envelope_date": "20240217",
+  "envelope_time": "0930",
+  "gs06": "3409",
+  "isa13": "990000206",
+  "output": "EDI1/Batch 10/fromUHCG-837P-WKN_5claims.x12",
+  "overrides": {
+    "claims": [
+      {
+        "lines": [
+          {
+            "billed": "293.00",
+            "date": "20260130",
+            "savings": "14.71"
+          }
+        ],
+        "n": 1,
+        "principalDiagnosis": "R42",
+        "replaces": "15641267"
+      },
+      {
+        "lines": [
+          {
+            "billed": "295.00",
+            "date": "20260202",
+            "savings": "78.88"
+          },
+          {
+            "billed": "11.00",
+            "date": "20260202",
+            "savings": "4.91"
+          }
+        ],
+        "n": 2,
+        "principalDiagnosis": "R10A0",
+        "replaces": "15641268"
+      },
+      {
+        "lines": [
+          {
+            "billed": "250.00",
+            "date": "20260204",
+            "savings": "161.54"
+          }
+        ],
+        "n": 3,
+        "principalDiagnosis": "E782",
+        "replaces": "15641269"
+      },
+      {
+        "lines": [
+          {
+            "billed": "257.05",
+            "date": "20251230",
+            "savings": "110.63"
+          },
+          {
+            "billed": "217.00",
+            "date": "20251230",
+            "savings": "98.80"
+          }
+        ],
+        "n": 4,
+        "principalDiagnosis": "S098XXA",
+        "replaces": "15641270"
+      },
+      {
+        "lines": [
+          {
+            "billed": "184.03",
+            "date": "20251217",
+            "savings": "179.48"
+          }
+        ],
+        "n": 5,
+        "principalDiagnosis": "P2989",
+        "replaces": "15641271"
+      }
+    ],
+    "identity": {
+      "billingProvider": {
+        "name": "ENDEAVOR HEALTH MEDICAL GROUP",
+        "npi": "1497701882"
+      },
+      "subscriber": {
+        "dob": "19941217",
+        "first": "WILLIAM",
+        "last": "NISHIMURA",
+        "memberId": "909001333969"
+      },
+      "taxId": "363738206"
+    }
+  },
+  "ref_9a": [
+    "15641282",
+    "15641283",
+    "15641284",
+    "15641285",
+    "15641286"
+  ],
+  "ref_f8": [
+    "99012156010",
+    "99012156011",
+    "99012156012",
+    "99012156013",
+    "99012156014"
+  ],
+  "seed": "EDI1/Sample 837P/ERCT_UHCG_P_20260212025521.x12",
+  "seed_sha256": "e42718b721e8ebad51a24e7ec62d8224a242c33c959d4d9a993f29580e22edfc",
+  "service_dates": [
+    "20240210",
+    "20240211",
+    "20240212",
+    "20240213",
+    "20240214",
+    "20240215",
+    "20240216",
+    "20240217"
+  ],
+  "sha256": "b7cff360acc381f8c782a808b6760f264ebe5364aef7f112d39827413d28f2ce",
+  "st02": [
+    "015641282",
+    "015641283",
+    "015641284",
+    "015641285",
+    "015641286"
+  ],
+  "statement": "20240210-20240217",
+  "timestamp": "2026-08-25T17:24:36",
+  "type": "P"
+}

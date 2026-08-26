@@ -38,6 +38,10 @@ _SEPARATORS = (X.ELEM, X.SEG, X.COMP, X.REP)
 _AMOUNT = re.compile(r"^[0-9]+(\.[0-9]+)?$")
 _DATE = re.compile(r"^[0-9]{8}$")
 
+# REF02 under qualifier 9F is AN 1-50 in both companion guides (loop 2300,
+# "Original UHAP Claim ID, When REF01 = 9F").
+REPLACED_ID_MAX = 50
+
 
 class OverrideError(Exception):
     """The override document is not something the generator can honour."""
@@ -154,6 +158,22 @@ def _parse_identity(raw):
     return out
 
 
+def _replaced_id(raw, n):
+    """The Original UHAP Claim ID a replacement claim points back at.
+
+    UHCG carries the void-and-replace link in loop 2300's REF*9F, not in
+    CLM05-3 - the professional guide fixes the frequency code ("UHCG will
+    pass a value of 1 here"), and both companion guides give REF01 = 9F the
+    job of identifying voided and replacement claims.
+    """
+    value = _text(raw, "claim %d: replaces" % n)
+    if len(value) > REPLACED_ID_MAX:
+        raise OverrideError(
+            "claim %d: replaces is %d characters; REF*9F REF02 is AN 1-50"
+            % (n, len(value)))
+    return value
+
+
 def _parse_lines(entry, profile, n):
     lines = []
     for line in entry.get("lines") or []:
@@ -216,7 +236,12 @@ def parse(doc, profile, claims):
         if dx is not None:
             dx = _text(dx, "claim %d: principalDiagnosis" % n)
 
+        replaces = entry.get("replaces")
+        if replaces is not None:
+            replaces = _replaced_id(replaces, n)
+
         out[n] = {"principalDiagnosis": dx,
+                  "replaces": replaces,
                   "lines": _parse_lines(entry, profile, n)}
 
     return Overrides(identity, out)

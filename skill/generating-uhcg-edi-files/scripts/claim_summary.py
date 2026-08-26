@@ -152,6 +152,18 @@ def claim_facts(block, profile):
     rows += [
         ("Repriced Claim No (REF*9A)", ref9a[2] if ref9a else ""),
         ("Payer Claim Control No (REF*F8)", reff8[2] if reff8 else ""),
+    ]
+    # Void-and-replace, when the claim carries it. REF*9F is loop 2300's
+    # "Original UHAP Claim ID" and the claim-level NTE*ADD is its special
+    # instruction; both are absent from an original claim, so neither row is
+    # shown unless the file has one.
+    ref9f = _seg(block, "REF", "9F")
+    if ref9f:
+        rows.append(("Replaces Claim (REF*9F)", ref9f[2]))
+    nte = _seg(block, "NTE", "ADD")
+    if nte:
+        rows.append(("Claim Note (NTE*ADD)", nte[2]))
+    rows += [
         ("Principal Dx (ABK)", dx_principal),
         ("Other Dx (ABF)", ", ".join(dx_other)),
         ("Claim Allowed (HCP02)", hcp[2] if hcp else ""),

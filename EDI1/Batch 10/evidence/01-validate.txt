@@ -1,0 +1,23 @@
+file     : C:\Users\wkn\837-specialist\EDI1\Batch 10\fromUHCG-837P-WKN_5claims.x12
+manifest : C:\Users\wkn\837-specialist\EDI1\Batch 10\fromUHCG-837P-WKN_5claims.manifest.json
+seed     : C:/Users/wkn/837-specialist\EDI1\Sample 837P\ERCT_UHCG_P_20260212025521.x12
+sha256   : b7cff360acc381f8c782a808b6760f264ebe5364aef7f112d39827413d28f2ce
+
+PASS   1  5 ST..SE sets, CLM01 matches the manifest in order
+PASS   2  one ISA/GS/GE/IEA, UHCG -> ERCT, geometry and control numbers consistent
+PASS   3  GS08 and every ST03 are 005010X222A1
+PASS   4  SE01 = segment count, SE02 = ST02, ST02 matches the manifest
+PASS   5  BHT03 is <= 10 characters, unique, and matches the manifest; BHT04/BHT05 match the envelope stamp
+PASS   6  HL starts at 1, increments, parents resolve, no self-parent
+PASS   7  no identifier collides with another .x12 on disk or a prior masterfile run
+PASS   8  every date is inside 2024 (9 declared DOB(s) excepted), line dates inside 20240210-20240217
+PASS   9  every payload segment is byte-identical to its seed block once the declared edits are reversed
+PASS  10  5 payload units whose shapes cycle the seed blocks
+PASS  11  CLM02 equals the sum of its service lines and every allowed + savings equals its charge
+PASS  12  the 6 frozen identity segments appear, exact bytes, in every claim
+PASS  13  ASCII, no BOM, LF only, one segment per line, trailing newline
+PASS  14  regenerating from the manifest reproduces the file byte for byte
+PASS  15  seed hash unchanged by this run
+PASS  16  each of the 5 replacement claims carries the CCN of the claim it replaces
+
+all checks passed

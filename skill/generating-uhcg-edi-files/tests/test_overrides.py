@@ -140,7 +140,8 @@ class TestClaimSelection(unittest.TestCase):
     def test_a_claim_named_with_no_edits_still_records_it(self):
         o = overrides.parse({"claims": [{"n": 2}]}, I, claims=2)
         self.assertIsNone(o.claim(1))
-        self.assertEqual(o.claim(2), {"principalDiagnosis": None, "lines": []})
+        self.assertEqual(o.claim(2), {"principalDiagnosis": None,
+                                      "replaces": None, "lines": []})
 
 
 class TestInstitutionalMoney(unittest.TestCase):
