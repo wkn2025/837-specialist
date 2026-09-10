@@ -1,0 +1,38 @@
+{
+  "bht03": [
+    "2402040001"
+  ],
+  "claims": 1,
+  "clm01": [
+    "TEST240204001"
+  ],
+  "envelope_date": "20240204",
+  "envelope_time": "0930",
+  "gs06": "3415",
+  "isa13": "990000212",
+  "output": "EDI1/Batch 15/fromUHCG-837I-WKN_1claims.x12",
+  "ref_9a": [
+    "E2E24020412125001"
+  ],
+  "ref_f8": [
+    "99012156030"
+  ],
+  "seed": "EDI1/Batch 1/fromUHCG-837I-WKN_9claims.x12",
+  "seed_sha256": "6076704874332f15f1b1f2495e0cb4be8343c55d151614ffef9f007c30192298",
+  "service_dates": [
+    "20240129",
+    "20240130",
+    "20240131",
+    "20240201",
+    "20240202",
+    "20240203",
+    "20240204"
+  ],
+  "sha256": "1d2877befef3ca7d16dddb857535c11ec83dbdf0149d33fa0adbdc34d7506f25",
+  "st02": [
+    "990000211"
+  ],
+  "statement": "20240129-20240204",
+  "timestamp": "2026-09-10T12:26:07",
+  "type": "I"
+}
