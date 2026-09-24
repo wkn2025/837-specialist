@@ -346,6 +346,47 @@ def splice_replacement(profile, ov, payload, n):
     return out
 
 
+def splice_cob(profile, ov, payload, n):
+    """Add the COB markers for the lines this override declares reduced.
+
+    UHCG_837{I,P}_Companion_Guide_FULL.csv: loop 2300 K3 is the claim-level
+    Reduction Indicator (outbound example K3*COB~), and loop 2400 NTE*TPO
+    carries the line's reduction detail. 2300 orders REF, K3, NTE, HI, so
+    K3*COB goes after the REF run and ahead of any claim note; the line note
+    goes where the seed's own line notes sit, between DTP and HCP. Both
+    segments are "Segment Repeat: 1", so a block already carrying either is
+    refused. Runs after the other splices and, like them, before any
+    positional edit is computed.
+    """
+    c = ov.claim(n) if ov else None
+    reduced = [(k, ln) for k, ln in enumerate(c["lines"] if c else [])
+               if ln.get("cob")]
+    if not reduced:
+        return payload
+
+    out = list(payload)
+    bounds = seed_introspect.loop_bounds(out)
+    for k, line in reversed(reduced):
+        start, end = bounds[k]
+        if any(s.startswith("NTE*") for s in out[start:end]):
+            raise BuildError("claim %d: service line %d already carries an "
+                             "NTE; loop 2400 allows one" % (n, k + 1))
+        j = _loop_segment(out, start, end, "HCP*", n, "line repricing")
+        out.insert(j, overrides.cob_nte(line["cob"], line["cobNote"]))
+
+    head = out[:bounds[0][0]]
+    if any(s.startswith("K3*") for s in head):
+        raise BuildError("claim %d: seed block already carries a claim K3"
+                         % n)
+    j = next((i for i, s in enumerate(head)
+              if s.startswith(("NTE*", "HI*"))), None)
+    if j is None:
+        raise BuildError("claim %d: seed block has no HI to place K3*COB "
+                         "before" % n)
+    out.insert(j, "K3*COB")
+    return out
+
+
 def assert_not_self_replacing(alloc, ov, claims):
     """A file may not declare a claim as the replacement of one it allocates.
 
@@ -458,11 +499,18 @@ def money_edits(profile, ov, payload, n):
     total = Decimal("0.00")
     sum_allowed = Decimal("0.00")
     sum_savings = Decimal("0.00")
+    sum_cob = Decimal("0.00")
 
     for (start, end), line in zip(bounds, c["lines"]):
         billed, savings = line["billed"], line["savings"]
         allowed = (overrides.derived_allowed(billed) if split
                    else billed - savings)
+        # A COB reduction comes out of allowed (HCP02 "is the amount after
+        # Reduction amounts ... have been subtracted") and so lands in HCP03,
+        # which the guides define as billed - allowed.
+        cob = line.get("cob") or Decimal("0.00")
+        allowed, savings = allowed - cob, savings + cob
+        sum_cob += cob
         total += billed
         sum_allowed += allowed
         sum_savings += savings
@@ -499,7 +547,8 @@ def money_edits(profile, ov, payload, n):
     # the sum of its line HCPs. validate.py enforces exactly that.
     j = _loop_segment(payload, 0, bounds[0][0], "HCP*", n, "claim repricing")
     chcp = payload[j]
-    ca, cs = ((overrides.derived_allowed(total), overrides.derived_savings(total))
+    ca, cs = ((overrides.derived_allowed(total) - sum_cob,
+               overrides.derived_savings(total) + sum_cob)
               if split else (sum_allowed, sum_savings))
     new = set_elem(set_elem(chcp, seed_introspect.HCP_ALLOWED, _fmt(ca)),
                    seed_introspect.HCP_SAVINGS, _fmt(cs))
@@ -608,6 +657,7 @@ def build(seed_segs, profile, alloc, claims, ov=None):
         # both be taken from the spliced block, never from the seed.
         payload = splice_lines(profile, ov, payload, n)
         payload = splice_replacement(profile, ov, payload, n)
+        payload = splice_cob(profile, ov, payload, n)
         edits = (edits_for(profile, alloc, n, claim_total(ov, n))
                  + _date_edits(payload, profile, alloc)
                  + identity_edits(profile, ov, payload)
@@ -838,7 +888,15 @@ def main(argv=None):
         sys.stderr.write("%s exists; pass --force to overwrite\n" % outp)
         return 1
 
-    try:
+    # The whole irreversible sequence - read allocator state, allocate,
+    # render, validate, publish the files, append the run - happens under
+    # the repository's generation lock. Two processes must never read the
+    # same allocator state (duplicate identifiers) or interleave their
+    # publishes and appends (one run lost from the masterfile). A pinned
+    # replay allocates nothing, but shares the publish path, so it holds
+    # the same lock.
+    with M.generation_lock(repo):
+      try:
         seed_segs = seeds.load_seed(profile, repo)
         if pinned:
             alloc = _alloc_from_manifest(pinned)
@@ -851,28 +909,28 @@ def main(argv=None):
             # skips this: its manifest already carries them.
             inherit_replacement_ccns(mf, alloc, ov, claims)
         text = render(build(seed_segs, profile, alloc, claims, ov))
-    # overrides.OverrideError belongs here as well as at the parse gate
-    # above: build() re-enters the override code while it applies the
-    # declaration, and without this the gate's own exception class would
-    # reach the user as a traceback instead of the CLI's clean error path.
-    except (seeds.SeedMismatch, M.MasterfileError, BuildError,
-            overrides.OverrideError) as exc:
+      # overrides.OverrideError belongs here as well as at the parse gate
+      # above: build() re-enters the override code while it applies the
+      # declaration, and without this the gate's own exception class would
+      # reach the user as a traceback instead of the CLI's clean error path.
+      except (seeds.SeedMismatch, M.MasterfileError, BuildError,
+              overrides.OverrideError) as exc:
         sys.stderr.write("%s\n" % exc)
         return 1
 
-    with open(seeds.seed_path(profile, repo), "rb") as fh:
+      with open(seeds.seed_path(profile, repo), "rb") as fh:
         seed_sha = hashlib.sha256(fh.read()).hexdigest()
-    sha = hashlib.sha256(text.encode("ascii")).hexdigest()
-    record = alloc.as_record(
-        profile.code, claims,
-        os.path.relpath(outp, repo).replace("\\", "/"),
-        sha, profile.rel_path, seed_sha)
-    record_overrides(record, raw_override_doc)
-    if pinned:
-        record["timestamp"] = pinned.get("timestamp", record["timestamp"])
+      sha = hashlib.sha256(text.encode("ascii")).hexdigest()
+      record = alloc.as_record(
+          profile.code, claims,
+          os.path.relpath(outp, repo).replace("\\", "/"),
+          sha, profile.rel_path, seed_sha)
+      record_overrides(record, raw_override_doc)
+      if pinned:
+          record["timestamp"] = pinned.get("timestamp", record["timestamp"])
 
-    tmp = tempfile.mkdtemp(prefix="edi_gen_")
-    try:
+      tmp = tempfile.mkdtemp(prefix="edi_gen_")
+      try:
         tmp_out = os.path.join(tmp, os.path.basename(outp))
         tmp_man = tmp_out[:-4] + ".manifest.json"
         with io.open(tmp_out, "w", encoding="ascii", newline="") as fh:
@@ -897,10 +955,10 @@ def main(argv=None):
             os.makedirs(d)
         shutil.move(tmp_out, outp)
         shutil.move(tmp_man, manp)
-    finally:
+      finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
-    if not pinned:
+      if not pinned:
         M.append_run(repo, record)
 
     # The reference .docx is the last thing built, outside the

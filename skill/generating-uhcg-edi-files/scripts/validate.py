@@ -122,6 +122,7 @@ def declared_blocks(profile, man, seed_blocks, claims):
         if ov:
             block = G.splice_lines(profile, ov, block, n)
             block = G.splice_replacement(profile, ov, block, n)
+            block = G.splice_cob(profile, ov, block, n)
         out.append(block)
     return out
 
@@ -226,10 +227,29 @@ def reverse_pairs(profile, man, n, ov=None, block_len=None):
     return out
 
 
+def _line_cob(block, j):
+    """The COB reduction on the service line whose charge is block[j], or 0.
+
+    Read from the line's NTE*TPO (Remark|Amount|Reason|...). Check 9 proves
+    that note is exactly the one the manifest declares.
+    """
+    for seg in block[j + 1:]:
+        if seg.startswith(("LX*", "SE*")):
+            break
+        if seg.startswith("NTE*TPO*"):
+            f = X.elems(seg)[2].split("|")
+            if len(f) > 2 and f[2] == "COB":
+                return round(float(f[1]), 2)
+    return 0.0
+
+
 def _check_money_split(blocks, profile):
-    """CLM02 = sum of line charges, and every HCP is an 85/15 split."""
+    """CLM02 = sum of line charges, and every HCP is an 85/15 split, less
+    any COB reduction, which moves from allowed to savings."""
     ok, detail = True, []
     for i, b in enumerate(blocks):
+        cob_total = round(sum(_line_cob(b, j) for j, s in enumerate(b)
+                              if s.startswith(profile.line_id + "*")), 2)
         total = round(float(X.elems(
             [s for s in b if s.startswith("CLM*")][0])[2]), 2)
         charges = round(sum(float(X.elems(s)[3]) for s in b
@@ -245,7 +265,8 @@ def _check_money_split(blocks, profile):
             continue
         a = round(float(X.elems(hcp)[2]), 2)
         s2 = round(float(X.elems(hcp)[3]), 2)
-        if (a, s2) != (round(total * 0.85, 2), round(total * 0.15, 2)):
+        if (a, s2) != (round(round(total * 0.85, 2) - cob_total, 2),
+                       round(round(total * 0.15, 2) + cob_total, 2)):
             ok = False
             detail.append("claim %d HCP %.2f/%.2f is not 85/15 of %.2f"
                           % (i + 1, a, s2, total))
@@ -260,7 +281,9 @@ def _check_money_split(blocks, profile):
                 continue
             la = round(float(X.elems(lh)[2]), 2)
             ls = round(float(X.elems(lh)[3]), 2)
-            if (la, ls) != (round(charge * 0.85, 2), round(charge * 0.15, 2)):
+            cob = _line_cob(b, j)
+            if (la, ls) != (round(round(charge * 0.85, 2) - cob, 2),
+                            round(round(charge * 0.15, 2) + cob, 2)):
                 ok = False
                 detail.append("claim %d line %.2f: HCP %.2f/%.2f not 85/15"
                               % (i + 1, charge, la, ls))

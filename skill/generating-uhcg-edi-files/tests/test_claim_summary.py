@@ -146,6 +146,33 @@ class BuildTest(unittest.TestCase):
         self.assertEqual(rows["Payer Claim Control No (REF*F8)"],
                          "99012155001")
 
+    def test_a_replacement_claim_shows_the_9f_and_nte_rows(self):
+        # No committed fixture carries REF*9F, so one is spliced into a
+        # throwaway copy here - exactly where generate.splice_replacement
+        # puts them, after REF*F8 in loop 2300.
+        out, x12 = self.build(FIX_P, MAN_P)
+        with io.open(x12, encoding="ascii", newline="") as fh:
+            text = fh.read()
+        anchor = "REF*F8*99012155001~\n"
+        self.assertEqual(text.count(anchor), 1)
+        text = text.replace(anchor, anchor
+                            + "REF*9F*12900101~\n"
+                            + "NTE*ADD*Rplcmnt fr Voided Clm 12900101~\n", 1)
+        with io.open(x12, "w", encoding="ascii", newline="") as fh:
+            fh.write(text)
+        CS.build(x12, x12[:-4] + ".manifest.json")
+        tables = detail_rows(Document(out))
+        first = dict(tables[0])
+        self.assertEqual(first["Replaces Claim (REF*9F)"], "12900101")
+        self.assertEqual(first["Claim Note (NTE*ADD)"],
+                         "Rplcmnt fr Voided Clm 12900101")
+
+    def test_an_original_claim_shows_no_replacement_rows(self):
+        out, _ = self.build(FIX_P, MAN_P)
+        labels = [k for k, _ in detail_rows(Document(out))[0]]
+        self.assertNotIn("Replaces Claim (REF*9F)", labels)
+        self.assertNotIn("Claim Note (NTE*ADD)", labels)
+
     def test_header_states_the_source_file_and_claim_count(self):
         out, x12 = self.build(FIX_P, MAN_P)
         paras = [p.text for p in Document(out).paragraphs[:4]]

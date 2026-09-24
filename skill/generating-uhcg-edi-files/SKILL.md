@@ -219,4 +219,4 @@ so a wrong entry fails immediately rather than producing a wrong file.
 ## Related
 
 - `deriving-test-fixtures` - the payload-vs-envelope method and the four proofs
-- `SKILL_umr-uhcg-837-edi-specialist.md` in the repo root - companion-guide rules
+- `SKILL_umr-uhcg-837-edi-specialist.md` under `docs/reference/umr-uhcg-837/` - companion-guide rules

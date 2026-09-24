@@ -34,6 +34,8 @@ SCALAR_IDENTITY = ("taxId",)
 
 # x12_parse splits on these, so a value carrying one would forge structure.
 _SEPARATORS = (X.ELEM, X.SEG, X.COMP, X.REP)
+# ... and NTE*TPO splits its body on this, so a COB note may not carry one.
+_PIPE = "|"
 
 _AMOUNT = re.compile(r"^[0-9]+(\.[0-9]+)?$")
 _DATE = re.compile(r"^[0-9]{8}$")
@@ -200,10 +202,58 @@ def _parse_lines(entry, profile, n):
             savings = _money(line.get("savings"), "savings", n)
             if savings > billed:
                 raise OverrideError("claim %d: savings exceeds billed" % n)
+        cob, note = _cob(line, profile, billed, savings, n)
         lines.append({"date": _date(line.get("date"), "claim %d: date" % n),
                       "billed": billed,
-                      "savings": savings})
+                      "savings": savings,
+                      "cob": cob,
+                      "cobNote": note})
     return lines
+
+
+# Line-level COB reduction. HCP02 "is the amount after Reduction amounts
+# (COB/iCES/Duplicate) have been subtracted" (both companion guides, 2400 HCP),
+# so a reduction can never exceed the repriced allowed amount it comes out of.
+# The note rides in NTE02 of NTE*TPO, which is AN 1-80 in both guides.
+NTE02_MAX = 80
+
+
+def cob_nte(cob, note):
+    """NTE*TPO in the guide's reduction format, remark and disp defaulted.
+
+    UHCG_Special_Instructions_NTE_Guide.md: a blank remark code is sent as
+    '00', and a blank line disp under a COB reduction as 'NA'.
+    """
+    body = "00|%.2f|COB|NA" % cob
+    if note:
+        body += "|Y|" + note
+    return "NTE*TPO*" + body
+
+
+def _cob(line, profile, billed, savings, n):
+    if "cob" not in line:
+        if "cobNote" in line:
+            raise OverrideError("claim %d: cobNote without a cob amount" % n)
+        return None, None
+    cob = _money(line.get("cob"), "cob", n)
+    if cob == 0:
+        raise OverrideError("claim %d: cob must be greater than 0" % n)
+    allowed = (derived_allowed(billed) if profile.money_rule == "split_85_15"
+               else billed - savings)
+    if cob > allowed:
+        raise OverrideError("claim %d: cob %s exceeds the allowed amount %s"
+                            % (n, cob, allowed))
+    note = line.get("cobNote")
+    if note is not None:
+        note = _text(note, "claim %d: cobNote" % n)
+        if _PIPE in note:
+            raise OverrideError("claim %d: cobNote may not contain %r, the "
+                                "NTE*TPO field delimiter" % (n, _PIPE))
+    nte02 = X.elems(cob_nte(cob, note))[2]
+    if len(nte02) > NTE02_MAX:
+        raise OverrideError("claim %d: the COB note is %d characters; NTE02 "
+                            "may not exceed %d" % (n, len(nte02), NTE02_MAX))
+    return cob, note
 
 
 def parse(doc, profile, claims):

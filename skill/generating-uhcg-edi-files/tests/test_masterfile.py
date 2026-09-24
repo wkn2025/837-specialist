@@ -306,8 +306,8 @@ class TestAllocate(unittest.TestCase):
     def test_identifier_shapes(self):
         a = M.allocate(M.load(self.root), self.root, PROFILE_I, 2)
         yymmdd = a.envelope_date[2:]
-        self.assertEqual(a.clm01, ["TEST%s001" % yymmdd,
-                                   "TEST%s002" % yymmdd])
+        self.assertEqual(a.clm01, ["WKN%s001" % a.isa13,
+                                   "WKN%s002" % a.isa13])
         self.assertEqual(a.ref_9a, ["E2E%s12125001" % yymmdd,
                                     "E2E%s12125002" % yymmdd])
         for v in a.ref_9a:

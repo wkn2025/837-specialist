@@ -453,8 +453,9 @@ def allocate(mf, repo, profile, claims):
     else:
         raise MasterfileError("unknown id_style %r" % profile.id_style)
 
+    isa13 = _next_numeric(u["isa13"], 9)
     alloc = Allocation(
-        isa13=_next_numeric(u["isa13"], 9),
+        isa13=isa13,
         gs06=str(_numeric(_next_numeric(u["gs06"], 9))),
         envelope_date=envelope_date,
         envelope_time=ENVELOPE_TIME,
@@ -464,7 +465,10 @@ def allocate(mf, repo, profile, claims):
         service_dates=service_dates,
         st02=st02,
         bht03=bht03,
-        clm01=["TEST%s%03d" % (yymmdd, i + 1) for i in range(claims)],
+        # Keyed on the never-reused ISA13, not the recycled 2024 envelope
+        # date, so no CLM01 repeats one already sent. AN 1-38 in both
+        # companion guides (loop 2300 CLM01, Patient Control Number).
+        clm01=["WKN%s%03d" % (isa13, i + 1) for i in range(claims)],
         ref_f8=["%0*d" % (f8_width, f8_first + i) for i in range(claims)],
         ref_9a=ref_9a,
     )
