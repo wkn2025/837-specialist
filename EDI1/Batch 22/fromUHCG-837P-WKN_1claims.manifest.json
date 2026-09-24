@@ -1,0 +1,55 @@
+{
+  "bht03": [
+    "015641305"
+  ],
+  "claims": 1,
+  "clm01": [
+    "WKN990000219001"
+  ],
+  "envelope_date": "20240507",
+  "envelope_time": "0930",
+  "gs06": "3422",
+  "isa13": "990000219",
+  "output": "EDI1/Batch 22/fromUHCG-837P-WKN_1claims.x12",
+  "overrides": {
+    "claims": [
+      {
+        "lines": [
+          {
+            "billed": "293.00",
+            "cob": "200.00",
+            "cobNote": "MCR Paid $200.00/BAL REM $78.29",
+            "date": "20260130",
+            "savings": "14.71"
+          }
+        ],
+        "n": 1
+      }
+    ]
+  },
+  "ref_9a": [
+    "15641305"
+  ],
+  "ref_f8": [
+    "99012156046"
+  ],
+  "seed": "EDI1/Sample 837P/ERCT_UHCG_P_20260212025521.x12",
+  "seed_sha256": "e42718b721e8ebad51a24e7ec62d8224a242c33c959d4d9a993f29580e22edfc",
+  "service_dates": [
+    "20240430",
+    "20240501",
+    "20240502",
+    "20240503",
+    "20240504",
+    "20240505",
+    "20240506",
+    "20240507"
+  ],
+  "sha256": "daafdea0e74e3f596e2ad10aa1d7e6448eceace739b208da0d8db0fbbbd66f76",
+  "st02": [
+    "015641305"
+  ],
+  "statement": "20240430-20240507",
+  "timestamp": "2026-09-24T10:14:11",
+  "type": "P"
+}

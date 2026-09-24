@@ -1,0 +1,6 @@
+{"identity": {"subscriber": {"last": "NISHIMURA", "first": "WILLIAM", "memberId": "909001333969", "dob": "19941217"},
+              "billingProvider": {"name": "JFK JOHNSON REHAB INSTITUTE", "npi": "1114932548"},
+              "taxId": "363738206"},
+ "claims": [{"n": 1, "principalDiagnosis": "R42",
+             "lines": [{"date": "20260130", "billed": "293.00", "savings": "14.71",
+                        "cob": "200.00", "cobNote": "MCR Paid $200.00/BAL REM $78.29"}]}]}
