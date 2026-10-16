@@ -251,6 +251,10 @@ def _cob(line, profile, billed, savings, n):
     if cob > allowed:
         raise OverrideError("claim %d: cob %s exceeds the allowed amount %s"
                             % (n, cob, allowed))
+    if reason == "Duplicate" and cob != allowed:
+        raise OverrideError("claim %d: a Duplicate line is allowed 0, so cob "
+                            "must equal the allowed amount %s, not %s"
+                            % (n, allowed, cob))
     note = line.get("cobNote")
     if note is not None:
         note = _text(note, "claim %d: cobNote" % n)
