@@ -2266,6 +2266,96 @@
       "statement": "20240219-20240225",
       "timestamp": "2026-10-16T11:00:55",
       "type": "I"
+    },
+    {
+      "bht03": [
+        "2403100001"
+      ],
+      "claims": 1,
+      "clm01": [
+        "WKN990000223001"
+      ],
+      "envelope_date": "20240310",
+      "envelope_time": "0930",
+      "gs06": "3426",
+      "isa13": "990000223",
+      "output": "EDI1/Batch 26/fromUHCG-837I-WKN_1claims_20261016111839.x12",
+      "overrides": {
+        "claims": [
+          {
+            "lines": [
+              {
+                "billed": "100.00",
+                "date": "20241121"
+              },
+              {
+                "billed": "85.00",
+                "cobNote": "Provider writeoff/duplicate",
+                "date": "20241121",
+                "reduction": "Duplicate"
+              },
+              {
+                "billed": "100.00",
+                "date": "20241121"
+              },
+              {
+                "billed": "85.00",
+                "cobNote": "Provider writeoff/duplicate",
+                "date": "20241121",
+                "reduction": "Duplicate"
+              },
+              {
+                "billed": "100.00",
+                "date": "20241121"
+              }
+            ],
+            "n": 1,
+            "principalDiagnosis": "I48"
+          }
+        ],
+        "identity": {
+          "attendingProvider": {
+            "first": "MOHAMMED",
+            "last": "NIZAM",
+            "npi": "1326145764"
+          },
+          "billingProvider": {
+            "name": "JFK JOHNSON REHAB INSTITUTE",
+            "npi": "1114932548"
+          },
+          "subscriber": {
+            "dob": "19941217",
+            "first": "WILLIAM",
+            "last": "NISHIMURA",
+            "memberId": "909001333969"
+          },
+          "taxId": "B03000684"
+        }
+      },
+      "ref_9a": [
+        "E2E24031012125001"
+      ],
+      "ref_f8": [
+        "99012156050"
+      ],
+      "seed": "EDI1/Batch 1/fromUHCG-837I-WKN_9claims.x12",
+      "seed_sha256": "6076704874332f15f1b1f2495e0cb4be8343c55d151614ffef9f007c30192298",
+      "service_dates": [
+        "20240304",
+        "20240305",
+        "20240306",
+        "20240307",
+        "20240308",
+        "20240309",
+        "20240310"
+      ],
+      "sha256": "81fe93021b579e962869b6b87c6bfb6c6eb4d4a15f3456012b29aa34c445fc8c",
+      "st02": [
+        "990000215"
+      ],
+      "statement": "20240304-20240310",
+      "timestamp": "2026-10-16T11:18:40",
+      "type": "I"
     }
   ],
   "version": 1

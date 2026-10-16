@@ -227,7 +227,7 @@ def reverse_pairs(profile, man, n, ov=None, block_len=None):
     return out
 
 
-def _line_cob(block, j):
+def _line_cob(block, j, reason="COB"):
     """The COB reduction on the service line whose charge is block[j], or 0.
 
     Read from the line's NTE*TPO (Remark|Amount|Reason|...). Check 9 proves
@@ -238,9 +238,14 @@ def _line_cob(block, j):
             break
         if seg.startswith("NTE*TPO*"):
             f = X.elems(seg)[2].split("|")
-            if len(f) > 2 and f[2] in ("COB", "Duplicate"):
+            if len(f) > 2 and f[2] == reason:
                 return round(float(f[1]), 2)
     return 0.0
+
+
+def _line_dup(block, j):
+    """The Duplicate amount on the line whose charge is block[j], or 0."""
+    return _line_cob(block, j, "Duplicate")
 
 
 def _check_money_split(blocks, profile):
@@ -249,6 +254,8 @@ def _check_money_split(blocks, profile):
     ok, detail = True, []
     for i, b in enumerate(blocks):
         cob_total = round(sum(_line_cob(b, j) for j, s in enumerate(b)
+                              if s.startswith(profile.line_id + "*")), 2)
+        dup_total = round(sum(_line_dup(b, j) for j, s in enumerate(b)
                               if s.startswith(profile.line_id + "*")), 2)
         total = round(float(X.elems(
             [s for s in b if s.startswith("CLM*")][0])[2]), 2)
@@ -265,8 +272,9 @@ def _check_money_split(blocks, profile):
             continue
         a = round(float(X.elems(hcp)[2]), 2)
         s2 = round(float(X.elems(hcp)[3]), 2)
-        if (a, s2) != (round(round(total * 0.85, 2) - cob_total, 2),
-                       round(round(total * 0.15, 2) + cob_total, 2)):
+        rest = round(total - dup_total, 2)
+        if (a, s2) != (round(round(rest * 0.85, 2) - cob_total + dup_total, 2),
+                       round(round(rest * 0.15, 2) + cob_total, 2)):
             ok = False
             detail.append("claim %d HCP %.2f/%.2f is not 85/15 of %.2f"
                           % (i + 1, a, s2, total))
@@ -282,6 +290,12 @@ def _check_money_split(blocks, profile):
             la = round(float(X.elems(lh)[2]), 2)
             ls = round(float(X.elems(lh)[3]), 2)
             cob = _line_cob(b, j)
+            if _line_dup(b, j):
+                if (la, ls) != (charge, 0.0):
+                    ok = False
+                    detail.append("claim %d line %.2f: Duplicate HCP %.2f/%.2f "
+                                  "is not billed/0" % (i + 1, charge, la, ls))
+                continue
             if (la, ls) != (round(round(charge * 0.85, 2) - cob, 2),
                             round(round(charge * 0.15, 2) + cob, 2)):
                 ok = False

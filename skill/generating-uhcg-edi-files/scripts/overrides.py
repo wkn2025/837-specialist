@@ -183,7 +183,17 @@ def _parse_lines(entry, profile, n):
             raise OverrideError("claim %d: a service line must be an object"
                                 % n)
         billed = _money(line.get("billed"), "billed", n)
-        if profile.money_rule == "split_85_15":
+        if line.get("reduction") == "Duplicate":
+            # A Duplicate line is billed = allowed = reduction, savings 0.
+            if _money(line.get("savings", "0"), "savings", n) != 0:
+                raise OverrideError("claim %d: a Duplicate line has savings "
+                                    "0" % n)
+            if "cob" in line and _money(line["cob"], "cob", n) != billed:
+                raise OverrideError("claim %d: a Duplicate line's reduction "
+                                    "equals its billed amount %s" % (n, billed))
+            line = dict(line, cob=str(billed))
+            savings = Decimal("0.00")
+        elif profile.money_rule == "split_85_15":
             savings = derived_savings(billed)
             if "savings" in line:
                 # The split is fixed, so a supplied savings can only agree
@@ -248,13 +258,11 @@ def _cob(line, profile, billed, savings, n):
         raise OverrideError("claim %d: cob must be greater than 0" % n)
     allowed = (derived_allowed(billed) if profile.money_rule == "split_85_15"
                else billed - savings)
+    if reason == "Duplicate":
+        allowed = billed
     if cob > allowed:
         raise OverrideError("claim %d: cob %s exceeds the allowed amount %s"
                             % (n, cob, allowed))
-    if reason == "Duplicate" and cob != allowed:
-        raise OverrideError("claim %d: a Duplicate line is allowed 0, so cob "
-                            "must equal the allowed amount %s, not %s"
-                            % (n, allowed, cob))
     note = line.get("cobNote")
     if note is not None:
         note = _text(note, "claim %d: cobNote" % n)

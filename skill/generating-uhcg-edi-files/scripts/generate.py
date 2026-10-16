@@ -505,6 +505,7 @@ def money_edits(profile, ov, payload, n):
     sum_allowed = Decimal("0.00")
     sum_savings = Decimal("0.00")
     sum_cob = Decimal("0.00")
+    sum_dup = Decimal("0.00")
 
     for (start, end), line in zip(bounds, c["lines"]):
         billed, savings = line["billed"], line["savings"]
@@ -514,6 +515,10 @@ def money_edits(profile, ov, payload, n):
         # Reduction amounts ... have been subtracted") and so lands in HCP03,
         # which the guides define as billed - allowed.
         cob = line.get("cob") or Decimal("0.00")
+        if line.get("reduction") == "Duplicate":
+            # billed = allowed = the TPO amount, nothing saved
+            allowed, savings, cob = billed, Decimal("0.00"), Decimal("0.00")
+            sum_dup += billed
         allowed, savings = allowed - cob, savings + cob
         sum_cob += cob
         total += billed
@@ -552,8 +557,8 @@ def money_edits(profile, ov, payload, n):
     # the sum of its line HCPs. validate.py enforces exactly that.
     j = _loop_segment(payload, 0, bounds[0][0], "HCP*", n, "claim repricing")
     chcp = payload[j]
-    ca, cs = ((overrides.derived_allowed(total) - sum_cob,
-               overrides.derived_savings(total) + sum_cob)
+    ca, cs = ((overrides.derived_allowed(total - sum_dup) - sum_cob + sum_dup,
+               overrides.derived_savings(total - sum_dup) + sum_cob)
               if split else (sum_allowed, sum_savings))
     new = set_elem(set_elem(chcp, seed_introspect.HCP_ALLOWED, _fmt(ca)),
                    seed_introspect.HCP_SAVINGS, _fmt(cs))
