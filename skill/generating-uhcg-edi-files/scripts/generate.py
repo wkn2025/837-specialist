@@ -372,7 +372,8 @@ def splice_cob(profile, ov, payload, n):
             raise BuildError("claim %d: service line %d already carries an "
                              "NTE; loop 2400 allows one" % (n, k + 1))
         j = _loop_segment(out, start, end, "HCP*", n, "line repricing")
-        out.insert(j, overrides.cob_nte(line["cob"], line["cobNote"]))
+        out.insert(j, overrides.cob_nte(line["cob"], line["cobNote"],
+                                       line.get("reduction", "COB")))
 
     head = out[:bounds[0][0]]
     if any(s.startswith("K3*") for s in head):
@@ -383,7 +384,11 @@ def splice_cob(profile, ov, payload, n):
     if j is None:
         raise BuildError("claim %d: seed block has no HI to place K3*COB "
                          "before" % n)
-    out.insert(j, "K3*COB")
+    reasons = {ln.get("reduction", "COB") for _, ln in reduced}
+    if len(reasons) > 1:
+        raise BuildError("claim %d: K3 allows one reduction indicator, lines "
+                         "declare %s" % (n, sorted(reasons)))
+    out.insert(j, "K3*" + reasons.pop())
     return out
 
 

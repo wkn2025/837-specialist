@@ -238,7 +238,7 @@ def _line_cob(block, j):
             break
         if seg.startswith("NTE*TPO*"):
             f = X.elems(seg)[2].split("|")
-            if len(f) > 2 and f[2] == "COB":
+            if len(f) > 2 and f[2] in ("COB", "Duplicate"):
                 return round(float(f[1]), 2)
     return 0.0
 

@@ -207,7 +207,8 @@ def _parse_lines(entry, profile, n):
                       "billed": billed,
                       "savings": savings,
                       "cob": cob,
-                      "cobNote": note})
+                      "cobNote": note,
+                      "reduction": line.get("reduction", "COB")})
     return lines
 
 
@@ -218,13 +219,16 @@ def _parse_lines(entry, profile, n):
 NTE02_MAX = 80
 
 
-def cob_nte(cob, note):
+REDUCTIONS = ("COB", "Duplicate")
+
+
+def cob_nte(cob, note, reason="COB"):
     """NTE*TPO in the guide's reduction format, remark and disp defaulted.
 
     UHCG_Special_Instructions_NTE_Guide.md: a blank remark code is sent as
     '00', and a blank line disp under a COB reduction as 'NA'.
     """
-    body = "00|%.2f|COB|NA" % cob
+    body = "00|%.2f|%s|NA" % (cob, reason)
     if note:
         body += "|Y|" + note
     return "NTE*TPO*" + body
@@ -235,6 +239,10 @@ def _cob(line, profile, billed, savings, n):
         if "cobNote" in line:
             raise OverrideError("claim %d: cobNote without a cob amount" % n)
         return None, None
+    reason = line.get("reduction", "COB")
+    if reason not in REDUCTIONS:
+        raise OverrideError("claim %d: reduction %r is not one of %s"
+                            % (n, reason, ", ".join(REDUCTIONS)))
     cob = _money(line.get("cob"), "cob", n)
     if cob == 0:
         raise OverrideError("claim %d: cob must be greater than 0" % n)
@@ -249,7 +257,7 @@ def _cob(line, profile, billed, savings, n):
         if _PIPE in note:
             raise OverrideError("claim %d: cobNote may not contain %r, the "
                                 "NTE*TPO field delimiter" % (n, _PIPE))
-    nte02 = X.elems(cob_nte(cob, note))[2]
+    nte02 = X.elems(cob_nte(cob, note, reason))[2]
     if len(nte02) > NTE02_MAX:
         raise OverrideError("claim %d: the COB note is %d characters; NTE02 "
                             "may not exceed %d" % (n, len(nte02), NTE02_MAX))
