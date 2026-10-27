@@ -177,7 +177,9 @@ def diagnosis_edits(profile, ov, payload, n):
     same scan seed_introspect uses to read the default back out.
     """
     c = ov.claim(n) if ov else None
-    if not c or not c.get("principalDiagnosis"):
+    dx = c.get("principalDiagnosis") if c else None
+    only = bool(ov and ov.principal_only)
+    if not dx and not only:
         return []
     for s in payload:
         if not s.startswith("HI*"):
@@ -186,10 +188,25 @@ def diagnosis_edits(profile, ov, payload, n):
             if not comp.startswith("ABK:"):
                 continue
             parts = comp.split(":")
-            parts[1] = c["principalDiagnosis"]
-            new = set_elem(s, k, ":".join(parts))
+            if dx:
+                parts[1] = dx
+            comp = ":".join(parts)
+            new = X.ELEM.join(["HI", comp]) if only else set_elem(s, k, comp)
             return [] if new == s else [(s, 1, 1, new)]
     raise BuildError("claim %d: seed block has no ABK principal diagnosis" % n)
+
+
+# SV107 is the diagnosis-code pointer of 837P's SV1 (2400 SV1, "Composite
+# Diagnosis Code Pointer"); with only the ABK left, every line points at 1.
+SV_POINTER = 7
+
+
+def trim_pointers(profile, ov, segs):
+    """Point every SV1 at the principal diagnosis when HI keeps only that."""
+    if not (ov and ov.principal_only) or profile.line_id != "SV1":
+        return segs
+    return [set_elem(s, SV_POINTER, "1") if s.startswith("SV1*") else s
+            for s in segs]
 
 
 def record_overrides(record, raw_doc):
@@ -678,6 +695,7 @@ def build(seed_segs, profile, alloc, claims, ov=None):
         # so the expected-literal check below would catch any overlap.
         out = apply_positional_edits(out, money_edits(profile, ov, payload, n),
                                      str(n))
+        out = trim_pointers(profile, ov, out)
         body.extend(renumber_se(out, str(n)))
 
     return ([isa, gs] + body

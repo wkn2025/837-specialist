@@ -1,0 +1,143 @@
+{
+  "bht03": [
+    "015641312",
+    "015641313",
+    "015641314",
+    "015641315",
+    "015641316"
+  ],
+  "claims": 5,
+  "clm01": [
+    "WKN990000225001",
+    "WKN990000225002",
+    "WKN990000225003",
+    "WKN990000225004",
+    "WKN990000225005"
+  ],
+  "envelope_date": "20240531",
+  "envelope_time": "0930",
+  "gs06": "3428",
+  "isa13": "990000225",
+  "output": "edi1/Batch 25/fromUHCG-837P-WKN_5claims_20261027142609.x12",
+  "overrides": {
+    "claims": [
+      {
+        "lines": [
+          {
+            "billed": "293.00",
+            "date": "20260130",
+            "savings": "14.71"
+          }
+        ],
+        "n": 1,
+        "principalDiagnosis": "R461"
+      },
+      {
+        "lines": [
+          {
+            "billed": "295.00",
+            "date": "20260202",
+            "savings": "78.88"
+          },
+          {
+            "billed": "11.00",
+            "date": "20260202",
+            "savings": "4.91"
+          }
+        ],
+        "n": 2,
+        "principalDiagnosis": "R461"
+      },
+      {
+        "lines": [
+          {
+            "billed": "250.00",
+            "date": "20260204",
+            "savings": "161.54"
+          }
+        ],
+        "n": 3,
+        "principalDiagnosis": "R461"
+      },
+      {
+        "lines": [
+          {
+            "billed": "257.05",
+            "date": "20251230",
+            "savings": "110.63"
+          },
+          {
+            "billed": "217.00",
+            "date": "20251230",
+            "savings": "98.80"
+          }
+        ],
+        "n": 4,
+        "principalDiagnosis": "R461"
+      },
+      {
+        "lines": [
+          {
+            "billed": "184.03",
+            "date": "20251217",
+            "savings": "179.48"
+          }
+        ],
+        "n": 5,
+        "principalDiagnosis": "R461"
+      }
+    ],
+    "identity": {
+      "billingProvider": {
+        "name": "JFK JOHNSON REHAB INSTITUTE",
+        "npi": "1114932548"
+      },
+      "subscriber": {
+        "dob": "19941217",
+        "first": "WILLIAM",
+        "last": "NISHIMURA",
+        "memberId": "909001333969"
+      },
+      "taxId": "363738206"
+    },
+    "principalDiagnosisOnly": true,
+    "singleServiceDate": true
+  },
+  "ref_9a": [
+    "15641312",
+    "15641313",
+    "15641314",
+    "15641315",
+    "15641316"
+  ],
+  "ref_f8": [
+    "99012156056",
+    "99012156057",
+    "99012156058",
+    "99012156059",
+    "99012156060"
+  ],
+  "seed": "EDI1/Sample 837P/ERCT_UHCG_P_20260212025521.x12",
+  "seed_sha256": "e42718b721e8ebad51a24e7ec62d8224a242c33c959d4d9a993f29580e22edfc",
+  "service_dates": [
+    "20240524",
+    "20240525",
+    "20240526",
+    "20240527",
+    "20240528",
+    "20240529",
+    "20240530",
+    "20240531"
+  ],
+  "sha256": "284597a86d68e233be60179519577bc8df6b9e84e86243fead1ee2df02f19276",
+  "st02": [
+    "015641312",
+    "015641313",
+    "015641314",
+    "015641315",
+    "015641316"
+  ],
+  "statement": "20240524-20240531",
+  "timestamp": "2026-10-27T14:26:11",
+  "type": "P"
+}

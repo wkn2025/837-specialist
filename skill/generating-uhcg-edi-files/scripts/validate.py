@@ -175,6 +175,12 @@ def restore_declared(profile, ov, expected_block, restored, n):
     if not ov:
         return restored
     out = list(restored)
+    # Pointers first: money_edits' generated segments carry the seed pointer.
+    if ov.principal_only and profile.line_id == "SV1":
+        for i, (got, want) in enumerate(zip(out, expected_block)):
+            if got.startswith("SV1*") and want.startswith("SV1*") and                     X.elems(got)[G.SV_POINTER] == "1":
+                out[i] = G.set_elem(got, G.SV_POINTER,
+                                    X.elems(want)[G.SV_POINTER])
     # Amounts are addressed by position: a claim repeats its service lines
     # verbatim, so a literal cannot name one line.
     for idx, seed_seg, generated_seg in G.money_edits(profile, ov,

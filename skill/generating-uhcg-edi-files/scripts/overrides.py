@@ -121,9 +121,12 @@ def derived_allowed(billed):
 
 
 class Overrides:
-    def __init__(self, identity, claims, single_date=False):
+    def __init__(self, identity, claims, single_date=False,
+                 principal_only=False):
         self.identity = identity
         self._claims = claims
+        # HI carries only the ABK principal; SV107 points at it alone.
+        self.principal_only = principal_only
         # Every service line lands on the first day of the allocated window.
         self.single_date = single_date
 
@@ -131,7 +134,8 @@ class Overrides:
         return self._claims.get(n)
 
     def is_empty(self):
-        return not self.identity and not self._claims and not self.single_date
+        return (not self.identity and not self._claims
+                and not self.single_date and not self.principal_only)
 
 
 def _parse_identity(raw):
@@ -320,4 +324,8 @@ def parse(doc, profile, claims):
     if not isinstance(single_date, bool):
         raise OverrideError("singleServiceDate must be true or false")
 
-    return Overrides(identity, out, single_date)
+    principal_only = doc.get("principalDiagnosisOnly", False)
+    if not isinstance(principal_only, bool):
+        raise OverrideError("principalDiagnosisOnly must be true or false")
+
+    return Overrides(identity, out, single_date, principal_only)
