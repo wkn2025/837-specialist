@@ -632,6 +632,12 @@ def main():
                 continue
             for j in hits:
                 restored[j] = original
+        if declared and declared.single_date:
+            # every date is the window's first day; the seed block says which
+            # seed date each segment was
+            gen0 = _service_date_pairs(profile, man)[0][0]
+            restored = [e if s == gen0 and e.startswith("DTP*472*") else s
+                        for s, e in zip(restored, expected)]
         for gen_seg, src_seg in _service_date_pairs(profile, man):
             restored = [src_seg if s == gen_seg else s for s in restored]
         if restored != expected:

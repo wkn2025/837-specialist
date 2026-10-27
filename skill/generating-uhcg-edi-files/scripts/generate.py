@@ -84,7 +84,7 @@ def _service_date_forms(profile):
                      % profile.service_date_shape)
 
 
-def _date_edits(payload, profile, alloc):
+def _date_edits(payload, profile, alloc, ov=None):
     """DTP*472 edits for one block, counted from the block itself.
 
     The counts are read off the block, so a block that repeats a date (seed
@@ -106,7 +106,7 @@ def _date_edits(payload, profile, alloc):
         if src_date not in profile.src_dates:
             raise BuildError("service date %r is not one the profile declares"
                              % src_date)
-        k = profile.src_dates.index(src_date)
+        k = 0 if ov and ov.single_date else profile.src_dates.index(src_date)
         n = counts[src_date]
         ed.append((prefix + form(src_date), n, n,
                    prefix + form(alloc.service_dates[k])))
@@ -669,7 +669,7 @@ def build(seed_segs, profile, alloc, claims, ov=None):
         payload = splice_replacement(profile, ov, payload, n)
         payload = splice_cob(profile, ov, payload, n)
         edits = (edits_for(profile, alloc, n, claim_total(ov, n))
-                 + _date_edits(payload, profile, alloc)
+                 + _date_edits(payload, profile, alloc, ov)
                  + identity_edits(profile, ov, payload)
                  + diagnosis_edits(profile, ov, payload, n))
         out = apply_edits(payload, edits, str(n))

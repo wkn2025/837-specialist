@@ -1,0 +1,83 @@
+{
+ "identity": {
+  "subscriber": {
+   "last": "NISHIMURA",
+   "first": "WILLIAM",
+   "memberId": "909001333969",
+   "dob": "19941217"
+  },
+  "billingProvider": {
+   "name": "JFK JOHNSON REHAB INSTITUTE",
+   "npi": "1114932548"
+  },
+  "taxId": "363738206"
+ },
+ "claims": [
+  {
+   "n": 1,
+   "principalDiagnosis": "R42",
+   "lines": [
+    {
+     "date": "20260130",
+     "billed": "293.00",
+     "savings": "14.71"
+    }
+   ]
+  },
+  {
+   "n": 2,
+   "principalDiagnosis": "R10A0",
+   "lines": [
+    {
+     "date": "20260202",
+     "billed": "295.00",
+     "savings": "78.88"
+    },
+    {
+     "date": "20260202",
+     "billed": "11.00",
+     "savings": "4.91"
+    }
+   ]
+  },
+  {
+   "n": 3,
+   "principalDiagnosis": "E782",
+   "lines": [
+    {
+     "date": "20260204",
+     "billed": "250.00",
+     "savings": "161.54"
+    }
+   ]
+  },
+  {
+   "n": 4,
+   "principalDiagnosis": "S098XXA",
+   "lines": [
+    {
+     "date": "20251230",
+     "billed": "257.05",
+     "savings": "110.63"
+    },
+    {
+     "date": "20251230",
+     "billed": "217.00",
+     "savings": "98.80"
+    }
+   ]
+  },
+  {
+   "n": 5,
+   "principalDiagnosis": "P2989",
+   "lines": [
+    {
+     "date": "20251217",
+     "billed": "184.03",
+     "savings": "179.48"
+    }
+   ]
+  }
+ ],
+ "singleServiceDate": true
+}
