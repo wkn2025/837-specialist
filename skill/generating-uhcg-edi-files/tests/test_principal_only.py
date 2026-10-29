@@ -12,3 +12,10 @@ def test_flag_parses_and_defaults_off():
 def test_flag_must_be_bool():
     with pytest.raises(overrides.OverrideError):
         overrides.parse({"principalDiagnosisOnly": 1}, None, 1)
+
+
+def test_seed_ref_order_flag():
+    assert overrides.parse({}, None, 1).seed_ref_order is False
+    assert overrides.parse({"seedReplacementOrder": True}, None, 1).seed_ref_order
+    with pytest.raises(overrides.OverrideError):
+        overrides.parse({"seedReplacementOrder": "x"}, None, 1)

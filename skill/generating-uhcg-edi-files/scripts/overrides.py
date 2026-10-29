@@ -122,20 +122,28 @@ def derived_allowed(billed):
 
 class Overrides:
     def __init__(self, identity, claims, single_date=False,
-                 principal_only=False):
+                 principal_only=False, seed_ref_order=False,
+                 service_date=None):
         self.identity = identity
         self._claims = claims
         # HI carries only the ABK principal; SV107 points at it alone.
         self.principal_only = principal_only
+        # A replacement's REF run keeps the seed's own order (9A, 9F, F8)
+        # instead of the guide's (9F, F8, 9A).
+        self.seed_ref_order = seed_ref_order
         # Every service line lands on the first day of the allocated window.
         self.single_date = single_date
+        # An explicit rework date may reuse the original service window while
+        # envelope and claim identifiers remain newly allocated.
+        self.service_date = service_date
 
     def claim(self, n):
         return self._claims.get(n)
 
     def is_empty(self):
         return (not self.identity and not self._claims
-                and not self.single_date and not self.principal_only)
+                and not self.single_date and not self.principal_only
+                and not self.seed_ref_order and not self.service_date)
 
 
 def _parse_identity(raw):
@@ -324,8 +332,20 @@ def parse(doc, profile, claims):
     if not isinstance(single_date, bool):
         raise OverrideError("singleServiceDate must be true or false")
 
+    service_date = doc.get("serviceDate")
+    if service_date is not None:
+        service_date = _date(service_date, "serviceDate")
+        if not single_date:
+            raise OverrideError(
+                "serviceDate requires singleServiceDate to be true")
+
     principal_only = doc.get("principalDiagnosisOnly", False)
     if not isinstance(principal_only, bool):
         raise OverrideError("principalDiagnosisOnly must be true or false")
 
-    return Overrides(identity, out, single_date, principal_only)
+    seed_ref_order = doc.get("seedReplacementOrder", False)
+    if not isinstance(seed_ref_order, bool):
+        raise OverrideError("seedReplacementOrder must be true or false")
+
+    return Overrides(identity, out, single_date, principal_only,
+                     seed_ref_order, service_date)

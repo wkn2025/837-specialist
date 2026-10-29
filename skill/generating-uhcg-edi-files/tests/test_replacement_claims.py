@@ -28,6 +28,8 @@ SE01 and every positional index money_edits addresses, exactly as a line
 splice does.
 """
 import os
+import json
+import subprocess
 import sys
 import unittest
 
@@ -41,6 +43,7 @@ import seeds
 import validate
 import x12_parse as X
 
+from test_cli_data import TempRepo, captured, write_doc
 from test_generate import fake_alloc, fake_alloc_p
 
 REPO = os.environ.get("EDI_REPO", r"C:\Users\wkn\837-specialist")
@@ -225,6 +228,49 @@ class TestTheValidator(unittest.TestCase):
         block = self._expected({"claims": [{"n": 1}]})[0]
         self.assertEqual([s for s in block if s.startswith("REF*9F")], [])
 
+    def test_the_manifest_selects_the_originals_seed_block(self):
+        doc = {"claims": [{"n": 1, "replaces": "15641316"}]}
+        man = {"overrides": doc, "source_blocks": [5]}
+
+        block = validate.declared_blocks(
+            P, man, seeds.blocks(seeds.load_seed(P, REPO)), 1)[0]
+
+        self.assertIn("PRV*BI*PXC*UN", block)
+        self.assertIn("SV1*HC:87081*184.03*UN*1*81**1:2**N", block)
+
+    def test_the_original_still_validates_after_its_rework_exists(self):
+        with TempRepo() as repo:
+            original = os.path.join(repo, "original.x12")
+            with captured() as (_out, err):
+                rc = G.main(["--repo", repo, "--type", "P", "--claims", "1",
+                             "--output", original])
+            self.assertEqual(rc, 0, err.getvalue())
+            with open(original[:-4] + ".manifest.json", encoding="utf-8") as fh:
+                original_uhap = json.load(fh)["ref_9a"][0]
+
+            doc = write_doc(
+                repo,
+                {"claims": [{"n": 1, "replaces": original_uhap}]},
+                "rework.json",
+            )
+            with captured() as (_out, err):
+                rc = G.main(["--repo", repo, "--type", "P", "--claims", "1",
+                             "--data", doc,
+                             "--output", os.path.join(repo, "rework.x12")])
+            self.assertEqual(rc, 0, err.getvalue())
+
+            proc = subprocess.run(
+                [sys.executable, os.path.join(HERE, "..", "scripts",
+                                               "validate.py"),
+                 "--file", original,
+                 "--manifest", original[:-4] + ".manifest.json",
+                 "--repo", repo, "--skip-producer"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+            )
+            self.assertEqual(proc.returncode, 0,
+                             proc.stdout.decode("utf-8", "replace"))
+
 
 class TestTheInheritedCcn(unittest.TestCase):
     """A replacement takes the CCN its original already carries.
@@ -250,6 +296,44 @@ class TestTheInheritedCcn(unittest.TestCase):
         self.assertEqual(got, {2: "99012156011"})
         self.assertEqual(alloc.ref_f8[0], before[0])
         self.assertEqual(alloc.ref_f8[1], "99012156011")
+
+    def test_a_one_claim_rework_inherits_the_originals_seed_block(self):
+        mf = self._mf([{
+            "type": "P",
+            "output": "EDI1/Batch X/a.x12",
+            "ref_9a": ["15641312", "15641313", "15641314",
+                       "15641315", "15641316"],
+            "ref_f8": ["99012156056", "99012156057", "99012156058",
+                       "99012156059", "99012156060"],
+        }])
+        ov = overrides.parse(
+            {"claims": [{"n": 1, "replaces": "15641316"}]}, P, 1)
+
+        self.assertEqual(
+            G.replacement_source_blocks(mf, ov, 1, P),
+            [5],
+        )
+
+    def test_a_one_claim_rework_emits_the_originals_payload_shape(self):
+        mf = self._mf([{
+            "type": "P",
+            "output": "EDI1/Batch X/a.x12",
+            "ref_9a": ["15641312", "15641313", "15641314",
+                       "15641315", "15641316"],
+            "ref_f8": ["99012156056", "99012156057", "99012156058",
+                       "99012156059", "99012156060"],
+        }])
+        ov = overrides.parse(
+            {"claims": [{"n": 1, "replaces": "15641316"}]}, P, 1)
+        sources = G.replacement_source_blocks(mf, ov, 1, P)
+
+        built = G.build(seeds.load_seed(P, REPO), P, fake_alloc_p(1), 1,
+                        ov, source_blocks=sources)
+        block = seeds.blocks(built)[0]
+
+        self.assertIn("PRV*BI*PXC*UN", block)
+        self.assertIn("SV1*HC:87081*184.03*UN*1*81**1:2**N", block)
+        self.assertNotIn("SV1*HC:99222*293.00*UN*1*21**1**N", block)
 
     def test_the_built_file_carries_the_inherited_ccn(self):
         mf = self._mf([{"type": "P", "output": "EDI1/Batch X/a.x12",
