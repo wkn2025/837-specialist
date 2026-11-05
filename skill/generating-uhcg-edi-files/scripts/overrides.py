@@ -320,11 +320,20 @@ def parse(doc, profile, claims):
         if dx is not None:
             dx = _text(dx, "claim %d: principalDiagnosis" % n)
 
+        other = entry.get("otherDiagnoses")
+        if other is not None:
+            # 837P guide: HI01 ABK + HI02-HI12 ABF, so at most 11 others.
+            if not isinstance(other, list) or not 1 <= len(other) <= 11:
+                raise OverrideError("claim %d: otherDiagnoses must be a list "
+                                    "of 1-11 codes" % n)
+            other = [_text(c, "claim %d: otherDiagnoses" % n) for c in other]
+
         replaces = entry.get("replaces")
         if replaces is not None:
             replaces = _replaced_id(replaces, n)
 
         out[n] = {"principalDiagnosis": dx,
+                  "otherDiagnoses": other,
                   "replaces": replaces,
                   "lines": _parse_lines(entry, profile, n)}
 
@@ -342,6 +351,10 @@ def parse(doc, profile, claims):
     principal_only = doc.get("principalDiagnosisOnly", False)
     if not isinstance(principal_only, bool):
         raise OverrideError("principalDiagnosisOnly must be true or false")
+
+    if principal_only and any(c["otherDiagnoses"] for c in out.values()):
+        raise OverrideError(
+            "otherDiagnoses conflicts with principalDiagnosisOnly")
 
     seed_ref_order = doc.get("seedReplacementOrder", False)
     if not isinstance(seed_ref_order, bool):

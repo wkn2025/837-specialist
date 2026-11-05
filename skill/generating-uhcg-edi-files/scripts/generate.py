@@ -179,8 +179,9 @@ def diagnosis_edits(profile, ov, payload, n):
     """
     c = ov.claim(n) if ov else None
     dx = c.get("principalDiagnosis") if c else None
+    other = c.get("otherDiagnoses") if c else None
     only = bool(ov and ov.principal_only)
-    if not dx and not only:
+    if not dx and not only and not other:
         return []
     for s in payload:
         if not s.startswith("HI*"):
@@ -192,7 +193,19 @@ def diagnosis_edits(profile, ov, payload, n):
             if dx:
                 parts[1] = dx
             comp = ":".join(parts)
-            new = X.ELEM.join(["HI", comp]) if only else set_elem(s, k, comp)
+            if other:
+                # Replace every ABF; seed SV107 pointers must still resolve.
+                top = max((int(p) for t in payload if t.startswith("SV1*")
+                           for p in X.elems(t)[SV_POINTER].split(":")),
+                          default=1)
+                if top > 1 + len(other):
+                    raise BuildError("claim %d: SV107 points at dx %d but "
+                                     "only %d codes declared"
+                                     % (n, top, 1 + len(other)))
+                new = X.ELEM.join(["HI", comp] + ["ABF:" + d for d in other])
+            else:
+                new = (X.ELEM.join(["HI", comp]) if only
+                       else set_elem(s, k, comp))
             return [] if new == s else [(s, 1, 1, new)]
     raise BuildError("claim %d: seed block has no ABK principal diagnosis" % n)
 

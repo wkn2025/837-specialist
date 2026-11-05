@@ -141,6 +141,7 @@ class TestClaimSelection(unittest.TestCase):
         o = overrides.parse({"claims": [{"n": 2}]}, I, claims=2)
         self.assertIsNone(o.claim(1))
         self.assertEqual(o.claim(2), {"principalDiagnosis": None,
+                                      "otherDiagnoses": None,
                                       "replaces": None, "lines": []})
 
 

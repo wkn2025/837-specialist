@@ -3000,6 +3000,184 @@
       "statement": "20240621-20240628",
       "timestamp": "2026-10-29T15:10:38",
       "type": "P"
+    },
+    {
+      "bht03": [
+        "015641322",
+        "015641323",
+        "015641324",
+        "015641325",
+        "015641326"
+      ],
+      "claims": 5,
+      "clm01": [
+        "WKN990000231001",
+        "WKN990000231002",
+        "WKN990000231003",
+        "WKN990000231004",
+        "WKN990000231005"
+      ],
+      "envelope_date": "20240703",
+      "envelope_time": "0930",
+      "gs06": "3434",
+      "isa13": "990000231",
+      "output": "EDI1/Batch 32/fromUHCG-837P-WKN_5claims_20261105100801.x12",
+      "overrides": {
+        "claims": [
+          {
+            "lines": [
+              {
+                "billed": "293.00",
+                "date": "20260130",
+                "savings": "14.71"
+              }
+            ],
+            "n": 1,
+            "otherDiagnoses": [
+              "E871",
+              "S065XAA",
+              "I10",
+              "R5383"
+            ],
+            "principalDiagnosis": "R42"
+          },
+          {
+            "lines": [
+              {
+                "billed": "295.00",
+                "date": "20260202",
+                "savings": "78.88"
+              },
+              {
+                "billed": "11.00",
+                "date": "20260202",
+                "savings": "4.91"
+              }
+            ],
+            "n": 2,
+            "otherDiagnoses": [
+              "R300",
+              "N390",
+              "R319",
+              "R509"
+            ],
+            "principalDiagnosis": "R10A0"
+          },
+          {
+            "lines": [
+              {
+                "billed": "250.00",
+                "date": "20260204",
+                "savings": "161.54"
+              }
+            ],
+            "n": 3,
+            "otherDiagnoses": [
+              "R6882",
+              "I83893",
+              "I10",
+              "E669"
+            ],
+            "principalDiagnosis": "E782"
+          },
+          {
+            "lines": [
+              {
+                "billed": "257.05",
+                "date": "20251230",
+                "savings": "110.63"
+              },
+              {
+                "billed": "217.00",
+                "date": "20251230",
+                "savings": "98.80"
+              }
+            ],
+            "n": 4,
+            "otherDiagnoses": [
+              "W19XXXA",
+              "S161XXA",
+              "R519",
+              "M5412"
+            ],
+            "principalDiagnosis": "S098XXA"
+          },
+          {
+            "lines": [
+              {
+                "billed": "184.03",
+                "date": "20251217",
+                "savings": "179.48"
+              }
+            ],
+            "n": 5,
+            "otherDiagnoses": [
+              "Z3A36",
+              "P0739",
+              "P599",
+              "P929"
+            ],
+            "principalDiagnosis": "P2989"
+          }
+        ],
+        "identity": {
+          "billingProvider": {
+            "name": "JFK JOHNSON REHAB INSTITUTE",
+            "npi": "1114932548"
+          },
+          "subscriber": {
+            "dob": "19941217",
+            "first": "WILLIAM",
+            "last": "NISHIMURA",
+            "memberId": "909001333969"
+          },
+          "taxId": "363738206"
+        }
+      },
+      "ref_9a": [
+        "15641322",
+        "15641323",
+        "15641324",
+        "15641325",
+        "15641326"
+      ],
+      "ref_f8": [
+        "99012156062",
+        "99012156063",
+        "99012156064",
+        "99012156065",
+        "99012156066"
+      ],
+      "seed": "EDI1/Sample 837P/ERCT_UHCG_P_20260212025521.x12",
+      "seed_sha256": "e42718b721e8ebad51a24e7ec62d8224a242c33c959d4d9a993f29580e22edfc",
+      "service_dates": [
+        "20240625",
+        "20240626",
+        "20240627",
+        "20240628",
+        "20240629",
+        "20240630",
+        "20240701",
+        "20240702"
+      ],
+      "sha256": "1bbbb02fa21b1b2ba841b2b4e05885133fb23a61874f7fa34b63a7ad31e0a828",
+      "source_blocks": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "st02": [
+        "015641322",
+        "015641323",
+        "015641324",
+        "015641325",
+        "015641326"
+      ],
+      "statement": "20240625-20240702",
+      "timestamp": "2026-11-05T10:08:01",
+      "type": "P"
     }
   ],
   "version": 1
