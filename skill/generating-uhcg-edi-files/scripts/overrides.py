@@ -328,12 +328,17 @@ def parse(doc, profile, claims):
                                     "of 1-11 codes" % n)
             other = [_text(c, "claim %d: otherDiagnoses" % n) for c in other]
 
+        dob = entry.get("dob")
+        if dob is not None:
+            dob = _date(dob, "claim %d: dob" % n)
+
         replaces = entry.get("replaces")
         if replaces is not None:
             replaces = _replaced_id(replaces, n)
 
         out[n] = {"principalDiagnosis": dx,
                   "otherDiagnoses": other,
+                  "dob": dob,
                   "replaces": replaces,
                   "lines": _parse_lines(entry, profile, n)}
 

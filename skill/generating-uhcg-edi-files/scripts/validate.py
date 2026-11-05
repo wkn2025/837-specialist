@@ -168,7 +168,8 @@ def declared_dobs(ov):
     if not ov:
         return []
     sub = (ov.identity or {}).get("subscriber") or {}
-    return [sub["dob"]] if "dob" in sub else []
+    return ([sub["dob"]] if "dob" in sub else []) + [
+        c["dob"] for c in ov._claims.values() if c.get("dob")]
 
 
 def restore_declared(profile, ov, expected_block, restored, n):
@@ -196,7 +197,7 @@ def restore_declared(profile, ov, expected_block, restored, n):
         if 0 <= idx < len(out) and out[idx] == generated_seg:
             out[idx] = seed_seg
     for literal, _must, _rep, replacement in (
-            G.identity_edits(profile, ov, expected_block)
+            G.identity_edits(profile, ov, expected_block, n)
             + G.diagnosis_edits(profile, ov, expected_block, n)):
         out = [literal if s == replacement else s for s in out]
     return out

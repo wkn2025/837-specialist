@@ -34,3 +34,21 @@ def test_refuses_bad_list(bad):
 def test_conflicts_with_principal_only():
     with pytest.raises(overrides.OverrideError):
         _ov(["E871"], principalDiagnosisOnly=True)
+
+
+def test_claim_dob_overrides_subscriber_dob_for_that_claim_only():
+    import seeds
+    profile = seeds.get("P")
+    doc = {"identity": {"subscriber": {"dob": "19941217"}},
+           "claims": [{"n": 2, "dob": "19941216"}]}
+    ov = overrides.parse(doc, profile, 2)
+    seg = ["DMG*D8*19381226*F"]
+    assert G.identity_edits(profile, ov, seg, 1) == [
+        (seg[0], 1, 1, "DMG*D8*19941217*F")]
+    assert G.identity_edits(profile, ov, seg, 2) == [
+        (seg[0], 1, 1, "DMG*D8*19941216*F")]
+
+
+def test_claim_dob_must_be_a_date():
+    with pytest.raises(overrides.OverrideError):
+        overrides.parse({"claims": [{"n": 1, "dob": "1994-12-16"}]}, None, 1)

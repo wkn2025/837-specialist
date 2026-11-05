@@ -129,7 +129,7 @@ IDENTITY_SEGMENTS = {
 DOB_SEGMENT = "DMG*D8*"
 
 
-def identity_edits(profile, ov, payload):
+def identity_edits(profile, ov, payload, n=None):
     """Element swaps for the identity segments this override declares.
 
     The whole seed segment is the literal, so a segment that has drifted from
@@ -137,7 +137,13 @@ def identity_edits(profile, ov, payload):
     to the value the seed already carries produces no edit at all - emitting
     one would put two tuples on the same literal and break that check.
     """
-    if not ov or not ov.identity:
+    c = ov.claim(n) if ov and n else None
+    identity = dict(ov.identity or {}) if ov else {}
+    if c and c.get("dob"):
+        # A claim-level dob overrides the subscriber's for that claim only.
+        identity["subscriber"] = dict(identity.get("subscriber") or {},
+                                      dob=c["dob"])
+    if not identity:
         return []
 
     ed = []
@@ -158,9 +164,9 @@ def identity_edits(profile, ov, payload):
             ed.append((src, 1, 1, out))
 
     for group, prefix in IDENTITY_SEGMENTS.items():
-        if group not in ov.identity:
+        if group not in identity:
             continue
-        value = ov.identity[group]
+        value = identity[group]
         if group in overrides.SCALAR_IDENTITY:
             swap(prefix, {group: value})
             continue
@@ -770,7 +776,7 @@ def build(seed_segs, profile, alloc, claims, ov=None, source_blocks=None):
         payload = splice_cob(profile, ov, payload, n)
         edits = (edits_for(profile, alloc, n, claim_total(ov, n), source)
                  + _date_edits(payload, profile, alloc, ov)
-                 + identity_edits(profile, ov, payload)
+                 + identity_edits(profile, ov, payload, n)
                  + diagnosis_edits(profile, ov, payload, n))
         out = apply_edits(payload, edits, str(n))
         # Positional edits are computed against the spliced block and applied
