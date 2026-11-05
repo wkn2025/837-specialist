@@ -1,0 +1,114 @@
+{
+  "claims": [
+    {
+      "lines": [
+        {
+          "billed": "293.00",
+          "date": "20260130",
+          "savings": "14.71"
+        }
+      ],
+      "n": 1,
+      "otherDiagnoses": [
+        "E871",
+        "S065XAA",
+        "I10",
+        "R5383"
+      ],
+      "principalDiagnosis": "R42"
+    },
+    {
+      "lines": [
+        {
+          "billed": "295.00",
+          "date": "20260202",
+          "savings": "78.88"
+        },
+        {
+          "billed": "11.00",
+          "date": "20260202",
+          "savings": "4.91"
+        }
+      ],
+      "n": 2,
+      "otherDiagnoses": [
+        "F329",
+        "F17210",
+        "F5101",
+        "F909"
+      ],
+      "principalDiagnosis": "F411"
+    },
+    {
+      "lines": [
+        {
+          "billed": "250.00",
+          "date": "20260204",
+          "savings": "161.54"
+        }
+      ],
+      "n": 3,
+      "otherDiagnoses": [
+        "Z1322",
+        "Z8249",
+        "Z6830",
+        "Z7189"
+      ],
+      "principalDiagnosis": "Z0000"
+    },
+    {
+      "lines": [
+        {
+          "billed": "257.05",
+          "date": "20251230",
+          "savings": "110.63"
+        },
+        {
+          "billed": "217.00",
+          "date": "20251230",
+          "savings": "98.80"
+        }
+      ],
+      "n": 4,
+      "otherDiagnoses": [
+        "U072",
+        "G4452",
+        "G4486",
+        "G4489"
+      ],
+      "principalDiagnosis": "G430"
+    },
+    {
+      "dob": "19941216",
+      "lines": [
+        {
+          "billed": "184.03",
+          "date": "20251217",
+          "savings": "179.48"
+        }
+      ],
+      "n": 5,
+      "otherDiagnoses": [
+        "T7840XA",
+        "T50905A",
+        "T368X5A",
+        "T7849XA"
+      ],
+      "principalDiagnosis": "T781XXA"
+    }
+  ],
+  "identity": {
+    "billingProvider": {
+      "name": "JFK JOHNSON REHAB INSTITUTE",
+      "npi": "1114932548"
+    },
+    "subscriber": {
+      "dob": "19941217",
+      "first": "WILLIAM",
+      "last": "NISHIMURA",
+      "memberId": "909001333969"
+    },
+    "taxId": "363738206"
+  },
+  "serviceDate": "20240703"
+}

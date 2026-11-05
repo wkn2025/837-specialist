@@ -52,3 +52,17 @@ def test_claim_dob_overrides_subscriber_dob_for_that_claim_only():
 def test_claim_dob_must_be_a_date():
     with pytest.raises(overrides.OverrideError):
         overrides.parse({"claims": [{"n": 1, "dob": "1994-12-16"}]}, None, 1)
+
+
+def test_service_date_without_single_date_shifts_whole_window():
+    import masterfile as M
+    ov = overrides.parse({"serviceDate": "20240703"}, None, 1)
+    alloc = M.Allocation(isa13="1", gs06="1", envelope_date="20240720",
+                         envelope_time="0930", window_start="20240711",
+                         window_end="20240718", statement="20240711-20240718",
+                         service_dates=["2024071%d" % i for i in range(1, 9)],
+                         st02=[], bht03=[], clm01=[], ref_f8=[], ref_9a=[])
+    G.apply_service_date_override(alloc, ov)
+    assert alloc.service_dates[0] == "20240703"
+    assert alloc.service_dates[-1] == "20240710"
+    assert alloc.statement == "20240703-20240710"

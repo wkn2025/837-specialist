@@ -348,10 +348,9 @@ def parse(doc, profile, claims):
 
     service_date = doc.get("serviceDate")
     if service_date is not None:
+        # Window start. With singleServiceDate every line lands on it;
+        # without, the seed's day offsets are kept (a same-DOS rework).
         service_date = _date(service_date, "serviceDate")
-        if not single_date:
-            raise OverrideError(
-                "serviceDate requires singleServiceDate to be true")
 
     principal_only = doc.get("principalDiagnosisOnly", False)
     if not isinstance(principal_only, bool):
