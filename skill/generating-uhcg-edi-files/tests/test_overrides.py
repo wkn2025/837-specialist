@@ -142,6 +142,7 @@ class TestClaimSelection(unittest.TestCase):
         self.assertIsNone(o.claim(1))
         self.assertEqual(o.claim(2), {"principalDiagnosis": None,
                                       "otherDiagnoses": None, "dob": None,
+                                      "secondaryDiagnoses": None,
                                       "replaces": None, "lines": []})
 
 
@@ -291,6 +292,16 @@ class TestSeedDefaultsRoundTrip(unittest.TestCase):
                 total = sum(l["billed"] for l in o.claim(i + 1)["lines"])
                 self.assertEqual(total, D(X.elems(src)[2]),
                                  "%s claim %d" % (profile.code, i + 1))
+
+
+class TestDiagnosisKeysExclusive(unittest.TestCase):
+    """otherDiagnoses and secondaryDiagnoses both replace the ABFs."""
+
+    def test_both_on_one_claim_is_refused(self):
+        doc = {"claims": [{"n": 1, "otherDiagnoses": ["L500"],
+                           "secondaryDiagnoses": ["L500"]}]}
+        with self.assertRaisesRegex(overrides.OverrideError, "declare one"):
+            overrides.parse(doc, P, claims=1)
 
 
 if __name__ == "__main__":

@@ -25,7 +25,7 @@ FORBIDDEN = {"clm01", "st02", "bht03", "isa13", "gs06", "reff8", "ref9a"}
 # generator knows how to apply, so admitting it would let the UI display an
 # edit that silently never reaches the file.
 IDENTITY_FIELDS = {
-    "subscriber": ("last", "first", "memberId", "dob"),
+    "subscriber": ("last", "first", "memberId", "dob", "gender"),
     "billingProvider": ("name", "npi"),
     "attendingProvider": ("last", "first", "npi"),
 }
@@ -39,6 +39,10 @@ _PIPE = "|"
 
 _AMOUNT = re.compile(r"^[0-9]+(\.[0-9]+)?$")
 _DATE = re.compile(r"^[0-9]{8}$")
+
+# HI02..HI12 carry the ABF secondaries (837P companion guide, 2300 HI), and
+# "Do not transmit the decimal point for ICD codes" (same row).
+SECONDARY_DX_MAX = 11
 
 # REF02 under qualifier 9F is AN 1-50 in both companion guides (loop 2300,
 # "Original UHAP Claim ID, When REF01 = 9F").
@@ -146,6 +150,18 @@ class Overrides:
                 and not self.seed_ref_order and not self.service_date)
 
 
+# DMG03 Gender Code: "F, M, U" (837P companion guide 2010BA DMG03; the 837I
+# guide carries the same code list).
+GENDERS = ("F", "M", "U")
+
+
+def _gender(raw, where):
+    if raw not in GENDERS:
+        raise OverrideError("%s %r is not one of %s"
+                            % (where, raw, ", ".join(GENDERS)))
+    return raw
+
+
 def _parse_identity(raw):
     if not isinstance(raw, dict):
         raise OverrideError("identity must be a JSON object")
@@ -167,8 +183,12 @@ def _parse_identity(raw):
             if field not in IDENTITY_FIELDS[key]:
                 raise OverrideError("unknown %s field %r" % (key, field))
             where = "%s %s" % (key, field)
-            group[field] = (_date(fv, where) if field == "dob"
-                            else _text(fv, where))
+            if field == "dob":
+                group[field] = _date(fv, where)
+            elif field == "gender":
+                group[field] = _gender(fv, where)
+            else:
+                group[field] = _text(fv, where)
         if group:
             out[key] = group
     return out
@@ -188,6 +208,25 @@ def _replaced_id(raw, n):
             "claim %d: replaces is %d characters; REF*9F REF02 is AN 1-50"
             % (n, len(value)))
     return value
+
+
+def _secondaries(raw, n):
+    """The ABF codes that replace the seed block's secondaries, in order."""
+    if not isinstance(raw, list) or not raw:
+        raise OverrideError("claim %d: secondaryDiagnoses must be a non-empty "
+                            "list" % n)
+    if len(raw) > SECONDARY_DX_MAX:
+        raise OverrideError("claim %d: HI carries at most %d secondaries"
+                            % (n, SECONDARY_DX_MAX))
+    out = []
+    for code in raw:
+        code = _text(code, "claim %d: secondaryDiagnoses" % n)
+        if "." in code:
+            raise OverrideError("claim %d: diagnosis %r carries a decimal "
+                                "point; ICD codes are sent without it"
+                                % (n, code))
+        out.append(code)
+    return out
 
 
 def _parse_lines(entry, profile, n):
@@ -328,6 +367,14 @@ def parse(doc, profile, claims):
                                     "of 1-11 codes" % n)
             other = [_text(c, "claim %d: otherDiagnoses" % n) for c in other]
 
+        secondary = entry.get("secondaryDiagnoses")
+        if secondary is not None:
+            secondary = _secondaries(secondary, n)
+        if other is not None and secondary is not None:
+            raise OverrideError("claim %d: otherDiagnoses and "
+                                "secondaryDiagnoses both replace the ABFs; "
+                                "declare one" % n)
+
         dob = entry.get("dob")
         if dob is not None:
             dob = _date(dob, "claim %d: dob" % n)
@@ -338,6 +385,7 @@ def parse(doc, profile, claims):
 
         out[n] = {"principalDiagnosis": dx,
                   "otherDiagnoses": other,
+                  "secondaryDiagnoses": secondary,
                   "dob": dob,
                   "replaces": replaces,
                   "lines": _parse_lines(entry, profile, n)}
@@ -359,6 +407,9 @@ def parse(doc, profile, claims):
     if principal_only and any(c["otherDiagnoses"] for c in out.values()):
         raise OverrideError(
             "otherDiagnoses conflicts with principalDiagnosisOnly")
+    if principal_only and any(c["secondaryDiagnoses"] for c in out.values()):
+        raise OverrideError("principalDiagnosisOnly drops every ABF; it "
+                            "cannot be combined with secondaryDiagnoses")
 
     seed_ref_order = doc.get("seedReplacementOrder", False)
     if not isinstance(seed_ref_order, bool):

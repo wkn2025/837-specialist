@@ -193,8 +193,9 @@ class TestTheRegistryAgreesWithTheDocument(unittest.TestCase):
         for group, fields in overrides.IDENTITY_FIELDS.items():
             prefix = G.IDENTITY_SEGMENTS[group]
             for f in fields:
-                if f == "dob":
-                    continue          # dob lives in DMG, not the NM1
+                if f in G.DMG_FIELDS:
+                    self.assertIn(f, I.override_addrs[G.DOB_SEGMENT])
+                    continue          # dob/gender live in DMG, not the NM1
                 self.assertIn(f, I.override_addrs[prefix],
                               "%s.%s" % (group, f))
 
@@ -229,3 +230,12 @@ class TestEditShape(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_gender_override_parses_and_is_checked():
+    import pytest
+    import overrides as O
+    ov = O.parse({"identity": {"subscriber": {"gender": "M"}}}, None, 1)
+    assert ov.identity["subscriber"]["gender"] == "M"
+    with pytest.raises(O.OverrideError):
+        O.parse({"identity": {"subscriber": {"gender": "X"}}}, None, 1)

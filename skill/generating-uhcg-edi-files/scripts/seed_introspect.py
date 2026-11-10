@@ -57,7 +57,7 @@ def _identity(block):
     ref = _find(block, "REF*EI*")
     out = {
         "subscriber": {"last": il[3], "first": il[4], "memberId": il[9],
-                       "dob": dmg[2]},
+                       "dob": dmg[2], "gender": dmg[3]},
         "billingProvider": {"name": bp[3], "npi": bp[9]},
         "taxId": X.elems(ref)[2] if ref else None,
     }
