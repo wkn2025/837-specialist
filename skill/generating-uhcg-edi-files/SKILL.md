@@ -13,8 +13,9 @@ Ask both. Never guess either, never proceed on a default.
 2. **How many claims?** (1-999 - the companion guide's max ST-SE per file)
 
 Then state the output path and confirm before writing:
-`<repo>/EDI1/Batch <n>/fromUHCG-837{P|I}-WKN_<N>claims.x12`, where `<n>` is
-the lowest unused batch number.
+`<repo>/EDI1/Batch <n>/fromUHCG-837{P|I}-WKN_<N>claims_<YYYYMMDDHHMMSS>.x12`,
+where `<n>` is one above the highest batch number on disk *or* named by any
+masterfile run. A removed batch keeps its number - never fill a gap.
 
 ## Run it
 
@@ -49,7 +50,7 @@ named.
 
 | key | what it moves |
 |---|---|
-| `identity.subscriber` | `last`, `first`, `memberId`, `dob` (NM1\*IL and DMG) |
+| `identity.subscriber` | `last`, `first`, `memberId`, `dob`, `gender` (`F`/`M`/`U`, DMG03) (NM1\*IL and DMG) |
 | `identity.billingProvider` | `name`, `npi` (NM1\*85) |
 | `identity.attendingProvider` | `last`, `first`, `npi` (NM1\*71) |
 | `identity.taxId` | REF\*EI |

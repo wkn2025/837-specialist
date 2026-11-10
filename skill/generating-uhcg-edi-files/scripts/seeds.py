@@ -60,7 +60,7 @@ class SeedProfile:
             "NM1*IL*": {"last": 3, "first": 4, "memberId": 9},
             "NM1*85*": {"name": 3, "npi": 9},
             "NM1*71*": {"last": 3, "first": 4, "npi": 9},
-            "DMG*D8*": {"dob": 2},
+            "DMG*D8*": {"dob": 2, "gender": 3},
             "REF*EI*": {"taxId": 2},
         })
 

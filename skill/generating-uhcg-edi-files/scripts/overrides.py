@@ -25,7 +25,7 @@ FORBIDDEN = {"clm01", "st02", "bht03", "isa13", "gs06", "reff8", "ref9a"}
 # generator knows how to apply, so admitting it would let the UI display an
 # edit that silently never reaches the file.
 IDENTITY_FIELDS = {
-    "subscriber": ("last", "first", "memberId", "dob"),
+    "subscriber": ("last", "first", "memberId", "dob", "gender"),
     "billingProvider": ("name", "npi"),
     "attendingProvider": ("last", "first", "npi"),
 }
@@ -142,6 +142,18 @@ class Overrides:
                 and not self.single_date and not self.principal_only)
 
 
+# DMG03 Gender Code: "F, M, U" (837P companion guide 2010BA DMG03; the 837I
+# guide carries the same code list).
+GENDERS = ("F", "M", "U")
+
+
+def _gender(raw, where):
+    if raw not in GENDERS:
+        raise OverrideError("%s %r is not one of %s"
+                            % (where, raw, ", ".join(GENDERS)))
+    return raw
+
+
 def _parse_identity(raw):
     if not isinstance(raw, dict):
         raise OverrideError("identity must be a JSON object")
@@ -163,8 +175,12 @@ def _parse_identity(raw):
             if field not in IDENTITY_FIELDS[key]:
                 raise OverrideError("unknown %s field %r" % (key, field))
             where = "%s %s" % (key, field)
-            group[field] = (_date(fv, where) if field == "dob"
-                            else _text(fv, where))
+            if field == "dob":
+                group[field] = _date(fv, where)
+            elif field == "gender":
+                group[field] = _gender(fv, where)
+            else:
+                group[field] = _text(fv, where)
         if group:
             out[key] = group
     return out

@@ -126,6 +126,8 @@ IDENTITY_SEGMENTS = {
 # Date of birth is a subscriber field in the document but lives in its own
 # segment, not in the subscriber NM1.
 DOB_SEGMENT = "DMG*D8*"
+# Subscriber fields that live in DMG rather than NM1*IL (DMG02, DMG03).
+DMG_FIELDS = ("dob", "gender")
 
 
 def identity_edits(profile, ov, payload):
@@ -163,9 +165,9 @@ def identity_edits(profile, ov, payload):
         if group in overrides.SCALAR_IDENTITY:
             swap(prefix, {group: value})
             continue
-        swap(prefix, {k: v for k, v in value.items() if k != "dob"})
-        if "dob" in value:
-            swap(DOB_SEGMENT, {"dob": value["dob"]})
+        swap(prefix, {k: v for k, v in value.items()
+                      if k not in DMG_FIELDS})
+        swap(DOB_SEGMENT, {k: v for k, v in value.items() if k in DMG_FIELDS})
     return ed
 
 
@@ -739,6 +741,7 @@ def render(segs):
 # CLI
 # --------------------------------------------------------------------------
 import argparse
+import datetime
 import hashlib
 import io
 import json
@@ -746,6 +749,7 @@ import os
 import shutil
 import subprocess
 import sys
+import re
 import tempfile
 
 import masterfile as M
@@ -767,12 +771,41 @@ def _alloc_from_manifest(man):
         ref_9a=list(man["ref_9a"]))
 
 
-def _default_output(repo, code, claims):
-    n = 1
-    while os.path.isdir(os.path.join(repo, "EDI1", "Batch %d" % n)):
-        n += 1
+_BATCH_DIR = re.compile(r"(?i)\bBatch (\d+)\b")
+
+
+def _used_batch_numbers(repo):
+    """Every batch number on disk or named by a recorded masterfile run.
+
+    A batch whose folder was later removed still owns its number: its
+    identifiers are recorded against that path, so reusing the folder would
+    put two different files under one batch name.
+    """
+    used = set()
+    edi1 = os.path.join(repo, "EDI1")
+    if os.path.isdir(edi1):
+        for name in os.listdir(edi1):
+            m = _BATCH_DIR.fullmatch(name)
+            if m and os.path.isdir(os.path.join(edi1, name)):
+                used.add(int(m.group(1)))
+    try:
+        runs = M.load(repo).get("runs", [])
+    except Exception:
+        runs = []
+    for run in runs:
+        m = _BATCH_DIR.search(str(run.get("output", "")))
+        if m:
+            used.add(int(m.group(1)))
+    return used
+
+
+def _default_output(repo, code, claims, stamp=None):
+    """The next batch in order: one above the highest batch ever used."""
+    n = max(_used_batch_numbers(repo), default=0) + 1
+    stamp = stamp or datetime.datetime.now().strftime("%Y%m%d%H%M%S")
     return os.path.join(repo, "EDI1", "Batch %d" % n,
-                        "fromUHCG-837%s-WKN_%dclaims.x12" % (code, claims))
+                        "fromUHCG-837%s-WKN_%dclaims_%s.x12"
+                        % (code, claims, stamp))
 
 
 def _read_override_doc(source):
