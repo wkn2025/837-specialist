@@ -16,6 +16,7 @@ import fsp from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { randomUUID } from 'node:crypto';
 import { edi2Router, type Edi2Options } from './edi2.ts';
 
 const run = promisify(execFile);
@@ -178,7 +179,11 @@ export function createApp(opts: Options = {}) {
             || Array.isArray(document))) {
       return res.status(400).json({ error: 'document must be an object' });
     }
-    const tmp = path.join(os.tmpdir(), `ov-${Date.now()}-${process.pid}.json`);
+    // A unique per-request temp file: two POSTs landing in the same
+    // millisecond must not share one override path, or one document would
+    // silently replace the other before its python process reads it.
+    const tmp = path.join(os.tmpdir(),
+      `ov-${process.pid}-${randomUUID()}.json`);
     await fsp.writeFile(tmp, JSON.stringify(document ?? {}), 'utf8');
     try {
       const { stdout } = await py(['--type', type, '--claims', String(claims),
