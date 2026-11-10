@@ -1,0 +1,55 @@
+{
+  "bht03": ["015641321"],
+  "claims": 1,
+  "clm01": ["WKN990000230001"],
+  "envelope_date": "20240702",
+  "envelope_time": "0930",
+  "gs06": "3433",
+  "isa13": "990000230",
+  "output": "EDI1/Batch 31/fromUHCG-837P-WKN_1claims.x12",
+  "overrides": {
+    "identity": {
+      "subscriber": {
+        "last": "NISHIMURA",
+        "first": "WILLIAM",
+        "memberId": "909001333969",
+        "dob": "19941217"
+      },
+      "billingProvider": {
+        "name": "JFK JOHNSON REHAB INSTITUTE",
+        "npi": "1114932548"
+      },
+      "taxId": "363738206"
+    },
+    "claims": [
+      {
+        "n": 1,
+        "principalDiagnosis": "R42",
+        "lines": [
+          {
+            "date": "20260130",
+            "billed": "293.00",
+            "savings": "14.71"
+          }
+        ],
+        "replaces": "15641320"
+      }
+    ],
+    "singleServiceDate": true,
+    "serviceDate": "20240621"
+  },
+  "ref_9a": ["15641321"],
+  "ref_f8": ["99012156061"],
+  "seed": "EDI1/Sample 837P/ERCT_UHCG_P_20260212025521.x12",
+  "seed_sha256": "e42718b721e8ebad51a24e7ec62d8224a242c33c959d4d9a993f29580e22edfc",
+  "service_dates": [
+    "20240621", "20240622", "20240623", "20240624",
+    "20240625", "20240626", "20240627", "20240628"
+  ],
+  "sha256": "ee6b38f9a8e483702db170d736b5fee45adc6b914b031b70227f8495f3439774",
+  "source_blocks": [1],
+  "st02": ["015641321"],
+  "statement": "20240621-20240628",
+  "timestamp": "2026-10-29T15:10:38",
+  "type": "P"
+}
