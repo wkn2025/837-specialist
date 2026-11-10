@@ -26,11 +26,11 @@ REPO = os.environ.get("EDI_REPO", r"C:\Users\wkn\837-specialist")
 GEN = os.path.join(SCRIPTS, "generate.py")
 
 
-def _spawn(repo, out):
+def _spawn(repo, out=None):
     """One full generation as its own OS process against an isolated repo."""
     return subprocess.Popen(
         [sys.executable, GEN, "--repo", repo, "--type", "I",
-         "--claims", "3", "--output", out, "--json"],
+         "--claims", "3", "--json"] + (["--output", out] if out else []),
         stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
 
@@ -67,6 +67,22 @@ class TestConcurrentGeneration(unittest.TestCase):
         recorded = [r.get("output") for r in mf["runs"]]
         for payload in payloads:
             self.assertIn(payload["x12"].replace("\\", "/"), recorded)
+
+    def test_default_outputs_are_chosen_under_the_lock(self):
+        # Without --output both processes used to pick "one above the highest
+        # batch" and a second-resolution stamp before taking the lock, so
+        # they named the same file and the second publish overwrote the
+        # first. The path is now chosen inside the lock.
+        procs = [_spawn(self.tmp) for _ in range(2)]
+        paths = []
+        for proc in procs:
+            stdout, stderr = proc.communicate(timeout=120)
+            self.assertEqual(proc.returncode, 0,
+                             stderr.decode("utf-8", "replace"))
+            paths.append(json.loads(stdout.decode("utf-8"))["x12"])
+        self.assertNotEqual(paths[0], paths[1])
+        for p in paths:
+            self.assertTrue(os.path.exists(os.path.join(self.tmp, p)), p)
 
 
 if __name__ == "__main__":

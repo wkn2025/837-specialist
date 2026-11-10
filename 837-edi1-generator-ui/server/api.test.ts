@@ -375,3 +375,46 @@ describe('read-only EDI2 uploads', () => {
     }
   });
 });
+
+describe('POST /api/generate concurrency', () => {
+  // Regression for the temp override-file race: the old name was
+  // ov-${Date.now()}-${pid}.json, so two POSTs landing in the same
+  // millisecond shared one path and the second document silently replaced
+  // the first before its python process read it. Each request now writes a
+  // UUID-suffixed file, so each batch must carry its own identity field.
+  it('keeps concurrent requests from sharing one override document',
+    async () => {
+      const tmp = tempRepo();
+      const scoped = createApp({ repo: tmp });
+      try {
+        const docs = [
+          { identity: { subscriber: { last: 'AAA-docA' } } },
+          { identity: { subscriber: { last: 'BBB-docB' } } },
+        ];
+        const responses = await Promise.all(docs.map((document) =>
+          request(scoped).post('/api/generate')
+            .send({ type: 'I', claims: 1, document })));
+        for (const res of responses) {
+          expect(res.status, JSON.stringify(res.body)).toBe(200);
+        }
+        const bodies = responses.map((r) => r.body as { x12: string });
+        // Distinct output paths prove the two publishes did not collide;
+        // each file then carries its own document's identity field.
+        expect(fs.readFileSync(path.join(tmp, bodies[0].x12), 'ascii'))
+          .toContain('AAA-docA');
+        expect(fs.readFileSync(path.join(tmp, bodies[1].x12), 'ascii'))
+          .toContain('BBB-docB');
+        // and neither run disappears from the masterfile
+        const mf = JSON.parse(fs.readFileSync(
+          path.join(tmp, 'EDI1/masterfile.json'), 'utf8')) as {
+            runs: { output?: string }[];
+          };
+        const outputs = mf.runs.map((r) => r.output);
+        for (const b of bodies) {
+          expect(outputs).toContain(b.x12.replace(/\\/g, '/'));
+        }
+      } finally {
+        fs.rmSync(tmp, { recursive: true, force: true });
+      }
+    }, 120_000);
+});
