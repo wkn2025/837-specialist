@@ -170,16 +170,18 @@ def identity_edits(profile, ov, payload):
 
 
 def diagnosis_edits(profile, ov, payload, n):
-    """Replace the ABK principal-diagnosis code, leaving ABF alone.
+    """Replace the ABK principal-diagnosis code and, when declared, the ABFs.
 
     ABK may be the first composite of its own HI segment (837I) or share one
     with the ABF secondaries (837P), so every composite is considered - the
-    same scan seed_introspect uses to read the default back out.
+    same scan seed_introspect uses to read the default back out. Declared
+    secondaryDiagnoses replace every ABF composite of that HI, in order.
     """
     c = ov.claim(n) if ov else None
     dx = c.get("principalDiagnosis") if c else None
+    secondary = c.get("secondaryDiagnoses") if c else None
     only = bool(ov and ov.principal_only)
-    if not dx and not only:
+    if not dx and not only and not secondary:
         return []
     for s in payload:
         if not s.startswith("HI*"):
@@ -191,21 +193,46 @@ def diagnosis_edits(profile, ov, payload, n):
             if dx:
                 parts[1] = dx
             comp = ":".join(parts)
-            new = X.ELEM.join(["HI", comp]) if only else set_elem(s, k, comp)
+            if only:
+                new = X.ELEM.join(["HI", comp])
+            elif secondary:
+                new = X.ELEM.join(["HI", comp]
+                                  + ["ABF" + X.COMP + code
+                                     for code in secondary])
+            else:
+                new = set_elem(s, k, comp)
             return [] if new == s else [(s, 1, 1, new)]
     raise BuildError("claim %d: seed block has no ABK principal diagnosis" % n)
 
 
 # SV107 is the diagnosis-code pointer of 837P's SV1 (2400 SV1, "Composite
-# Diagnosis Code Pointer"); with only the ABK left, every line points at 1.
+# Diagnosis Code Pointer"): SV107-1..SV107-4, values 1-12, each naming an HI
+# composite. With only the ABK left every line points at 1; with declared
+# secondaries a line points at the ABK and then at each ABF, up to four.
 SV_POINTER = 7
+SV_POINTER_MAX = 4
 
 
-def trim_pointers(profile, ov, segs):
-    """Point every SV1 at the principal diagnosis when HI keeps only that."""
-    if not (ov and ov.principal_only) or profile.line_id != "SV1":
+def pointer_for(ov, n):
+    """The SV107 value every SV1 of claim n carries, or None to keep the seed's."""
+    if not ov:
+        return None
+    if ov.principal_only:
+        return "1"
+    c = ov.claim(n)
+    secondary = c.get("secondaryDiagnoses") if c else None
+    if not secondary:
+        return None
+    count = min(1 + len(secondary), SV_POINTER_MAX)
+    return X.COMP.join(str(i) for i in range(1, count + 1))
+
+
+def trim_pointers(profile, ov, segs, n):
+    """Point every SV1 at the diagnoses the claim's HI actually carries."""
+    ptr = pointer_for(ov, n)
+    if ptr is None or profile.line_id != "SV1":
         return segs
-    return [set_elem(s, SV_POINTER, "1") if s.startswith("SV1*") else s
+    return [set_elem(s, SV_POINTER, ptr) if s.startswith("SV1*") else s
             for s in segs]
 
 
@@ -695,7 +722,7 @@ def build(seed_segs, profile, alloc, claims, ov=None):
         # so the expected-literal check below would catch any overlap.
         out = apply_positional_edits(out, money_edits(profile, ov, payload, n),
                                      str(n))
-        out = trim_pointers(profile, ov, out)
+        out = trim_pointers(profile, ov, out, n)
         body.extend(renumber_se(out, str(n)))
 
     return ([isa, gs] + body

@@ -40,6 +40,10 @@ _PIPE = "|"
 _AMOUNT = re.compile(r"^[0-9]+(\.[0-9]+)?$")
 _DATE = re.compile(r"^[0-9]{8}$")
 
+# HI02..HI12 carry the ABF secondaries (837P companion guide, 2300 HI), and
+# "Do not transmit the decimal point for ICD codes" (same row).
+SECONDARY_DX_MAX = 11
+
 # REF02 under qualifier 9F is AN 1-50 in both companion guides (loop 2300,
 # "Original UHAP Claim ID, When REF01 = 9F").
 REPLACED_ID_MAX = 50
@@ -182,6 +186,25 @@ def _replaced_id(raw, n):
     return value
 
 
+def _secondaries(raw, n):
+    """The ABF codes that replace the seed block's secondaries, in order."""
+    if not isinstance(raw, list) or not raw:
+        raise OverrideError("claim %d: secondaryDiagnoses must be a non-empty "
+                            "list" % n)
+    if len(raw) > SECONDARY_DX_MAX:
+        raise OverrideError("claim %d: HI carries at most %d secondaries"
+                            % (n, SECONDARY_DX_MAX))
+    out = []
+    for code in raw:
+        code = _text(code, "claim %d: secondaryDiagnoses" % n)
+        if "." in code:
+            raise OverrideError("claim %d: diagnosis %r carries a decimal "
+                                "point; ICD codes are sent without it"
+                                % (n, code))
+        out.append(code)
+    return out
+
+
 def _parse_lines(entry, profile, n):
     lines = []
     for line in entry.get("lines") or []:
@@ -312,11 +335,16 @@ def parse(doc, profile, claims):
         if dx is not None:
             dx = _text(dx, "claim %d: principalDiagnosis" % n)
 
+        secondary = entry.get("secondaryDiagnoses")
+        if secondary is not None:
+            secondary = _secondaries(secondary, n)
+
         replaces = entry.get("replaces")
         if replaces is not None:
             replaces = _replaced_id(replaces, n)
 
         out[n] = {"principalDiagnosis": dx,
+                  "secondaryDiagnoses": secondary,
                   "replaces": replaces,
                   "lines": _parse_lines(entry, profile, n)}
 
@@ -327,5 +355,9 @@ def parse(doc, profile, claims):
     principal_only = doc.get("principalDiagnosisOnly", False)
     if not isinstance(principal_only, bool):
         raise OverrideError("principalDiagnosisOnly must be true or false")
+
+    if principal_only and any(c["secondaryDiagnoses"] for c in out.values()):
+        raise OverrideError("principalDiagnosisOnly drops every ABF; it "
+                            "cannot be combined with secondaryDiagnoses")
 
     return Overrides(identity, out, single_date, principal_only)

@@ -54,6 +54,7 @@ named.
 | `identity.attendingProvider` | `last`, `first`, `npi` (NM1\*71) |
 | `identity.taxId` | REF\*EI |
 | `claims[].principalDiagnosis` | the ABK composite |
+| `claims[].secondaryDiagnoses` | list of ABF codes (1-11, no decimal point) replacing the block's ABFs; SV107 re-points to `1:2..` (max 4) |
 | `claims[].lines` | `date`, `billed`, `savings` - splices LX loops and rewrites both HCP levels |
 | `claims[].replaces` | void-and-replace, below |
 
