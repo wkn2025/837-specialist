@@ -1,0 +1,15 @@
+Cross-batch identifier uniqueness: EDI1/Batch 35/fromUHCG-837P-WKN_1claims_20261110193847.x12
+Searched every .x12 under EDI1/ (excluding this file) plus web Batch 27/28 from git.
+
+\*990000234\*  other-files=0  web=0
+IEA\*1\*990000234  other-files=0  web=0
+\*3437\*X  other-files=0  web=0
+GE\*1\*3437  other-files=0  web=0
+ST\*837\*015641337  other-files=0  web=0
+BHT\*0019\*00\*015641337  other-files=0  web=0
+WKN990000234001  other-files=0  web=0
+REF\*9A\*15641337  other-files=0  web=0
+REF\*F8\*99012156077  other-files=0  web=0
+
+Masterfile (37 prior runs): max ISA13 990000233, max GS06 3436, latest envelope_date 20240718
+This run: ISA13 990000234, GS06 3437, envelope_date 20240719 - all above every prior run.
