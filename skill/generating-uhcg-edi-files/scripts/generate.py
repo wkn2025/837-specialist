@@ -1055,22 +1055,22 @@ def main(argv=None):
         sys.stderr.write("%s\n" % exc)
         return 2
 
-    outp = os.path.abspath(args.output or _default_output(repo, profile.code,
-                                                          claims))
-    manp = outp[:-4] + ".manifest.json" if outp.endswith(".x12") \
-        else outp + ".manifest.json"
-    if os.path.exists(outp) and not args.force:
-        sys.stderr.write("%s exists; pass --force to overwrite\n" % outp)
-        return 1
-
-    # The whole irreversible sequence - read allocator state, allocate,
-    # render, validate, publish the files, append the run - happens under
-    # the repository's generation lock. Two processes must never read the
-    # same allocator state (duplicate identifiers) or interleave their
-    # publishes and appends (one run lost from the masterfile). A pinned
-    # replay allocates nothing, but shares the publish path, so it holds
-    # the same lock.
+    # The whole irreversible sequence - choose the output path, read
+    # allocator state, allocate, render, validate, publish the files, append
+    # the run - happens under the repository's generation lock. Two processes
+    # must never read the same allocator state (duplicate identifiers), pick
+    # the same default batch path (one file overwrites the other) or
+    # interleave their publishes and appends (one run lost from the
+    # masterfile). A pinned replay allocates nothing, but shares the publish
+    # path, so it holds the same lock.
     with M.generation_lock(repo):
+      outp = os.path.abspath(args.output or _default_output(
+          repo, profile.code, claims))
+      manp = outp[:-4] + ".manifest.json" if outp.endswith(".x12") \
+          else outp + ".manifest.json"
+      if os.path.exists(outp) and not args.force:
+          sys.stderr.write("%s exists; pass --force to overwrite\n" % outp)
+          return 1
       try:
         seed_segs = seeds.load_seed(profile, repo)
         if pinned:
