@@ -58,6 +58,7 @@ named.
 | `claims[].secondaryDiagnoses` | list of ABF codes (1-11, no decimal point) replacing the block's ABFs; SV107 re-points to `1:2..` (max 4) |
 | `claims[].lines` | `date`, `billed`, `savings` - splices LX loops and rewrites both HCP levels |
 | `claims[].replaces` | void-and-replace, below |
+| `serviceDate` | exact CCYYMMDD used by every service line when `singleServiceDate` is true |
 
 Identity is **per file, not per claim**: the 837P seed carries eight different
 billing providers, so declaring one rewrites it in every claim.
@@ -89,6 +90,11 @@ Two things differ from an ordinary claim:
   original's is taken from the masterfile run that issued it - runs record
   `ref_9a` and `ref_f8` index-aligned, so the UHAP names the CCN. Check 16
   proves the file carries it; check 7 exempts that one deliberate repeat.
+- **Payload lineage.** A replacement follows the original claim's seed block,
+  even when the replacement file contains only one claim. For example, a
+  one-claim rework of claim 5 uses seed block 5 rather than cycling back to
+  block 1. The manifest records this as `source_blocks`, so pinned replay and
+  validator checks 9, 10, 12, and 14 use the same original payload shape.
 
 Cited: `UHCG_837{I,P}_Companion_Guide_FULL.csv` loop 2300 (`9F` = "To identify
 voided and replacement claims", REF02 = "Original UHAP Claim ID", AN 1-50;

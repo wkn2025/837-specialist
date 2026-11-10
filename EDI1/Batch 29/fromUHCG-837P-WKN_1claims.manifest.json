@@ -1,55 +1,54 @@
 {
   "bht03": [
-    "015641318"
+    "015641319"
   ],
   "claims": 1,
   "clm01": [
-    "WKN990000227001"
+    "WKN990000228001"
   ],
-  "envelope_date": "20240616",
+  "envelope_date": "20240624",
   "envelope_time": "0930",
-  "gs06": "3430",
-  "isa13": "990000227",
-  "output": "EDI1/Batch 27/fromUHCG-837P-WKN_1claims_20261110142000.x12",
+  "gs06": "3431",
+  "isa13": "990000228",
+  "output": "EDI1/Batch 29/fromUHCG-837P-WKN_1claims.x12",
   "overrides": {
     "claims": [
       {
         "lines": [
           {
-            "billed": "293.00",
-            "date": "20260130",
-            "savings": "14.71"
+            "billed": "184.03",
+            "date": "20251217",
+            "savings": "179.03"
           }
         ],
         "n": 1,
-        "principalDiagnosis": "K381",
-        "secondaryDiagnoses": [
-          "L500",
-          "S065XAA"
-        ]
+        "principalDiagnosis": "R461",
+        "replaces": "15641316"
       }
     ],
     "identity": {
       "billingProvider": {
-        "name": "ENDEAVOR HEALTH MEDICAL GROUP",
-        "npi": "1497701882"
+        "name": "JFK JOHNSON REHAB INSTITUTE",
+        "npi": "1114932548"
       },
       "subscriber": {
         "dob": "19941217",
         "first": "WILLIAM",
-        "gender": "M",
         "last": "NISHIMURA",
         "memberId": "909001333969"
       },
       "taxId": "363738206"
     },
+    "principalDiagnosisOnly": true,
+    "seedReplacementOrder": true,
+    "serviceDate": "20240609",
     "singleServiceDate": true
   },
   "ref_9a": [
-    "15641318"
+    "15641319"
   ],
   "ref_f8": [
-    "99012156062"
+    "99012156060"
   ],
   "seed": "EDI1/Sample 837P/ERCT_UHCG_P_20260212025521.x12",
   "seed_sha256": "e42718b721e8ebad51a24e7ec62d8224a242c33c959d4d9a993f29580e22edfc",
@@ -63,11 +62,14 @@
     "20240615",
     "20240616"
   ],
-  "sha256": "94549c9a36d47feba23ad7b2140a5f45719c2b755981a5045ef5ef408c239264",
+  "sha256": "464a52c4ed09bf9e6c9592b9c0064c53a1dcd11c20b1628d7327837732479590",
+  "source_blocks": [
+    5
+  ],
   "st02": [
-    "015641318"
+    "015641319"
   ],
   "statement": "20240609-20240616",
-  "timestamp": "2026-11-10T14:20:00",
+  "timestamp": "2026-10-29T11:44:22",
   "type": "P"
 }

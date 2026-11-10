@@ -1,0 +1,7 @@
+﻿PASS REF*EI*363738206 is present in both batches
+PASS prior REF*EI value is absent
+PASS William identity and provider overrides remain unchanged
+PASS Batch 31 still replaces UHAP 15641320
+PASS inherited CCN 99012156061 and fresh UHAP 15641321
+PASS DOS remains 20240621
+PASS distinct timestamped X12 filenames remain unchanged

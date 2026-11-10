@@ -126,20 +126,28 @@ def derived_allowed(billed):
 
 class Overrides:
     def __init__(self, identity, claims, single_date=False,
-                 principal_only=False):
+                 principal_only=False, seed_ref_order=False,
+                 service_date=None):
         self.identity = identity
         self._claims = claims
         # HI carries only the ABK principal; SV107 points at it alone.
         self.principal_only = principal_only
+        # A replacement's REF run keeps the seed's own order (9A, 9F, F8)
+        # instead of the guide's (9F, F8, 9A).
+        self.seed_ref_order = seed_ref_order
         # Every service line lands on the first day of the allocated window.
         self.single_date = single_date
+        # An explicit rework date may reuse the original service window while
+        # envelope and claim identifiers remain newly allocated.
+        self.service_date = service_date
 
     def claim(self, n):
         return self._claims.get(n)
 
     def is_empty(self):
         return (not self.identity and not self._claims
-                and not self.single_date and not self.principal_only)
+                and not self.single_date and not self.principal_only
+                and not self.seed_ref_order and not self.service_date)
 
 
 # DMG03 Gender Code: "F, M, U" (837P companion guide 2010BA DMG03; the 837I
@@ -351,16 +359,34 @@ def parse(doc, profile, claims):
         if dx is not None:
             dx = _text(dx, "claim %d: principalDiagnosis" % n)
 
+        other = entry.get("otherDiagnoses")
+        if other is not None:
+            # 837P guide: HI01 ABK + HI02-HI12 ABF, so at most 11 others.
+            if not isinstance(other, list) or not 1 <= len(other) <= 11:
+                raise OverrideError("claim %d: otherDiagnoses must be a list "
+                                    "of 1-11 codes" % n)
+            other = [_text(c, "claim %d: otherDiagnoses" % n) for c in other]
+
         secondary = entry.get("secondaryDiagnoses")
         if secondary is not None:
             secondary = _secondaries(secondary, n)
+        if other is not None and secondary is not None:
+            raise OverrideError("claim %d: otherDiagnoses and "
+                                "secondaryDiagnoses both replace the ABFs; "
+                                "declare one" % n)
+
+        dob = entry.get("dob")
+        if dob is not None:
+            dob = _date(dob, "claim %d: dob" % n)
 
         replaces = entry.get("replaces")
         if replaces is not None:
             replaces = _replaced_id(replaces, n)
 
         out[n] = {"principalDiagnosis": dx,
+                  "otherDiagnoses": other,
                   "secondaryDiagnoses": secondary,
+                  "dob": dob,
                   "replaces": replaces,
                   "lines": _parse_lines(entry, profile, n)}
 
@@ -368,12 +394,26 @@ def parse(doc, profile, claims):
     if not isinstance(single_date, bool):
         raise OverrideError("singleServiceDate must be true or false")
 
+    service_date = doc.get("serviceDate")
+    if service_date is not None:
+        # Window start. With singleServiceDate every line lands on it;
+        # without, the seed's day offsets are kept (a same-DOS rework).
+        service_date = _date(service_date, "serviceDate")
+
     principal_only = doc.get("principalDiagnosisOnly", False)
     if not isinstance(principal_only, bool):
         raise OverrideError("principalDiagnosisOnly must be true or false")
 
+    if principal_only and any(c["otherDiagnoses"] for c in out.values()):
+        raise OverrideError(
+            "otherDiagnoses conflicts with principalDiagnosisOnly")
     if principal_only and any(c["secondaryDiagnoses"] for c in out.values()):
         raise OverrideError("principalDiagnosisOnly drops every ABF; it "
                             "cannot be combined with secondaryDiagnoses")
 
-    return Overrides(identity, out, single_date, principal_only)
+    seed_ref_order = doc.get("seedReplacementOrder", False)
+    if not isinstance(seed_ref_order, bool):
+        raise OverrideError("seedReplacementOrder must be true or false")
+
+    return Overrides(identity, out, single_date, principal_only,
+                     seed_ref_order, service_date)

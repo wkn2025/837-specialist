@@ -2654,7 +2654,7 @@
       "envelope_time": "0930",
       "gs06": "3429",
       "isa13": "990000226",
-      "output": "EDI1/Batch 9/fromUHCG-837P-WKN_1claims.x12",
+      "output": "edi1/Batch 27/fromUHCG-837P-WKN_1claims_20261027152159.x12",
       "overrides": {
         "claims": [
           {
@@ -2662,14 +2662,12 @@
               {
                 "billed": "293.00",
                 "date": "20260130",
-                "savings": "14.71"
+                "savings": "30.00"
               }
             ],
             "n": 1,
-            "principalDiagnosis": "K219",
-            "secondaryDiagnoses": [
-              "K5900"
-            ]
+            "principalDiagnosis": "R461",
+            "replaces": "15641312"
           }
         ],
         "identity": {
@@ -2685,13 +2683,14 @@
           },
           "taxId": "363738206"
         },
+        "principalDiagnosisOnly": true,
         "singleServiceDate": true
       },
       "ref_9a": [
         "15641317"
       ],
       "ref_f8": [
-        "99012156061"
+        "99012156056"
       ],
       "seed": "EDI1/Sample 837P/ERCT_UHCG_P_20260212025521.x12",
       "seed_sha256": "e42718b721e8ebad51a24e7ec62d8224a242c33c959d4d9a993f29580e22edfc",
@@ -2705,12 +2704,12 @@
         "20240607",
         "20240608"
       ],
-      "sha256": "73100797ea146bf9828c6156694f597127631114f8e29ec626f012d9302f0f9f",
+      "sha256": "2a8ab9d7049dac615f8d1f4c1c5b5beaacd75fd954a5382d4ce5f7759830323b",
       "st02": [
         "015641317"
       ],
       "statement": "20240601-20240608",
-      "timestamp": "2026-11-10T12:33:57",
+      "timestamp": "2026-10-27T15:22:00",
       "type": "P"
     },
     {
@@ -2725,7 +2724,833 @@
       "envelope_time": "0930",
       "gs06": "3430",
       "isa13": "990000227",
-      "output": "EDI1/Batch 27/fromUHCG-837P-WKN_1claims_20261110142000.x12",
+      "output": "edi1/Batch 28/fromUHCG-837P-WKN_1claims_20261027153441.x12",
+      "overrides": {
+        "claims": [
+          {
+            "lines": [
+              {
+                "billed": "293.00",
+                "date": "20260130",
+                "savings": "30.00"
+              }
+            ],
+            "n": 1,
+            "principalDiagnosis": "R461",
+            "replaces": "15641312"
+          }
+        ],
+        "identity": {
+          "billingProvider": {
+            "name": "JFK JOHNSON REHAB INSTITUTE",
+            "npi": "1114932548"
+          },
+          "subscriber": {
+            "dob": "19941217",
+            "first": "WILLIAM",
+            "last": "NISHIMURA",
+            "memberId": "909001333969"
+          },
+          "taxId": "363738206"
+        },
+        "principalDiagnosisOnly": true,
+        "seedReplacementOrder": true,
+        "singleServiceDate": true
+      },
+      "ref_9a": [
+        "15641318"
+      ],
+      "ref_f8": [
+        "99012156056"
+      ],
+      "seed": "EDI1/Sample 837P/ERCT_UHCG_P_20260212025521.x12",
+      "seed_sha256": "e42718b721e8ebad51a24e7ec62d8224a242c33c959d4d9a993f29580e22edfc",
+      "service_dates": [
+        "20240609",
+        "20240610",
+        "20240611",
+        "20240612",
+        "20240613",
+        "20240614",
+        "20240615",
+        "20240616"
+      ],
+      "sha256": "bee784ea97031fee503027c0b53a8a18dcf6f65c1bb0c660248816d66fd19e4c",
+      "st02": [
+        "015641318"
+      ],
+      "statement": "20240609-20240616",
+      "timestamp": "2026-10-27T15:34:41",
+      "type": "P"
+    },
+    {
+      "bht03": [
+        "015641319"
+      ],
+      "claims": 1,
+      "clm01": [
+        "WKN990000228001"
+      ],
+      "envelope_date": "20240624",
+      "envelope_time": "0930",
+      "gs06": "3431",
+      "isa13": "990000228",
+      "output": "EDI1/Batch 29/fromUHCG-837P-WKN_1claims.x12",
+      "overrides": {
+        "claims": [
+          {
+            "lines": [
+              {
+                "billed": "184.03",
+                "date": "20251217",
+                "savings": "179.03"
+              }
+            ],
+            "n": 1,
+            "principalDiagnosis": "R461",
+            "replaces": "15641316"
+          }
+        ],
+        "identity": {
+          "billingProvider": {
+            "name": "JFK JOHNSON REHAB INSTITUTE",
+            "npi": "1114932548"
+          },
+          "subscriber": {
+            "dob": "19941217",
+            "first": "WILLIAM",
+            "last": "NISHIMURA",
+            "memberId": "909001333969"
+          },
+          "taxId": "363738206"
+        },
+        "principalDiagnosisOnly": true,
+        "seedReplacementOrder": true,
+        "serviceDate": "20240609",
+        "singleServiceDate": true
+      },
+      "ref_9a": [
+        "15641319"
+      ],
+      "ref_f8": [
+        "99012156060"
+      ],
+      "seed": "EDI1/Sample 837P/ERCT_UHCG_P_20260212025521.x12",
+      "seed_sha256": "e42718b721e8ebad51a24e7ec62d8224a242c33c959d4d9a993f29580e22edfc",
+      "service_dates": [
+        "20240609",
+        "20240610",
+        "20240611",
+        "20240612",
+        "20240613",
+        "20240614",
+        "20240615",
+        "20240616"
+      ],
+      "sha256": "464a52c4ed09bf9e6c9592b9c0064c53a1dcd11c20b1628d7327837732479590",
+      "source_blocks": [
+        5
+      ],
+      "st02": [
+        "015641319"
+      ],
+      "statement": "20240609-20240616",
+      "timestamp": "2026-10-29T11:44:22",
+      "type": "P"
+    },
+    {
+      "bht03": [
+        "015641320"
+      ],
+      "claims": 1,
+      "clm01": [
+        "WKN990000229001"
+      ],
+      "envelope_date": "20240625",
+      "envelope_time": "0930",
+      "gs06": "3432",
+      "isa13": "990000229",
+      "output": "EDI1/Batch 30/fromUHCG-837P-WKN_1claims_20261029151131.x12",
+      "overrides": {
+        "claims": [
+          {
+            "lines": [
+              {
+                "billed": "293.00",
+                "date": "20260130",
+                "savings": "14.71"
+              }
+            ],
+            "n": 1,
+            "principalDiagnosis": "R42"
+          }
+        ],
+        "identity": {
+          "billingProvider": {
+            "name": "JFK JOHNSON REHAB INSTITUTE",
+            "npi": "1114932548"
+          },
+          "subscriber": {
+            "dob": "19941217",
+            "first": "WILLIAM",
+            "last": "NISHIMURA",
+            "memberId": "909001333969"
+          },
+          "taxId": "363738206"
+        }
+      },
+      "ref_9a": [
+        "15641320"
+      ],
+      "ref_f8": [
+        "99012156061"
+      ],
+      "seed": "EDI1/Sample 837P/ERCT_UHCG_P_20260212025521.x12",
+      "seed_sha256": "e42718b721e8ebad51a24e7ec62d8224a242c33c959d4d9a993f29580e22edfc",
+      "service_dates": [
+        "20240617",
+        "20240618",
+        "20240619",
+        "20240620",
+        "20240621",
+        "20240622",
+        "20240623",
+        "20240624"
+      ],
+      "sha256": "1737debe13caafaa334e9c943ac905316a40d2295bdb4829f639e7d686d401cf",
+      "source_blocks": [
+        1
+      ],
+      "st02": [
+        "015641320"
+      ],
+      "statement": "20240617-20240624",
+      "timestamp": "2026-10-29T15:10:37",
+      "type": "P"
+    },
+    {
+      "bht03": [
+        "015641321"
+      ],
+      "claims": 1,
+      "clm01": [
+        "WKN990000230001"
+      ],
+      "envelope_date": "20240702",
+      "envelope_time": "0930",
+      "gs06": "3433",
+      "isa13": "990000230",
+      "output": "EDI1/Batch 31/fromUHCG-837P-WKN_1claims_20261029151132.x12",
+      "overrides": {
+        "claims": [
+          {
+            "lines": [
+              {
+                "billed": "293.00",
+                "date": "20260130",
+                "savings": "14.71"
+              }
+            ],
+            "n": 1,
+            "principalDiagnosis": "R42",
+            "replaces": "15641320"
+          }
+        ],
+        "identity": {
+          "billingProvider": {
+            "name": "JFK JOHNSON REHAB INSTITUTE",
+            "npi": "1114932548"
+          },
+          "subscriber": {
+            "dob": "19941217",
+            "first": "WILLIAM",
+            "last": "NISHIMURA",
+            "memberId": "909001333969"
+          },
+          "taxId": "363738206"
+        },
+        "serviceDate": "20240621",
+        "singleServiceDate": true
+      },
+      "ref_9a": [
+        "15641321"
+      ],
+      "ref_f8": [
+        "99012156061"
+      ],
+      "seed": "EDI1/Sample 837P/ERCT_UHCG_P_20260212025521.x12",
+      "seed_sha256": "e42718b721e8ebad51a24e7ec62d8224a242c33c959d4d9a993f29580e22edfc",
+      "service_dates": [
+        "20240621",
+        "20240622",
+        "20240623",
+        "20240624",
+        "20240625",
+        "20240626",
+        "20240627",
+        "20240628"
+      ],
+      "sha256": "2a1954d9472cbe0f29e3b4c02c5c7adb9221882c36885c681a77fac45448f814",
+      "source_blocks": [
+        1
+      ],
+      "st02": [
+        "015641321"
+      ],
+      "statement": "20240621-20240628",
+      "timestamp": "2026-10-29T15:10:38",
+      "type": "P"
+    },
+    {
+      "bht03": [
+        "015641322",
+        "015641323",
+        "015641324",
+        "015641325",
+        "015641326"
+      ],
+      "claims": 5,
+      "clm01": [
+        "WKN990000231001",
+        "WKN990000231002",
+        "WKN990000231003",
+        "WKN990000231004",
+        "WKN990000231005"
+      ],
+      "envelope_date": "20240703",
+      "envelope_time": "0930",
+      "gs06": "3434",
+      "isa13": "990000231",
+      "output": "EDI1/Batch 32/fromUHCG-837P-WKN_5claims_20261105100801.x12",
+      "overrides": {
+        "claims": [
+          {
+            "lines": [
+              {
+                "billed": "293.00",
+                "date": "20260130",
+                "savings": "14.71"
+              }
+            ],
+            "n": 1,
+            "otherDiagnoses": [
+              "E871",
+              "S065XAA",
+              "I10",
+              "R5383"
+            ],
+            "principalDiagnosis": "R42"
+          },
+          {
+            "lines": [
+              {
+                "billed": "295.00",
+                "date": "20260202",
+                "savings": "78.88"
+              },
+              {
+                "billed": "11.00",
+                "date": "20260202",
+                "savings": "4.91"
+              }
+            ],
+            "n": 2,
+            "otherDiagnoses": [
+              "R300",
+              "N390",
+              "R319",
+              "R509"
+            ],
+            "principalDiagnosis": "R10A0"
+          },
+          {
+            "lines": [
+              {
+                "billed": "250.00",
+                "date": "20260204",
+                "savings": "161.54"
+              }
+            ],
+            "n": 3,
+            "otherDiagnoses": [
+              "R6882",
+              "I83893",
+              "I10",
+              "E669"
+            ],
+            "principalDiagnosis": "E782"
+          },
+          {
+            "lines": [
+              {
+                "billed": "257.05",
+                "date": "20251230",
+                "savings": "110.63"
+              },
+              {
+                "billed": "217.00",
+                "date": "20251230",
+                "savings": "98.80"
+              }
+            ],
+            "n": 4,
+            "otherDiagnoses": [
+              "W19XXXA",
+              "S161XXA",
+              "R519",
+              "M5412"
+            ],
+            "principalDiagnosis": "S098XXA"
+          },
+          {
+            "lines": [
+              {
+                "billed": "184.03",
+                "date": "20251217",
+                "savings": "179.48"
+              }
+            ],
+            "n": 5,
+            "otherDiagnoses": [
+              "Z3A36",
+              "P0739",
+              "P599",
+              "P929"
+            ],
+            "principalDiagnosis": "P2989"
+          }
+        ],
+        "identity": {
+          "billingProvider": {
+            "name": "JFK JOHNSON REHAB INSTITUTE",
+            "npi": "1114932548"
+          },
+          "subscriber": {
+            "dob": "19941217",
+            "first": "WILLIAM",
+            "last": "NISHIMURA",
+            "memberId": "909001333969"
+          },
+          "taxId": "363738206"
+        }
+      },
+      "ref_9a": [
+        "15641322",
+        "15641323",
+        "15641324",
+        "15641325",
+        "15641326"
+      ],
+      "ref_f8": [
+        "99012156062",
+        "99012156063",
+        "99012156064",
+        "99012156065",
+        "99012156066"
+      ],
+      "seed": "EDI1/Sample 837P/ERCT_UHCG_P_20260212025521.x12",
+      "seed_sha256": "e42718b721e8ebad51a24e7ec62d8224a242c33c959d4d9a993f29580e22edfc",
+      "service_dates": [
+        "20240625",
+        "20240626",
+        "20240627",
+        "20240628",
+        "20240629",
+        "20240630",
+        "20240701",
+        "20240702"
+      ],
+      "sha256": "1bbbb02fa21b1b2ba841b2b4e05885133fb23a61874f7fa34b63a7ad31e0a828",
+      "source_blocks": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "st02": [
+        "015641322",
+        "015641323",
+        "015641324",
+        "015641325",
+        "015641326"
+      ],
+      "statement": "20240625-20240702",
+      "timestamp": "2026-11-05T10:08:01",
+      "type": "P"
+    },
+    {
+      "bht03": [
+        "015641327",
+        "015641328",
+        "015641329",
+        "015641330",
+        "015641331"
+      ],
+      "claims": 5,
+      "clm01": [
+        "WKN990000232001",
+        "WKN990000232002",
+        "WKN990000232003",
+        "WKN990000232004",
+        "WKN990000232005"
+      ],
+      "envelope_date": "20240710",
+      "envelope_time": "0930",
+      "gs06": "3435",
+      "isa13": "990000232",
+      "output": "EDI1/Batch 33/fromUHCG-837P-WKN_5claims_20261105105531.x12",
+      "overrides": {
+        "claims": [
+          {
+            "lines": [
+              {
+                "billed": "293.00",
+                "date": "20260130",
+                "savings": "14.71"
+              }
+            ],
+            "n": 1,
+            "otherDiagnoses": [
+              "E871",
+              "S065XAA",
+              "I10",
+              "R5383"
+            ],
+            "principalDiagnosis": "R42"
+          },
+          {
+            "lines": [
+              {
+                "billed": "295.00",
+                "date": "20260202",
+                "savings": "78.88"
+              },
+              {
+                "billed": "11.00",
+                "date": "20260202",
+                "savings": "4.91"
+              }
+            ],
+            "n": 2,
+            "otherDiagnoses": [
+              "F329",
+              "F17210",
+              "F5101",
+              "F909"
+            ],
+            "principalDiagnosis": "F411"
+          },
+          {
+            "lines": [
+              {
+                "billed": "250.00",
+                "date": "20260204",
+                "savings": "161.54"
+              }
+            ],
+            "n": 3,
+            "otherDiagnoses": [
+              "Z1322",
+              "Z8249",
+              "Z6830",
+              "Z7189"
+            ],
+            "principalDiagnosis": "Z0000"
+          },
+          {
+            "lines": [
+              {
+                "billed": "257.05",
+                "date": "20251230",
+                "savings": "110.63"
+              },
+              {
+                "billed": "217.00",
+                "date": "20251230",
+                "savings": "98.80"
+              }
+            ],
+            "n": 4,
+            "otherDiagnoses": [
+              "U072",
+              "G4452",
+              "G4486",
+              "G4489"
+            ],
+            "principalDiagnosis": "G430"
+          },
+          {
+            "dob": "19941216",
+            "lines": [
+              {
+                "billed": "184.03",
+                "date": "20251217",
+                "savings": "179.48"
+              }
+            ],
+            "n": 5,
+            "otherDiagnoses": [
+              "T7840XA",
+              "T50905A",
+              "T368X5A",
+              "T7849XA"
+            ],
+            "principalDiagnosis": "T781XXA"
+          }
+        ],
+        "identity": {
+          "billingProvider": {
+            "name": "JFK JOHNSON REHAB INSTITUTE",
+            "npi": "1114932548"
+          },
+          "subscriber": {
+            "dob": "19941217",
+            "first": "WILLIAM",
+            "last": "NISHIMURA",
+            "memberId": "909001333969"
+          },
+          "taxId": "363738206"
+        }
+      },
+      "ref_9a": [
+        "15641327",
+        "15641328",
+        "15641329",
+        "15641330",
+        "15641331"
+      ],
+      "ref_f8": [
+        "99012156067",
+        "99012156068",
+        "99012156069",
+        "99012156070",
+        "99012156071"
+      ],
+      "seed": "EDI1/Sample 837P/ERCT_UHCG_P_20260212025521.x12",
+      "seed_sha256": "e42718b721e8ebad51a24e7ec62d8224a242c33c959d4d9a993f29580e22edfc",
+      "service_dates": [
+        "20240703",
+        "20240704",
+        "20240705",
+        "20240706",
+        "20240707",
+        "20240708",
+        "20240709",
+        "20240710"
+      ],
+      "sha256": "7695df5349012994330f661d5eeaf3c0c234d1fd8efca17c34db6f5a667d1c54",
+      "source_blocks": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "st02": [
+        "015641327",
+        "015641328",
+        "015641329",
+        "015641330",
+        "015641331"
+      ],
+      "statement": "20240703-20240710",
+      "timestamp": "2026-11-05T10:55:31",
+      "type": "P"
+    },
+    {
+      "bht03": [
+        "015641332",
+        "015641333",
+        "015641334",
+        "015641335",
+        "015641336"
+      ],
+      "claims": 5,
+      "clm01": [
+        "WKN990000233001",
+        "WKN990000233002",
+        "WKN990000233003",
+        "WKN990000233004",
+        "WKN990000233005"
+      ],
+      "envelope_date": "20240718",
+      "envelope_time": "0930",
+      "gs06": "3436",
+      "isa13": "990000233",
+      "output": "EDI1/Batch 34/fromUHCG-837P-WKN_5claims_20261105134410.x12",
+      "overrides": {
+        "claims": [
+          {
+            "lines": [
+              {
+                "billed": "293.00",
+                "date": "20260130",
+                "savings": "14.71"
+              }
+            ],
+            "n": 1,
+            "otherDiagnoses": [
+              "E871",
+              "S065XAA",
+              "I10",
+              "R5383"
+            ],
+            "principalDiagnosis": "R42"
+          },
+          {
+            "lines": [
+              {
+                "billed": "295.00",
+                "date": "20260202",
+                "savings": "78.88"
+              },
+              {
+                "billed": "11.00",
+                "date": "20260202",
+                "savings": "4.91"
+              }
+            ],
+            "n": 2,
+            "otherDiagnoses": [
+              "F329",
+              "F17210",
+              "F5101",
+              "F909"
+            ],
+            "principalDiagnosis": "F411"
+          },
+          {
+            "lines": [
+              {
+                "billed": "250.00",
+                "date": "20260204",
+                "savings": "161.54"
+              }
+            ],
+            "n": 3,
+            "otherDiagnoses": [
+              "Z1322",
+              "Z8249",
+              "Z6830",
+              "Z7189"
+            ],
+            "principalDiagnosis": "Z0000"
+          },
+          {
+            "lines": [
+              {
+                "billed": "257.05",
+                "date": "20251230",
+                "savings": "110.63"
+              },
+              {
+                "billed": "217.00",
+                "date": "20251230",
+                "savings": "98.80"
+              }
+            ],
+            "n": 4,
+            "otherDiagnoses": [
+              "U072",
+              "G4452",
+              "G4486",
+              "G4489"
+            ],
+            "principalDiagnosis": "G430"
+          },
+          {
+            "dob": "19941216",
+            "lines": [
+              {
+                "billed": "184.03",
+                "date": "20251217",
+                "savings": "179.48"
+              }
+            ],
+            "n": 5,
+            "otherDiagnoses": [
+              "T7840XA",
+              "T50905A",
+              "T368X5A",
+              "T7849XA"
+            ],
+            "principalDiagnosis": "T781XXA"
+          }
+        ],
+        "identity": {
+          "billingProvider": {
+            "name": "JFK JOHNSON REHAB INSTITUTE",
+            "npi": "1114932548"
+          },
+          "subscriber": {
+            "dob": "19941217",
+            "first": "WILLIAM",
+            "last": "NISHIMURA",
+            "memberId": "909001333969"
+          },
+          "taxId": "363738206"
+        },
+        "serviceDate": "20240703"
+      },
+      "ref_9a": [
+        "15641332",
+        "15641333",
+        "15641334",
+        "15641335",
+        "15641336"
+      ],
+      "ref_f8": [
+        "99012156072",
+        "99012156073",
+        "99012156074",
+        "99012156075",
+        "99012156076"
+      ],
+      "seed": "EDI1/Sample 837P/ERCT_UHCG_P_20260212025521.x12",
+      "seed_sha256": "e42718b721e8ebad51a24e7ec62d8224a242c33c959d4d9a993f29580e22edfc",
+      "service_dates": [
+        "20240703",
+        "20240704",
+        "20240705",
+        "20240706",
+        "20240707",
+        "20240708",
+        "20240709",
+        "20240710"
+      ],
+      "sha256": "f62aafb2ea34ee7dbe9c5d4eb3008e68c31698c80c6ef22e47999f84ad1490a5",
+      "source_blocks": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "st02": [
+        "015641332",
+        "015641333",
+        "015641334",
+        "015641335",
+        "015641336"
+      ],
+      "statement": "20240703-20240710",
+      "timestamp": "2026-11-05T13:44:10",
+      "type": "P"
+    },
+    {
+      "bht03": [
+        "015641337"
+      ],
+      "claims": 1,
+      "clm01": [
+        "WKN990000234001"
+      ],
+      "envelope_date": "20240719",
+      "envelope_time": "0930",
+      "gs06": "3437",
+      "isa13": "990000234",
+      "output": "EDI1/Batch 35/fromUHCG-837P-WKN_1claims_20261110193847.x12",
       "overrides": {
         "claims": [
           {
@@ -2761,29 +3586,32 @@
         "singleServiceDate": true
       },
       "ref_9a": [
-        "15641318"
+        "15641337"
       ],
       "ref_f8": [
-        "99012156062"
+        "99012156077"
       ],
       "seed": "EDI1/Sample 837P/ERCT_UHCG_P_20260212025521.x12",
       "seed_sha256": "e42718b721e8ebad51a24e7ec62d8224a242c33c959d4d9a993f29580e22edfc",
       "service_dates": [
-        "20240609",
-        "20240610",
-        "20240611",
-        "20240612",
-        "20240613",
-        "20240614",
-        "20240615",
-        "20240616"
+        "20240711",
+        "20240712",
+        "20240713",
+        "20240714",
+        "20240715",
+        "20240716",
+        "20240717",
+        "20240718"
       ],
-      "sha256": "94549c9a36d47feba23ad7b2140a5f45719c2b755981a5045ef5ef408c239264",
+      "sha256": "1c0ae59627a2a75788f26a094e30f036b61ce88400948b0ce4e0670389f8595c",
+      "source_blocks": [
+        1
+      ],
       "st02": [
-        "015641318"
+        "015641337"
       ],
-      "statement": "20240609-20240616",
-      "timestamp": "2026-11-10T14:20:00",
+      "statement": "20240711-20240718",
+      "timestamp": "2026-11-10T19:38:48",
       "type": "P"
     }
   ],

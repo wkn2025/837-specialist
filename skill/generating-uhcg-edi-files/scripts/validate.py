@@ -105,6 +105,14 @@ def declared_overrides(profile, man, claims):
         return None
 
 
+def manifest_source_index(profile, man, n):
+    """1-based seed block declared for claim n, or the normal cycle."""
+    blocks = (man or {}).get("source_blocks") or []
+    if n <= len(blocks):
+        return blocks[n - 1]
+    return G.source_index(n, profile)
+
+
 def declared_blocks(profile, man, seed_blocks, claims):
     """The seed block each output claim must match, after declared splices.
 
@@ -118,7 +126,7 @@ def declared_blocks(profile, man, seed_blocks, claims):
     ov = declared_overrides(profile, man, claims)
     out = []
     for n in range(1, claims + 1):
-        block = seed_blocks[G.source_index(n, profile) - 1]
+        block = seed_blocks[manifest_source_index(profile, man, n) - 1]
         if ov:
             block = G.splice_lines(profile, ov, block, n)
             block = G.splice_replacement(profile, ov, block, n)
@@ -160,7 +168,8 @@ def declared_dobs(ov):
     if not ov:
         return []
     sub = (ov.identity or {}).get("subscriber") or {}
-    return [sub["dob"]] if "dob" in sub else []
+    return ([sub["dob"]] if "dob" in sub else []) + [
+        c["dob"] for c in ov._claims.values() if c.get("dob")]
 
 
 def restore_declared(profile, ov, expected_block, restored, n):
@@ -190,7 +199,7 @@ def restore_declared(profile, ov, expected_block, restored, n):
         if 0 <= idx < len(out) and out[idx] == generated_seg:
             out[idx] = seed_seg
     for literal, _must, _rep, replacement in (
-            G.identity_edits(profile, ov, expected_block)
+            G.identity_edits(profile, ov, expected_block, n)
             + G.diagnosis_edits(profile, ov, expected_block, n)):
         out = [literal if s == replacement else s for s in out]
     return out
@@ -203,7 +212,7 @@ def reverse_pairs(profile, man, n, ov=None, block_len=None):
     the declared amounts, and SE01 counts the declared block, which a
     declared splice makes longer or shorter than the seed's.
     """
-    i = G.source_index(n, profile) - 1
+    i = manifest_source_index(profile, man, n) - 1
     src_clm = profile.src_clm[i]
     clm02 = G.claim_total(ov, n) if ov else None
     se_len = profile.block_lens[i] if block_len is None else block_len
@@ -574,6 +583,33 @@ def main():
             if ccn in f8:
                 mine["ref_f8"].discard(ccn)
 
+    # The same exemption must work in the other direction.  Once a later run
+    # replaces a claim in the FILE, validating the original sees the later
+    # run's inherited CCN as an apparent collision.  Exempt it only when that
+    # recorded run explicitly names one of this file's UHAP IDs as its
+    # original and carries the same CCN at the corresponding claim position.
+    current_ccns = {}
+    for block in blocks:
+        uhap = [X.elems(seg)[2] for seg in block
+                if seg.startswith("REF*9A*")]
+        f8 = [X.elems(seg)[2] for seg in block
+              if seg.startswith("REF*F8*")]
+        if len(uhap) == len(f8) == 1:
+            current_ccns[uhap[0]] = f8[0]
+    for run in mf["runs"]:
+        if run.get("type") != man.get("type"):
+            continue
+        run_claims = run.get("claims")
+        if not isinstance(run_claims, int) or run_claims < 1:
+            continue
+        run_declared = declared_overrides(profile, run, run_claims)
+        for n, original in declared_replacements(run_declared,
+                                                  run_claims).items():
+            ccn = current_ccns.get(original)
+            run_f8 = run.get("ref_f8") or []
+            if ccn and n <= len(run_f8) and run_f8[n - 1] == ccn:
+                mine["ref_f8"].discard(ccn)
+
     clashes = {k: sorted(mine[k] & others[k]) for k in M.KEYS
                if mine[k] & others[k]}
     check(7, "no identifier collides with another .x12 on disk or a prior "
@@ -652,7 +688,8 @@ def main():
             ok = False
             diff = [(a, c) for a, c in zip(restored, expected) if a != c]
             detail.append("claim %d differs from seed block %d: %s"
-                          % (n, G.source_index(n, profile), diff[:2]))
+                          % (n, manifest_source_index(profile, man, n),
+                             diff[:2]))
     check(9, "every payload segment is byte-identical to its seed block once "
              "the declared edits are reversed", ok, "; ".join(detail) or "ok")
 
@@ -671,7 +708,8 @@ def main():
     # 12 - frozen identity, as declared
     ok, missing = True, []
     for i, b in enumerate(blocks):
-        seed_block = seed_blocks[G.source_index(i + 1, profile) - 1]
+        seed_block = seed_blocks[
+            manifest_source_index(profile, man, i + 1) - 1]
         for seg in expected_identity(profile, declared, seed_block):
             if seg not in b:
                 ok = False

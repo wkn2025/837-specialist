@@ -9,6 +9,7 @@ unchanged, which _assert_seed_fidelity checks before any edit is applied.
 """
 from __future__ import annotations
 
+import datetime
 from decimal import Decimal
 
 import claim_summary
@@ -35,14 +36,14 @@ def set_elem(seg, idx, val):
     return X.ELEM.join(e)
 
 
-def edits_for(profile, alloc, n, clm02=None):
+def edits_for(profile, alloc, n, clm02=None, source_block=None):
     """[(literal, must_occur, replace_n, replacement), ...] for claim n.
 
     CLM01 and CLM02 live in one segment, so a claim whose amounts are
     overridden folds its new CLM02 into this single edit. Two tuples naming
     the same CLM literal would fail the exact-count check in apply_edits.
     """
-    i = source_index(n, profile) - 1
+    i = (source_block or source_index(n, profile)) - 1
     src_clm = profile.src_clm[i]
     new_clm = set_elem(src_clm, 1, alloc.clm01[n - 1])
     if clm02 is not None:
@@ -130,7 +131,7 @@ DOB_SEGMENT = "DMG*D8*"
 DMG_FIELDS = ("dob", "gender")
 
 
-def identity_edits(profile, ov, payload):
+def identity_edits(profile, ov, payload, n=None):
     """Element swaps for the identity segments this override declares.
 
     The whole seed segment is the literal, so a segment that has drifted from
@@ -138,7 +139,13 @@ def identity_edits(profile, ov, payload):
     to the value the seed already carries produces no edit at all - emitting
     one would put two tuples on the same literal and break that check.
     """
-    if not ov or not ov.identity:
+    c = ov.claim(n) if ov and n else None
+    identity = dict(ov.identity or {}) if ov else {}
+    if c and c.get("dob"):
+        # A claim-level dob overrides the subscriber's for that claim only.
+        identity["subscriber"] = dict(identity.get("subscriber") or {},
+                                      dob=c["dob"])
+    if not identity:
         return []
 
     ed = []
@@ -159,9 +166,9 @@ def identity_edits(profile, ov, payload):
             ed.append((src, 1, 1, out))
 
     for group, prefix in IDENTITY_SEGMENTS.items():
-        if group not in ov.identity:
+        if group not in identity:
             continue
-        value = ov.identity[group]
+        value = identity[group]
         if group in overrides.SCALAR_IDENTITY:
             swap(prefix, {group: value})
             continue
@@ -181,9 +188,10 @@ def diagnosis_edits(profile, ov, payload, n):
     """
     c = ov.claim(n) if ov else None
     dx = c.get("principalDiagnosis") if c else None
+    other = c.get("otherDiagnoses") if c else None
     secondary = c.get("secondaryDiagnoses") if c else None
     only = bool(ov and ov.principal_only)
-    if not dx and not only and not secondary:
+    if not dx and not only and not other and not secondary:
         return []
     for s in payload:
         if not s.startswith("HI*"):
@@ -195,7 +203,17 @@ def diagnosis_edits(profile, ov, payload, n):
             if dx:
                 parts[1] = dx
             comp = ":".join(parts)
-            if only:
+            if other:
+                # Replace every ABF; seed SV107 pointers must still resolve.
+                top = max((int(p) for t in payload if t.startswith("SV1*")
+                           for p in X.elems(t)[SV_POINTER].split(":")),
+                          default=1)
+                if top > 1 + len(other):
+                    raise BuildError("claim %d: SV107 points at dx %d but "
+                                     "only %d codes declared"
+                                     % (n, top, 1 + len(other)))
+                new = X.ELEM.join(["HI", comp] + ["ABF:" + d for d in other])
+            elif only:
                 new = X.ELEM.join(["HI", comp])
             elif secondary:
                 new = X.ELEM.join(["HI", comp]
@@ -387,8 +405,10 @@ def splice_replacement(profile, ov, payload, n):
             "replacement rewrite needs them adjacent, 9A first" % (n, i9a, if8))
 
     out = list(payload)
-    out[i9a:if8 + 1] = ["REF*9F*%s" % original, payload[if8], payload[i9a],
-                        note]
+    nine_f = "REF*9F*%s" % original
+    refs = ([payload[i9a], nine_f, payload[if8]] if ov.seed_ref_order
+            else [nine_f, payload[if8], payload[i9a]])
+    out[i9a:if8 + 1] = refs + [note]
     return out
 
 
@@ -494,6 +514,68 @@ def inherit_replacement_ccns(mf, alloc, ov, claims):
         alloc.ref_f8[n - 1] = ccns[0]
         out[n] = ccns[0]
     return out
+
+
+def replacement_source_blocks(mf, ov, claims, profile):
+    """Seed block for each output claim, following a replacement's origin.
+
+    A one-claim rework of claim five must preserve claim five's payload shape;
+    cycling from output position one would silently substitute seed block one.
+    Older runs have no explicit source_blocks field, so their claim position
+    is mapped through the established cycle policy. Newer replacement runs
+    carry source_blocks and pass the original selection through a rework chain.
+    """
+    selected = [source_index(n, profile) for n in range(1, claims + 1)]
+    if not ov:
+        return selected
+
+    for n in range(1, claims + 1):
+        claim = ov.claim(n)
+        original = claim.get("replaces") if claim else None
+        if not original:
+            continue
+        hits = []
+        for run in mf.get("runs", []):
+            if run.get("type") != profile.code:
+                continue
+            for i, uhap in enumerate(run.get("ref_9a") or []):
+                if uhap != original:
+                    continue
+                explicit = run.get("source_blocks") or []
+                block = (explicit[i] if i < len(explicit)
+                         else source_index(i + 1, profile))
+                if not isinstance(block, int) or not 1 <= block <= len(
+                        profile.block_lens):
+                    raise BuildError(
+                        "run %s records invalid source block %r for REF*9A %s"
+                        % (run.get("output", "?"), block, original))
+                hits.append((run.get("output", "?"), block))
+        if not hits:
+            raise BuildError(
+                "claim %d: replaces %s, which has no recorded %s source "
+                "claim" % (n, original, profile.code))
+        blocks = sorted({block for _output, block in hits})
+        if len(blocks) != 1:
+            raise BuildError(
+                "claim %d: REF*9A %s appears in runs with different source "
+                "blocks (%s)" % (n, original,
+                                  ", ".join(str(v) for v in blocks)))
+        selected[n - 1] = blocks[0]
+    return selected
+
+
+def apply_service_date_override(alloc, ov):
+    """Move the declared service window without reusing any identifiers."""
+    if not ov or not ov.service_date:
+        return
+    start = datetime.datetime.strptime(ov.service_date, "%Y%m%d").date()
+    count = len(alloc.service_dates)
+    alloc.service_dates = [
+        (start + datetime.timedelta(days=i)).strftime("%Y%m%d")
+        for i in range(count)
+    ]
+    alloc.statement = "%s-%s" % (alloc.service_dates[0],
+                                  alloc.service_dates[-1])
 
 
 def _fmt(v):
@@ -669,7 +751,7 @@ def renumber_se(segs, key):
     return segs[:-1] + ["SE*%d*%s" % (len(segs), st02)]
 
 
-def build(seed_segs, profile, alloc, claims, ov=None):
+def build(seed_segs, profile, alloc, claims, ov=None, source_blocks=None):
     if not seed_segs or not seed_segs[0].startswith("ISA*"):
         raise BuildError("first seed segment is not ISA")
     if len(seed_segs) < 2 or not seed_segs[1].startswith("GS*"):
@@ -700,12 +782,17 @@ def build(seed_segs, profile, alloc, claims, ov=None):
 
     body = []
     for n in range(1, claims + 1):
-        payload = src_blocks[source_index(n, profile) - 1]
-        if len(payload) != profile.block_lens[source_index(n, profile) - 1]:
+        source = (source_blocks[n - 1] if source_blocks is not None
+                  else source_index(n, profile))
+        if not isinstance(source, int) or not 1 <= source <= cycle:
+            raise BuildError("claim %d: source block %r is outside 1-%d"
+                             % (n, source, cycle))
+        payload = src_blocks[source - 1]
+        if len(payload) != profile.block_lens[source - 1]:
             raise BuildError(
                 "claim %d: seed block is %d segments, profile declares %d"
                 % (n, len(payload),
-                   profile.block_lens[source_index(n, profile) - 1]))
+                   profile.block_lens[source - 1]))
         _assert_seed_fidelity(profile, payload, n)
         # The seed checks above run on the seed block; everything below runs
         # on the block that will actually be emitted. Splicing changes the
@@ -714,9 +801,9 @@ def build(seed_segs, profile, alloc, claims, ov=None):
         payload = splice_lines(profile, ov, payload, n)
         payload = splice_replacement(profile, ov, payload, n)
         payload = splice_cob(profile, ov, payload, n)
-        edits = (edits_for(profile, alloc, n, claim_total(ov, n))
+        edits = (edits_for(profile, alloc, n, claim_total(ov, n), source)
                  + _date_edits(payload, profile, alloc, ov)
-                 + identity_edits(profile, ov, payload)
+                 + identity_edits(profile, ov, payload, n)
                  + diagnosis_edits(profile, ov, payload, n))
         out = apply_edits(payload, edits, str(n))
         # Positional edits are computed against the spliced block and applied
@@ -988,6 +1075,8 @@ def main(argv=None):
         seed_segs = seeds.load_seed(profile, repo)
         if pinned:
             alloc = _alloc_from_manifest(pinned)
+            source_blocks = pinned.get("source_blocks") or [
+                source_index(n, profile) for n in range(1, claims + 1)]
         else:
             mf = M.load(repo)
             alloc = M.allocate(mf, repo, profile, claims)
@@ -996,7 +1085,11 @@ def main(argv=None):
             # the same allocation object and cannot diverge. A pinned replay
             # skips this: its manifest already carries them.
             inherit_replacement_ccns(mf, alloc, ov, claims)
-        text = render(build(seed_segs, profile, alloc, claims, ov))
+            source_blocks = replacement_source_blocks(
+                mf, ov, claims, profile)
+        apply_service_date_override(alloc, ov)
+        text = render(build(seed_segs, profile, alloc, claims, ov,
+                            source_blocks=source_blocks))
       # overrides.OverrideError belongs here as well as at the parse gate
       # above: build() re-enters the override code while it applies the
       # declaration, and without this the gate's own exception class would
@@ -1014,6 +1107,7 @@ def main(argv=None):
           os.path.relpath(outp, repo).replace("\\", "/"),
           sha, profile.rel_path, seed_sha)
       record_overrides(record, raw_override_doc)
+      record["source_blocks"] = list(source_blocks)
       if pinned:
           record["timestamp"] = pinned.get("timestamp", record["timestamp"])
 

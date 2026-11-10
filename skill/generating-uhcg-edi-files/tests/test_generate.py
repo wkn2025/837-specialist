@@ -318,6 +318,44 @@ class TestCli(unittest.TestCase):
         self.assertIn("*005010X222A1~", text)
         self.assertNotIn("DTP*434", text)
 
+    def test_one_claim_rework_uses_and_records_the_originals_source_block(self):
+        import json
+        import shutil
+        p = seeds.get("P")
+        dst = os.path.join(self.root, *os.path.dirname(p.rel_path).split("/"))
+        os.makedirs(dst)
+        shutil.copy(seeds.seed_path(p, REPO),
+                    os.path.join(dst, os.path.basename(p.rel_path)))
+        M.append_run(self.root, {
+            "type": "P",
+            "output": "EDI1/Batch X/original.x12",
+            "ref_9a": ["15641312", "15641313", "15641314",
+                       "15641315", "15641316"],
+            "ref_f8": ["99012156056", "99012156057", "99012156058",
+                       "99012156059", "99012156060"],
+        })
+        doc = os.path.join(self.root, "rework.json")
+        with open(doc, "w", encoding="utf-8") as fh:
+            json.dump({
+                "claims": [{"n": 1, "replaces": "15641316"}],
+                "singleServiceDate": True,
+                "serviceDate": "20240609",
+            }, fh)
+        out = os.path.join(self.root, "EDI1", "Batch 5", "p.x12")
+
+        r = self.run_cli("--type", "P", "--claims", "1", "--data", doc,
+                         "--output", out)
+
+        self.assertEqual(r.returncode, 0, r.stdout.decode())
+        with open(out, encoding="ascii") as fh:
+            text = fh.read()
+        with open(out[:-4] + ".manifest.json", encoding="utf-8") as fh:
+            manifest = json.load(fh)
+        self.assertIn("SV1*HC:87081*184.03*UN*1*81**1:2**N", text)
+        self.assertIn("DTP*472*RD8*20240609-20240609", text)
+        self.assertEqual(manifest["statement"], "20240609-20240616")
+        self.assertEqual(manifest["source_blocks"], [5])
+
     def test_refuses_a_claim_count_over_999(self):
         r = self.run_cli("--type", "I", "--claims", "1000")
         self.assertEqual(r.returncode, 1)
