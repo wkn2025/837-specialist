@@ -1,0 +1,35 @@
+Cross-batch identifier uniqueness: EDI1/Batch 43/fromUHCG-837P-WKN_7claims_20261111140647.x12
+\*990000242\* other-files=0
+IEA\*1\*990000242 other-files=0
+\*3445\*X other-files=0
+GE\*7\*3445 other-files=0
+ST\*837\*015641346 other-files=0
+WKN990000242001 other-files=0
+REF\*9A\*15641346 other-files=0
+ST\*837\*015641347 other-files=0
+WKN990000242002 other-files=0
+REF\*9A\*15641347 other-files=0
+ST\*837\*015641348 other-files=0
+WKN990000242003 other-files=0
+REF\*9A\*15641348 other-files=0
+ST\*837\*015641349 other-files=0
+WKN990000242004 other-files=0
+REF\*9A\*15641349 other-files=0
+ST\*837\*015641350 other-files=0
+WKN990000242005 other-files=0
+REF\*9A\*15641350 other-files=0
+ST\*837\*015641351 other-files=0
+WKN990000242006 other-files=0
+REF\*9A\*15641351 other-files=0
+ST\*837\*015641352 other-files=0
+WKN990000242007 other-files=0
+REF\*9A\*15641352 other-files=0
+
+REF*F8 is inherited from each replaced claim (UHCG keeps the CCN across reworks; check 16), so it is expected in exactly the original's file:
+REF\*F8\*99012156077 in: EDI1/Batch 35/fromUHCG-837P-WKN_1claims_20261110193847.x12 
+REF\*F8\*99012156079 in: EDI1/Batch 37/fromUHCG-837P-WKN_1claims_20261110205922.x12 
+REF\*F8\*99012156081 in: EDI1/Batch 39/fromUHCG-837P-WKN_1claims_20261111123627.x12 
+REF\*F8\*99012156082 in: EDI1/Batch 40/fromUHCG-837P-WKN_1claims_20261111130524.x12 
+REF\*F8\*99012156083 in: EDI1/Batch 41/fromUHCG-837P-WKN_2claims_20261111131748.x12 
+REF\*F8\*99012156084 in: EDI1/Batch 41/fromUHCG-837P-WKN_2claims_20261111131748.x12 
+REF\*F8\*99012156085 in: EDI1/Batch 42/fromUHCG-837P-WKN_1claims_20261111133320.x12 
