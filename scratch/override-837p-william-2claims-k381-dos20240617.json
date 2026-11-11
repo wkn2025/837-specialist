@@ -1,0 +1,50 @@
+{
+  "identity": {
+    "subscriber": {
+      "last": "NISHIMURA",
+      "first": "WILLIAM",
+      "memberId": "909001333969",
+      "dob": "19941217",
+      "gender": "M"
+    },
+    "billingProvider": {
+      "name": "ENDEAVOR HEALTH MEDICAL GROUP",
+      "npi": "1497701882"
+    },
+    "taxId": "363738206"
+  },
+  "claims": [
+    {
+      "n": 1,
+      "principalDiagnosis": "K381",
+      "secondaryDiagnoses": [
+        "L500",
+        "S065XAA"
+      ],
+      "lines": [
+        {
+          "date": "20260130",
+          "billed": "293.00",
+          "savings": "14.71"
+        }
+      ]
+    },
+    {
+      "n": 2,
+      "principalDiagnosis": "K381",
+      "secondaryDiagnoses": [
+        "L500",
+        "S065XAA"
+      ],
+      "lines": [
+        {
+          "date": "20260202",
+          "billed": "293.00",
+          "savings": "14.71"
+        }
+      ]
+    }
+  ],
+  "singleServiceDate": true,
+  "serviceDate": "20240617"
+}
