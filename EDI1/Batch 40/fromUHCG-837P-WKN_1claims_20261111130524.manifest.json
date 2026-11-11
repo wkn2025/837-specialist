@@ -1,0 +1,77 @@
+{
+  "bht03": [
+    "015641342"
+  ],
+  "claims": 1,
+  "clm01": [
+    "WKN990000239001"
+  ],
+  "envelope_date": "20240730",
+  "envelope_time": "0930",
+  "gs06": "3442",
+  "isa13": "990000239",
+  "output": "EDI1/Batch 40/fromUHCG-837P-WKN_1claims_20261111130524.x12",
+  "overrides": {
+    "claims": [
+      {
+        "lines": [
+          {
+            "billed": "293.00",
+            "date": "20260130",
+            "savings": "14.71"
+          }
+        ],
+        "n": 1,
+        "principalDiagnosis": "K381",
+        "secondaryDiagnoses": [
+          "L500",
+          "S065XAA"
+        ]
+      }
+    ],
+    "identity": {
+      "billingProvider": {
+        "name": "ENDEAVOR HEALTH MEDICAL GROUP",
+        "npi": "1497701882"
+      },
+      "subscriber": {
+        "dob": "19941217",
+        "first": "WILLIAM",
+        "gender": "M",
+        "last": "NISHIMURA",
+        "memberId": "909001333969"
+      },
+      "taxId": "363738206"
+    },
+    "serviceDate": "20240617",
+    "singleServiceDate": true
+  },
+  "ref_9a": [
+    "15641342"
+  ],
+  "ref_f8": [
+    "99012156082"
+  ],
+  "seed": "EDI1/Sample 837P/ERCT_UHCG_P_20260212025521.x12",
+  "seed_sha256": "e42718b721e8ebad51a24e7ec62d8224a242c33c959d4d9a993f29580e22edfc",
+  "service_dates": [
+    "20240617",
+    "20240618",
+    "20240619",
+    "20240620",
+    "20240621",
+    "20240622",
+    "20240623",
+    "20240624"
+  ],
+  "sha256": "9d5844e62473b653b35c58f55fb66caf16e429de054cfc81d116cf3b7d0ae479",
+  "source_blocks": [
+    1
+  ],
+  "st02": [
+    "015641342"
+  ],
+  "statement": "20240617-20240624",
+  "timestamp": "2026-11-11T13:05:24",
+  "type": "P"
+}
