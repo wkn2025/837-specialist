@@ -1,0 +1,9 @@
+Cross-batch identifier uniqueness: EDI1/Batch 45/fromUHCG-837P-WKN_1claims_20261112121337.x12
+\*990000244\* other-files=0
+IEA\*1\*990000244 other-files=0
+\*3447\*X other-files=0
+GE\*1\*3447 other-files=0
+ST\*837\*015641354 other-files=0
+WKN990000244001 other-files=0
+REF\*9A\*15641354 other-files=0
+REF\*F8\*99012156087 other-files=0

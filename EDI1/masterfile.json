@@ -4460,6 +4460,83 @@
       "statement": "20240617-20240624",
       "timestamp": "2026-11-12T12:06:59",
       "type": "P"
+    },
+    {
+      "bht03": [
+        "015641354"
+      ],
+      "claims": 1,
+      "clm01": [
+        "WKN990000244001"
+      ],
+      "envelope_date": "20240804",
+      "envelope_time": "0930",
+      "gs06": "3447",
+      "isa13": "990000244",
+      "output": "EDI1/Batch 45/fromUHCG-837P-WKN_1claims_20261112121337.x12",
+      "overrides": {
+        "claims": [
+          {
+            "lines": [
+              {
+                "billed": "293.00",
+                "date": "20260130",
+                "savings": "14.71"
+              }
+            ],
+            "n": 1,
+            "principalDiagnosis": "K381",
+            "secondaryDiagnoses": [
+              "L500",
+              "S065XAA"
+            ]
+          }
+        ],
+        "identity": {
+          "billingProvider": {
+            "name": "ENDEAVOR HEALTH MEDICAL GROUP",
+            "npi": "1497701882"
+          },
+          "subscriber": {
+            "dob": "19941217",
+            "first": "WILLIAM",
+            "gender": "M",
+            "last": "NISHIMURA",
+            "memberId": "909001333969"
+          },
+          "taxId": "363738206"
+        },
+        "serviceDate": "20240617",
+        "singleServiceDate": true
+      },
+      "ref_9a": [
+        "15641354"
+      ],
+      "ref_f8": [
+        "99012156087"
+      ],
+      "seed": "EDI1/Sample 837P/ERCT_UHCG_P_20260212025521.x12",
+      "seed_sha256": "e42718b721e8ebad51a24e7ec62d8224a242c33c959d4d9a993f29580e22edfc",
+      "service_dates": [
+        "20240617",
+        "20240618",
+        "20240619",
+        "20240620",
+        "20240621",
+        "20240622",
+        "20240623",
+        "20240624"
+      ],
+      "sha256": "21dba7658fd125680120b4ae9840d32ff1cbc63469c333c994446d60b42dbc0a",
+      "source_blocks": [
+        1
+      ],
+      "st02": [
+        "015641354"
+      ],
+      "statement": "20240617-20240624",
+      "timestamp": "2026-11-12T12:13:37",
+      "type": "P"
     }
   ],
   "version": 1
